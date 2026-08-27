@@ -52,6 +52,44 @@ Verification target:
 - `cargo test --workspace --no-run`
 - `cargo test --workspace`
 
+# Operations UX Work Plan
+
+Requested scope: implement suggested features 1 through 7.
+
+1. Web console query UX
+   - Added query examples, local query history, JSON params input, Plan, Profile,
+     Metrics, Slow, Cluster, and Rebalance controls.
+
+2. Cypher workflow support
+   - Kept the `CREATE ... WITH ... MATCH ... CREATE ... RETURN n, r` workflow
+     available through web params and examples.
+
+3. Admin/auth
+   - Added `--web-auth-token TOKEN` for bearer-token or query-token web/API
+     protection.
+
+4. Backup/restore
+   - Added `POST /api/backup` and `POST /api/restore` for controlled local
+     directory snapshot copy workflows.
+
+5. Observability
+   - Added `/api/metrics` counters and `/api/slow-queries` in-memory slow query
+     log controlled by `--slow-query-threshold-ms`.
+
+6. Cluster operations
+   - Exposed `/api/cluster`, `/api/cluster/plan-rebalance`, and
+     `/api/cluster/advance-rebalance` to the web console.
+
+7. SDKs
+   - Added Rust/Python `query_plan`, `cluster_status`, and
+     `cluster_management_status` helpers and updated examples.
+
+Verification target:
+
+- `cargo fmt --all`
+- `cargo test --workspace`
+- `PYTHONPATH=sdks/python python3 -m unittest discover -s sdks/python/tests -v`
+
 # Data Correctness Test Work Plan
 
 Requested scope: add a separately runnable data correctness test suite with

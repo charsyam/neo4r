@@ -179,18 +179,36 @@ cargo run -p neo4r-server -- --bind 127.0.0.1:7687 --web-bind 127.0.0.1:7474 --d
 ```
 
 Open `http://127.0.0.1:7474/` to inspect nodes and relationships in a Three.js
-scene. The web console also exposes JSON endpoints for automation and external
-tools:
+scene. Add `--web-auth-token TOKEN` to require `Authorization: Bearer TOKEN`
+or `?token=TOKEN` on web/API requests. `--slow-query-threshold-ms MS` controls
+the in-memory slow query log threshold. The web console also exposes JSON
+endpoints for automation and external tools:
 
 ![neo4r web console screenshot](images/neo4r.png)
 
 ```text
 GET  /api/graph?limit=1000
+GET  /api/examples
 POST /api/query
+POST /api/query-plan
+POST /api/profile
+GET  /api/metrics
+GET  /api/slow-queries
 GET  /api/statistics
 GET  /api/storage
 GET  /api/metadata-log
+GET  /api/cluster
+POST /api/cluster/plan-rebalance
+POST /api/cluster/advance-rebalance
+POST /api/backup
+POST /api/restore
 ```
+
+`POST /api/query`, `/api/query-plan`, and `/api/profile` accept a JSON body like
+`{"query":"MATCH (n:Person) WHERE n.name = $name RETURN n","params":{"name":"Alice"}}`.
+Backup and restore requests accept `{"path":"/path/to/backup"}`. Restore copies
+files into the live data directory, so it is intended for local development and
+controlled maintenance windows.
 
 The default wire protocol is a native length-prefixed frame:
 
@@ -245,6 +263,8 @@ assert_eq!(
     rows[0].get("n.name"),
     Some(&QueryValue::Scalar(Value::String("Alice".to_string())))
 );
+let plan = client.query_plan("MATCH (n:Person) RETURN n", &QueryParams::new())?;
+let cluster = client.cluster_status()?;
 client.close()?;
 ```
 
@@ -265,6 +285,8 @@ rows = client.execute(
     "CREATE (n:Person {name: $name}) RETURN n.name",
     {"name": "Alice"},
 )
+plan = client.query_plan("MATCH (n:Person) RETURN n", {})
+cluster = client.cluster_status()
 client.close()
 ```
 

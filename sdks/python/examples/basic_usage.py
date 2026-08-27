@@ -54,8 +54,14 @@ def main() -> None:
         profile = client.profile("MATCH (n:Person) RETURN n", {})
         print("profile:", profile)
 
+        plan = client.query_plan("MATCH (n:Person) RETURN n", {})
+        print("query_plan:", plan)
+
         status = client.storage_status()
         print("storage_status:", status)
+
+        cluster = client.cluster_status()
+        print("cluster_status:", cluster)
     finally:
         client.close()
 

@@ -74,6 +74,10 @@ class Client:
         response = self.command("PROFILE\t" + encode_query_payload(query, params))
         return response_field(response, "PROFILE")
 
+    def query_plan(self, query: str, params: dict[str, Any] | None = None) -> str:
+        response = self.command("QUERY_PLAN\t" + encode_query_payload(query, params))
+        return response_field(response, "QUERY_PLAN")
+
     def statistics(self) -> str:
         return response_field(self.command("STATISTICS"), "STATISTICS")
 
@@ -82,6 +86,12 @@ class Client:
 
     def metadata_log(self) -> str:
         return response_field(self.command("METADATA_LOG"), "METADATA_LOG")
+
+    def cluster_status(self) -> str:
+        return response_field(self.command("CLUSTER_STATUS"), "CLUSTER_STATUS")
+
+    def cluster_management_status(self) -> str:
+        return response_field(self.command("CLUSTER_MANAGEMENT_STATUS"), "CLUSTER_MANAGEMENT_STATUS")
 
     def rows_command(self, command: str) -> list[dict[str, Any]]:
         return parse_rows_response(self.command(command))

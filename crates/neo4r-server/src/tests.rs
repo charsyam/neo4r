@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Barrier};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn tcp_backend_handles_ping_create_query_and_quit() {
@@ -119,6 +119,8 @@ fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"labels\""));
     assert!(index.contains(".graph-label.edge"));
     assert!(index.contains("function nodeLabel"));
+    assert!(index.contains("id=\"examples\""));
+    assert!(index.contains("id=\"params\""));
 
     let graph = web_request(
         TcpBackend::new(db.clone()),
@@ -130,9 +132,16 @@ fn web_console_serves_index_and_graph_api() {
     assert!(graph.contains("\"relationships\""));
     assert!(graph.contains("\"KNOWS\""));
 
-    let body = "{\"query\":\"MATCH (n:Person) WHERE n.name = \\\"Alice\\\" RETURN n\"}";
+    let examples = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/examples HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(examples.contains("HTTP/1.1 200 OK"));
+    assert!(examples.contains("create_with_relationship"));
+
+    let body = "{\"query\":\"MATCH (n:Person) WHERE n.name = $name RETURN n\",\"params\":{\"name\":\"Alice\"}}";
     let query = web_request(
-        TcpBackend::new(db),
+        TcpBackend::new(db.clone()),
         &format!(
             "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
             body.len(),
@@ -141,7 +150,73 @@ fn web_console_serves_index_and_graph_api() {
     );
     assert!(query.contains("HTTP/1.1 200 OK"));
     assert!(query.contains("\"rows\""));
+    assert!(query.contains("\"Alice\""));
 
+    let plan = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/query-plan HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(plan.contains("HTTP/1.1 200 OK"));
+    assert!(plan.contains("\"plan\""));
+
+    let profile = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/profile HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(profile.contains("HTTP/1.1 200 OK"));
+    assert!(profile.contains("PROFILE"));
+
+    let metrics = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(metrics.contains("HTTP/1.1 200 OK"));
+    assert!(metrics.contains("\"http_requests\""));
+
+    let cluster = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/cluster HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(cluster.contains("HTTP/1.1 200 OK"));
+    assert!(cluster.contains("response"));
+    assert!(cluster.contains("metadata"));
+
+    let backup_dir = temp_dir("neo4r-web-console-backup");
+    let backup_body = format!("{{\"path\":\"{}\"}}", backup_dir.display());
+    let backup = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/backup HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            backup_body.len(),
+            backup_body
+        ),
+    );
+    assert!(backup.contains("HTTP/1.1 200 OK"));
+    assert!(backup.contains("\"target\""));
+
+    let unauthorized = web_request(
+        TcpBackend::new(db.clone())
+            .with_web_options(Some("secret".to_string()), Duration::from_millis(250)),
+        "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(unauthorized.contains("HTTP/1.1 401 Unauthorized"));
+
+    let authorized = web_request(
+        TcpBackend::new(db)
+            .with_web_options(Some("secret".to_string()), Duration::from_millis(250)),
+        "GET /api/metrics?token=secret HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(authorized.contains("HTTP/1.1 200 OK"));
+
+    let _ = fs::remove_dir_all(backup_dir);
     let _ = fs::remove_dir_all(dir);
 }
 

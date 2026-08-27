@@ -45,8 +45,14 @@ fn main() -> Result<(), ClientError> {
     let profile = client.profile("MATCH (n:Person) RETURN n", &QueryParams::new())?;
     println!("profile: {profile}");
 
+    let plan = client.query_plan("MATCH (n:Person) RETURN n", &QueryParams::new())?;
+    println!("query_plan: {plan}");
+
     let status = client.storage_status()?;
     println!("storage_status: {status}");
+
+    let cluster = client.cluster_status()?;
+    println!("cluster_status: {cluster}");
 
     client.close()
 }

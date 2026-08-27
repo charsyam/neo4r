@@ -68,7 +68,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             read_preference: args.read_preference,
             catch_up_connect_timeout: Duration::from_millis(args.replication_connect_timeout_ms),
         },
-    )?;
+    )?
+    .with_web_options(
+        args.web_auth_token.clone(),
+        Duration::from_millis(args.slow_query_threshold_ms),
+    );
     for peer in &args.replica_peers {
         backend.register_replication_peer(peer.server_id, peer.address.clone())?;
     }
@@ -244,6 +248,8 @@ struct ServerArgs {
     recover_transactions_on_startup: bool,
     recover_transactions_interval_ms: Option<u64>,
     web_bind_addr: Option<String>,
+    web_auth_token: Option<String>,
+    slow_query_threshold_ms: u64,
     daemonize: bool,
 }
 
@@ -283,6 +289,8 @@ impl ServerArgs {
             recover_transactions_on_startup: false,
             recover_transactions_interval_ms: None,
             web_bind_addr: None,
+            web_auth_token: None,
+            slow_query_threshold_ms: 250,
             daemonize: false,
         };
         let mut args = args.into_iter();
@@ -360,6 +368,13 @@ impl ServerArgs {
                         Some(parse_next(&mut args, "--recover-transactions-interval-ms")?)
                 }
                 "--web-bind" => parsed.web_bind_addr = Some(next_arg(&mut args, "--web-bind")?),
+                "--web-auth-token" => {
+                    parsed.web_auth_token = Some(next_arg(&mut args, "--web-auth-token")?)
+                }
+                "--slow-query-threshold-ms" => {
+                    parsed.slow_query_threshold_ms =
+                        parse_next(&mut args, "--slow-query-threshold-ms")?
+                }
                 "--daemonize" => parsed.daemonize = true,
                 "--help" | "-h" => return Err(usage()),
                 value => return Err(format!("unknown argument: {value}\n{}", usage())),
@@ -400,6 +415,9 @@ impl ServerArgs {
         }
         if parsed.recover_transactions_interval_ms == Some(0) {
             return Err("--recover-transactions-interval-ms must be greater than zero".to_string());
+        }
+        if parsed.slow_query_threshold_ms == 0 {
+            return Err("--slow-query-threshold-ms must be greater than zero".to_string());
         }
         for peer in &parsed.replica_peers {
             if peer.server_id == parsed.primary_server_id {
@@ -494,6 +512,12 @@ fn daemon_child_args(args: &ServerArgs) -> Vec<String> {
         child_args.push("--web-bind".to_string());
         child_args.push(addr.clone());
     }
+    if let Some(token) = &args.web_auth_token {
+        child_args.push("--web-auth-token".to_string());
+        child_args.push(token.clone());
+    }
+    child_args.push("--slow-query-threshold-ms".to_string());
+    child_args.push(args.slow_query_threshold_ms.to_string());
     if let Some(path) = &args.routing_table_path {
         child_args.push("--routing-table".to_string());
         child_args.push(path.display().to_string());
@@ -735,7 +759,7 @@ fn parse_next<T: std::str::FromStr>(
 }
 
 fn usage() -> String {
-    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 fn default_worker_count() -> usize {
@@ -785,6 +809,10 @@ mod tests {
             "127.0.0.1:9700".to_string(),
             "--web-bind".to_string(),
             "127.0.0.1:7474".to_string(),
+            "--web-auth-token".to_string(),
+            "secret".to_string(),
+            "--slow-query-threshold-ms".to_string(),
+            "50".to_string(),
             "--replication-ack".to_string(),
             "quorum".to_string(),
             "--replication-connect-timeout-ms".to_string(),
@@ -811,6 +839,8 @@ mod tests {
         assert_eq!(args.bind_addr, "127.0.0.1:9000");
         assert_eq!(args.data_dir, PathBuf::from("/tmp/neo4r"));
         assert_eq!(args.shard_count, 8);
+        assert_eq!(args.web_auth_token, Some("secret".to_string()));
+        assert_eq!(args.slow_query_threshold_ms, 50);
         assert_eq!(args.partition_count, 2);
         assert_eq!(args.server_id, 10);
         assert_eq!(args.worker_count, 3);
@@ -951,6 +981,10 @@ mod tests {
             "127.0.0.1:9702".to_string(),
             "--web-bind".to_string(),
             "127.0.0.1:7474".to_string(),
+            "--web-auth-token".to_string(),
+            "secret".to_string(),
+            "--slow-query-threshold-ms".to_string(),
+            "75".to_string(),
             "--replication-ack".to_string(),
             "quorum".to_string(),
             "--replication-connect-timeout-ms".to_string(),
@@ -979,6 +1013,10 @@ mod tests {
         assert!(child_args.contains(&"127.0.0.1:9702".to_string()));
         assert!(child_args.contains(&"--web-bind".to_string()));
         assert!(child_args.contains(&"127.0.0.1:7474".to_string()));
+        assert!(child_args.contains(&"--web-auth-token".to_string()));
+        assert!(child_args.contains(&"secret".to_string()));
+        assert!(child_args.contains(&"--slow-query-threshold-ms".to_string()));
+        assert!(child_args.contains(&"75".to_string()));
         assert!(child_args.contains(&"--replication-ack".to_string()));
         assert!(child_args.contains(&"quorum".to_string()));
         assert!(child_args.contains(&"--replication-connect-timeout-ms".to_string()));

@@ -133,6 +133,12 @@ impl Client {
         response_field(&response, "PROFILE").map_err(ClientError::Protocol)
     }
 
+    pub fn query_plan(&mut self, query: &str, params: &QueryParams) -> ClientResult<String> {
+        let payload = format!("QUERY_PLAN\t{}", encode_query_payload(query, params));
+        let response = self.command(&payload)?;
+        response_field(&response, "QUERY_PLAN").map_err(ClientError::Protocol)
+    }
+
     pub fn statistics(&mut self) -> ClientResult<String> {
         let response = self.command("STATISTICS")?;
         response_field(&response, "STATISTICS").map_err(ClientError::Protocol)
@@ -146,6 +152,16 @@ impl Client {
     pub fn metadata_log(&mut self) -> ClientResult<String> {
         let response = self.command("METADATA_LOG")?;
         response_field(&response, "METADATA_LOG").map_err(ClientError::Protocol)
+    }
+
+    pub fn cluster_status(&mut self) -> ClientResult<String> {
+        let response = self.command("CLUSTER_STATUS")?;
+        response_field(&response, "CLUSTER_STATUS").map_err(ClientError::Protocol)
+    }
+
+    pub fn cluster_management_status(&mut self) -> ClientResult<String> {
+        let response = self.command("CLUSTER_MANAGEMENT_STATUS")?;
+        response_field(&response, "CLUSTER_MANAGEMENT_STATUS").map_err(ClientError::Protocol)
     }
 
     pub fn raw_rows_command(&mut self, command: &str) -> ClientResult<Vec<QueryRow>> {
@@ -273,6 +289,14 @@ mod tests {
             .profile("MATCH (n:Person) RETURN n", &QueryParams::new())
             .unwrap()
             .contains("rows=1"));
+        assert!(client
+            .query_plan("MATCH (n:Person) RETURN n", &QueryParams::new())
+            .unwrap()
+            .contains("access="));
+        assert!(client
+            .cluster_status()
+            .unwrap()
+            .contains("routing_version="));
         client.close().unwrap();
         server.join().unwrap();
         let _ = fs::remove_dir_all(dir);

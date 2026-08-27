@@ -9,7 +9,7 @@ use neo4r_db::{
     handle_tcp_replication_stream, merge_node_routing_key, CreateNodeRoutingKey, DatabaseConfig,
     Neo4rDatabaseHandle, Neo4rReadTransaction, QueryOptions, ReadIsolation,
 };
-use neo4r_query::{QueryCursor, QueryRow, QueryValue, VecQueryCursor};
+use neo4r_query::{QueryCursor, QueryParams, QueryRow, QueryValue, VecQueryCursor};
 use neo4r_storage::{
     TransactionDecision, TransactionDecisionRecord, TransactionDecisionStore,
     TransactionParticipantRecord,
@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PREPARED_TRANSACTIONS_FILE: &str = "prepared.log";
 const PREPARED_TRANSACTIONS_MAGIC: &str = "N4RPTX1";
@@ -50,9 +50,13 @@ pub struct TcpBackend {
     read_preference: QueryReadPreference,
     catch_up_connect_timeout: Duration,
     pending_requests: PendingRequestStore,
+    web_auth_token: Option<String>,
+    slow_query_threshold: Duration,
+    metrics: WebMetrics,
+    slow_queries: SlowQueryLog,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TcpBackendConfig {
     pub worker_count: usize,
     pub queue_capacity: usize,
@@ -77,6 +81,27 @@ impl Default for TcpBackendConfig {
             catch_up_connect_timeout: Duration::from_secs(1),
         }
     }
+}
+
+#[derive(Clone, Default)]
+struct WebMetrics {
+    http_requests: Arc<AtomicU64>,
+    http_errors: Arc<AtomicU64>,
+    queries: Arc<AtomicU64>,
+    query_errors: Arc<AtomicU64>,
+    slow_queries: Arc<AtomicU64>,
+}
+
+#[derive(Clone, Default)]
+struct SlowQueryLog {
+    entries: Arc<Mutex<Vec<SlowQueryEntry>>>,
+}
+
+#[derive(Clone)]
+struct SlowQueryEntry {
+    unix_ms: u128,
+    elapsed_ms: u128,
+    query: String,
 }
 
 impl TcpBackend {
@@ -177,7 +202,21 @@ impl TcpBackend {
             read_preference: config.read_preference,
             catch_up_connect_timeout: config.catch_up_connect_timeout,
             pending_requests,
+            web_auth_token: None,
+            slow_query_threshold: Duration::from_millis(250),
+            metrics: WebMetrics::default(),
+            slow_queries: SlowQueryLog::default(),
         }
+    }
+
+    pub fn with_web_options(
+        mut self,
+        web_auth_token: Option<String>,
+        slow_query_threshold: Duration,
+    ) -> Self {
+        self.web_auth_token = web_auth_token;
+        self.slow_query_threshold = slow_query_threshold;
+        self
     }
 
     pub fn open(config: DatabaseConfig) -> Result<Self, neo4r_db::DatabaseError> {
@@ -353,12 +392,20 @@ impl TcpBackend {
     }
 
     fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
+        self.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
+        if !self.is_authorized(request) {
+            self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+            return HttpResponse::json_status(401, json_error("unauthorized"));
+        }
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/") | ("GET", "/index.html") => HttpResponse::html(WEB_INDEX_HTML),
             ("GET", "/api/graph") => match self.graph_json(request.query_value("limit")) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
+            ("GET", "/api/examples") => HttpResponse::json(query_examples_json()),
+            ("GET", "/api/metrics") => HttpResponse::json(self.metrics_json()),
+            ("GET", "/api/slow-queries") => HttpResponse::json(self.slow_queries_json()),
             ("GET", "/api/statistics") => {
                 let response = self.execute_backend_request(BackendRequest::Statistics);
                 HttpResponse::json(management_response_json(&response))
@@ -371,8 +418,58 @@ impl TcpBackend {
                 let response = self.execute_backend_request(BackendRequest::MetadataLog);
                 HttpResponse::json(management_response_json(&response))
             }
+            ("GET", "/api/cluster") => {
+                let response =
+                    self.execute_backend_request(BackendRequest::ClusterManagementStatus);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/cluster/advance-rebalance") => {
+                let response = self.execute_backend_request(BackendRequest::AdvanceRebalance);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/cluster/plan-rebalance") => {
+                let response = self.execute_backend_request(BackendRequest::PlanRebalance);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/backup") => match extract_json_string_field(&request.body, "path")
+                .and_then(|path| self.backup_to_path(&path))
+            {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
+            ("POST", "/api/restore") => match extract_json_string_field(&request.body, "path")
+                .and_then(|path| self.restore_from_path(&path))
+            {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
             ("POST", "/api/query") => match extract_json_string_field(&request.body, "query") {
-                Ok(query) => match self.query_json(&query) {
+                Ok(query) => match parse_json_params_field(&request.body)
+                    .and_then(|params| self.query_json(&query, params))
+                {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => {
+                        self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+                        HttpResponse::json_status(500, json_error(&err))
+                    }
+                },
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
+            ("POST", "/api/query-plan") => {
+                match extract_json_string_field(&request.body, "query") {
+                    Ok(query) => match parse_json_params_field(&request.body)
+                        .and_then(|params| self.query_plan_json(&query, params))
+                    {
+                        Ok(body) => HttpResponse::json(body),
+                        Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                    },
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
+            ("POST", "/api/profile") => match extract_json_string_field(&request.body, "query") {
+                Ok(query) => match parse_json_params_field(&request.body)
+                    .and_then(|params| self.profile_json(&query, params))
+                {
                     Ok(body) => HttpResponse::json(body),
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 },
@@ -380,6 +477,17 @@ impl TcpBackend {
             },
             _ => HttpResponse::json_status(404, json_error("not found")),
         }
+    }
+
+    fn is_authorized(&self, request: &HttpRequest) -> bool {
+        let Some(expected) = self.web_auth_token.as_ref() else {
+            return true;
+        };
+        request
+            .header("authorization")
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .is_some_and(|value| value == expected)
+            || request.query_value("token").as_deref() == Some(expected.as_str())
     }
 
     fn graph_json(&self, limit: Option<String>) -> Result<String, String> {
@@ -432,17 +540,113 @@ impl TcpBackend {
         ))
     }
 
-    fn query_json(&self, query: &str) -> Result<String, String> {
-        let rows = self
-            .db
-            .execute_cypher(query)
-            .map_err(|err| err.to_string())?;
+    fn query_json(&self, query: &str, params: QueryParams) -> Result<String, String> {
+        self.metrics.queries.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
+        let rows = match self.db.execute_cypher_with_params(query, params) {
+            Ok(rows) => rows,
+            Err(err) => {
+                self.metrics.query_errors.fetch_add(1, Ordering::Relaxed);
+                return Err(err.to_string());
+            }
+        };
+        let elapsed = started.elapsed();
+        if elapsed >= self.slow_query_threshold {
+            self.record_slow_query(query, elapsed);
+        }
         Ok(format!(
             "{{\"rows\":[{}]}}",
             rows.iter()
                 .map(query_row_json)
                 .collect::<Vec<_>>()
                 .join(",")
+        ))
+    }
+
+    fn query_plan_json(&self, query: &str, params: QueryParams) -> Result<String, String> {
+        let plan = self
+            .db
+            .query_plan_with_params(query, params)
+            .map_err(|err| err.to_string())?;
+        Ok(format!(
+            "{{\"plan\":\"{}\"}}",
+            json_escape(&format_query_plan(&plan))
+        ))
+    }
+
+    fn profile_json(&self, query: &str, params: QueryParams) -> Result<String, String> {
+        let response = self.execute_backend_request(BackendRequest::Profile {
+            query: query.to_string(),
+            params,
+        });
+        Ok(management_response_json(&response))
+    }
+
+    fn metrics_json(&self) -> String {
+        format!(
+            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{}}}",
+            self.metrics.http_requests.load(Ordering::Relaxed),
+            self.metrics.http_errors.load(Ordering::Relaxed),
+            self.metrics.queries.load(Ordering::Relaxed),
+            self.metrics.query_errors.load(Ordering::Relaxed),
+            self.metrics.slow_queries.load(Ordering::Relaxed),
+            self.slow_query_threshold.as_millis()
+        )
+    }
+
+    fn record_slow_query(&self, query: &str, elapsed: Duration) {
+        self.metrics.slow_queries.fetch_add(1, Ordering::Relaxed);
+        let unix_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let mut entries = self.slow_queries.entries.lock().unwrap();
+        entries.push(SlowQueryEntry {
+            unix_ms,
+            elapsed_ms: elapsed.as_millis(),
+            query: query.to_string(),
+        });
+        if entries.len() > 128 {
+            entries.remove(0);
+        }
+    }
+
+    fn slow_queries_json(&self) -> String {
+        let entries = self.slow_queries.entries.lock().unwrap();
+        format!(
+            "{{\"queries\":[{}]}}",
+            entries
+                .iter()
+                .map(|entry| format!(
+                    "{{\"unix_ms\":{},\"elapsed_ms\":{},\"query\":\"{}\"}}",
+                    entry.unix_ms,
+                    entry.elapsed_ms,
+                    json_escape(&entry.query)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+
+    fn backup_to_path(&self, path: &str) -> Result<String, String> {
+        let source = self.db.data_dir().map_err(|err| err.to_string())?;
+        let target = PathBuf::from(path);
+        copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
+        Ok(format!(
+            "{{\"source\":\"{}\",\"target\":\"{}\"}}",
+            json_escape(&source.display().to_string()),
+            json_escape(&target.display().to_string())
+        ))
+    }
+
+    fn restore_from_path(&self, path: &str) -> Result<String, String> {
+        let source = PathBuf::from(path);
+        let target = self.db.data_dir().map_err(|err| err.to_string())?;
+        copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
+        Ok(format!(
+            "{{\"source\":\"{}\",\"target\":\"{}\"}}",
+            json_escape(&source.display().to_string()),
+            json_escape(&target.display().to_string())
         ))
     }
 
@@ -5165,12 +5369,19 @@ struct HttpRequest {
     method: String,
     path: String,
     query: HashMap<String, String>,
+    headers: HashMap<String, String>,
     body: String,
 }
 
 impl HttpRequest {
     fn query_value(&self, key: &str) -> Option<String> {
         self.query.get(key).cloned()
+    }
+
+    fn header(&self, key: &str) -> Option<&str> {
+        self.headers
+            .get(&key.to_ascii_lowercase())
+            .map(String::as_str)
     }
 }
 
@@ -5199,6 +5410,7 @@ impl HttpResponse {
         let reason = match status {
             200 => "OK",
             400 => "Bad Request",
+            401 => "Unauthorized",
             404 => "Not Found",
             500 => "Internal Server Error",
             _ => "OK",
@@ -5227,6 +5439,7 @@ fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
     let (path, query) = parse_http_target(target);
 
     let mut content_length = 0usize;
+    let mut headers = HashMap::new();
     let mut line = String::new();
     loop {
         line.clear();
@@ -5238,6 +5451,7 @@ fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
             break;
         }
         if let Some((name, value)) = header.split_once(':') {
+            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
             if name.eq_ignore_ascii_case("content-length") {
                 content_length = value.trim().parse::<usize>().unwrap_or(0);
             }
@@ -5253,6 +5467,7 @@ fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
         method,
         path,
         query,
+        headers,
         body: String::from_utf8_lossy(&body).into_owned(),
     })
 }
@@ -5320,6 +5535,36 @@ fn management_response_json(response: &BackendResponse) -> String {
 
 fn json_error(message: impl AsRef<str>) -> String {
     format!("{{\"error\":\"{}\"}}", json_escape(message.as_ref()))
+}
+
+fn query_examples_json() -> String {
+    let examples = [
+        ("match_all", "MATCH (n) RETURN n"),
+        (
+            "create_person",
+            "CREATE (n:Person {name: $name, role: $role, age: $age, status: \"active\"}) RETURN n",
+        ),
+        (
+            "create_with_relationship",
+            "CREATE (n:Person {name: $name, role: $role, age: $age, status: \"active\"})\nWITH n\nMATCH (c:Company {name: $company})\nCREATE (n)-[r:WORKS_AT {since: $since}]->(c)\nRETURN n, r",
+        ),
+        (
+            "profile_work",
+            "MATCH (a:Person)-[r:WORKS_AT]->(b:Company) RETURN a.name, b.name, r.since",
+        ),
+    ];
+    format!(
+        "{{\"examples\":[{}]}}",
+        examples
+            .iter()
+            .map(|(name, query)| format!(
+                "{{\"name\":\"{}\",\"query\":\"{}\"}}",
+                json_escape(name),
+                json_escape(query)
+            ))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn query_row_json(row: &QueryRow) -> String {
@@ -5450,6 +5695,142 @@ fn extract_json_string_field(input: &str, field: &str) -> Result<String, String>
     parse_json_string(rest).map(|(value, _)| value)
 }
 
+fn parse_json_params_field(input: &str) -> Result<QueryParams, String> {
+    let Some(params_start) = find_json_field_value(input, "params")? else {
+        return Ok(QueryParams::new());
+    };
+    let params_start = params_start.trim_start();
+    if params_start.starts_with("null") {
+        return Ok(QueryParams::new());
+    }
+    let entries = parse_json_object(params_start)?;
+    let mut params = QueryParams::new();
+    for (key, value) in entries {
+        params.insert(key, value);
+    }
+    Ok(params)
+}
+
+fn find_json_field_value<'a>(input: &'a str, field: &str) -> Result<Option<&'a str>, String> {
+    let needle = format!("\"{field}\"");
+    let Some(start) = input.find(&needle) else {
+        return Ok(None);
+    };
+    let rest = &input[start + needle.len()..];
+    let colon = rest
+        .find(':')
+        .ok_or_else(|| format!("missing ':' after JSON field: {field}"))?;
+    Ok(Some(&rest[colon + 1..]))
+}
+
+fn parse_json_object(input: &str) -> Result<Vec<(String, Value)>, String> {
+    let mut rest = input.trim_start();
+    if !rest.starts_with('{') {
+        return Err("params must be a JSON object".to_string());
+    }
+    rest = &rest[1..];
+    let mut entries = Vec::new();
+    loop {
+        rest = rest.trim_start();
+        if rest.starts_with('}') {
+            return Ok(entries);
+        }
+        let (key, after_key) = parse_json_string(rest)?;
+        rest = after_key.trim_start();
+        if !rest.starts_with(':') {
+            return Err("expected ':' after params key".to_string());
+        }
+        let (value, after_value) = parse_json_value(&rest[1..])?;
+        entries.push((key, value));
+        rest = after_value.trim_start();
+        if rest.starts_with(',') {
+            rest = &rest[1..];
+            continue;
+        }
+        if rest.starts_with('}') {
+            return Ok(entries);
+        }
+        return Err("expected ',' or '}' in params object".to_string());
+    }
+}
+
+fn parse_json_value(input: &str) -> Result<(Value, &str), String> {
+    let input = input.trim_start();
+    if input.starts_with('"') {
+        let (value, rest) = parse_json_string(input)?;
+        return Ok((Value::String(value), rest));
+    }
+    if let Some(rest) = input.strip_prefix("true") {
+        return Ok((Value::Bool(true), rest));
+    }
+    if let Some(rest) = input.strip_prefix("false") {
+        return Ok((Value::Bool(false), rest));
+    }
+    if let Some(rest) = input.strip_prefix("null") {
+        return Ok((Value::Null, rest));
+    }
+    if input.starts_with('[') {
+        let (values, rest) = parse_json_number_array(input)?;
+        return Ok((Value::Vector(values), rest));
+    }
+    parse_json_number(input)
+}
+
+fn parse_json_number(input: &str) -> Result<(Value, &str), String> {
+    let input = input.trim_start();
+    let end = input
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, '-' | '+' | '.' | '0'..='9' | 'e' | 'E'))
+        .map(|(index, _)| index)
+        .unwrap_or(input.len());
+    if end == 0 {
+        return Err("expected JSON scalar value".to_string());
+    }
+    let number = &input[..end];
+    let rest = &input[end..];
+    if number.contains('.') || number.contains('e') || number.contains('E') {
+        number
+            .parse::<f64>()
+            .map(|value| (Value::Float(value), rest))
+            .map_err(|_| "invalid JSON float".to_string())
+    } else {
+        number
+            .parse::<i64>()
+            .map(|value| (Value::Int(value), rest))
+            .map_err(|_| "invalid JSON integer".to_string())
+    }
+}
+
+fn parse_json_number_array(input: &str) -> Result<(Vec<f32>, &str), String> {
+    let mut rest = input.trim_start();
+    if !rest.starts_with('[') {
+        return Err("expected JSON array".to_string());
+    }
+    rest = &rest[1..];
+    let mut values = Vec::new();
+    loop {
+        rest = rest.trim_start();
+        if rest.starts_with(']') {
+            return Ok((values, &rest[1..]));
+        }
+        let (value, after_value) = parse_json_number(rest)?;
+        match value {
+            Value::Int(value) => values.push(value as f32),
+            Value::Float(value) => values.push(value as f32),
+            _ => return Err("JSON vector values must be numeric".to_string()),
+        }
+        rest = after_value.trim_start();
+        if rest.starts_with(',') {
+            rest = &rest[1..];
+            continue;
+        }
+        if rest.starts_with(']') {
+            return Ok((values, &rest[1..]));
+        }
+        return Err("expected ',' or ']' in JSON vector".to_string());
+    }
+}
+
 fn parse_json_string(input: &str) -> Result<(String, &str), String> {
     let mut chars = input.char_indices();
     if chars.next().map(|(_, ch)| ch) != Some('"') {
@@ -5482,6 +5863,24 @@ fn parse_json_string(input: &str) -> Result<(String, &str), String> {
     Err("unterminated JSON string".to_string())
 }
 
+fn copy_dir_all(source: &Path, target: &Path) -> io::Result<()> {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&source_path, &target_path)?;
+        } else {
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&source_path, &target_path)?;
+        }
+    }
+    Ok(())
+}
+
 const WEB_INDEX_HTML: &str = r#"<!doctype html>
 <html lang="en">
 <head>
@@ -5500,8 +5899,9 @@ const WEB_INDEX_HTML: &str = r#"<!doctype html>
     .bar { padding: 12px; display: grid; gap: 8px; }
     h1 { font-size: 17px; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: 0; }
     .row { display: flex; gap: 8px; min-width: 0; }
-    input, textarea { width: 100%; box-sizing: border-box; color: #f4f7f5; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 8px 10px; font: inherit; outline: none; }
-    textarea { min-height: 70px; resize: vertical; }
+    input, textarea, select { width: 100%; box-sizing: border-box; color: #f4f7f5; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 8px 10px; font: inherit; outline: none; }
+    textarea { min-height: 64px; resize: vertical; }
+    #params { min-height: 44px; font-size: 12px; }
     button { appearance: none; border: 1px solid rgba(255,255,255,0.22); background: #287d6f; color: white; border-radius: 6px; padding: 8px 11px; font: inherit; font-weight: 650; white-space: nowrap; cursor: pointer; }
     button.secondary { background: rgba(255,255,255,0.08); }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px; }
@@ -5522,11 +5922,26 @@ const WEB_INDEX_HTML: &str = r#"<!doctype html>
         <input id="limit" type="number" min="1" value="1000" aria-label="graph limit">
         <button id="refresh">Refresh</button>
       </div>
+      <div class="row">
+        <select id="examples" aria-label="query examples"></select>
+        <select id="history" aria-label="query history"></select>
+      </div>
       <textarea id="query" spellcheck="false">MATCH (n) RETURN n</textarea>
+      <textarea id="params" spellcheck="false" aria-label="query params">{"name":"Grace","role":"Backend Engineer","age":31,"company":"Neo4r Labs","since":2026}</textarea>
       <div class="row">
         <button id="run">Run Query</button>
+        <button class="secondary" id="plan">Plan</button>
+        <button class="secondary" id="profile">Profile</button>
+      </div>
+      <div class="row">
         <button class="secondary" id="storage">Storage</button>
         <button class="secondary" id="stats">Stats</button>
+        <button class="secondary" id="metrics">Metrics</button>
+      </div>
+      <div class="row">
+        <button class="secondary" id="cluster">Cluster</button>
+        <button class="secondary" id="rebalance">Rebalance</button>
+        <button class="secondary" id="slow">Slow</button>
       </div>
       <div class="stats">
         <div class="stat">Nodes<strong id="nodeCount">0</strong></div>
@@ -5563,6 +5978,7 @@ const WEB_INDEX_HTML: &str = r#"<!doctype html>
     const pointer = new THREE.Vector2();
     const nodeMeshes = [];
     const graphLabels = [];
+    const history = JSON.parse(localStorage.getItem('neo4r.queryHistory') || '[]');
     let graph = { nodes: [], relationships: [] };
     let selected = null;
     let dragging = false;
@@ -5650,18 +6066,77 @@ const WEB_INDEX_HTML: &str = r#"<!doctype html>
       setStatus('Graph loaded.');
     }
 
-    async function runQuery() {
-      setStatus('Running query...');
+    function queryPayload() {
       const query = document.getElementById('query').value;
-      const response = await fetch('/api/query', {
+      const rawParams = document.getElementById('params').value.trim();
+      let params = {};
+      if (rawParams) params = JSON.parse(rawParams);
+      return { query, params };
+    }
+
+    function rememberQuery(query) {
+      const trimmed = query.trim();
+      if (!trimmed) return;
+      const index = history.indexOf(trimmed);
+      if (index >= 0) history.splice(index, 1);
+      history.unshift(trimmed);
+      history.splice(20);
+      localStorage.setItem('neo4r.queryHistory', JSON.stringify(history));
+      renderHistory();
+    }
+
+    async function postJson(path, payload) {
+      const response = await fetch(path, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify(payload)
       });
-      const payload = await response.json();
-      document.getElementById('detail').textContent = JSON.stringify(payload, null, 2);
-      setStatus(response.ok ? 'Query complete.' : 'Query failed.');
+      const body = await response.json();
+      return { response, payload: body };
+    }
+
+    async function runQuery() {
+      setStatus('Running query...');
+      const payload = queryPayload();
+      const result = await postJson('/api/query', payload);
+      rememberQuery(payload.query);
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? 'Query complete.' : 'Query failed.');
       await loadGraph();
+    }
+
+    async function runPlan(path, status) {
+      setStatus(status + '...');
+      const payload = queryPayload();
+      const result = await postJson(path, payload);
+      rememberQuery(payload.query);
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? status + ' complete.' : status + ' failed.');
+    }
+
+    async function runClusterAction(path, label) {
+      setStatus(label + '...');
+      const result = await postJson(path, {});
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? label + ' complete.' : label + ' failed.');
+    }
+
+    async function loadExamples() {
+      const response = await fetch('/api/examples');
+      const payload = await response.json();
+      const select = document.getElementById('examples');
+      select.replaceChildren(new Option('Examples', ''));
+      for (const example of payload.examples || []) {
+        select.appendChild(new Option(example.name, example.query));
+      }
+    }
+
+    function renderHistory() {
+      const select = document.getElementById('history');
+      select.replaceChildren(new Option('History', ''));
+      for (const query of history) {
+        select.appendChild(new Option(query.split('\n')[0].slice(0, 42), query));
+      }
     }
 
     async function showManagement(path) {
@@ -5729,9 +6204,23 @@ const WEB_INDEX_HTML: &str = r#"<!doctype html>
     }, { passive: false });
     document.getElementById('refresh').addEventListener('click', loadGraph);
     document.getElementById('run').addEventListener('click', runQuery);
+    document.getElementById('plan').addEventListener('click', () => runPlan('/api/query-plan', 'Plan'));
+    document.getElementById('profile').addEventListener('click', () => runPlan('/api/profile', 'Profile'));
     document.getElementById('storage').addEventListener('click', () => showManagement('/api/storage'));
     document.getElementById('stats').addEventListener('click', () => showManagement('/api/statistics'));
+    document.getElementById('metrics').addEventListener('click', () => showManagement('/api/metrics'));
+    document.getElementById('cluster').addEventListener('click', () => showManagement('/api/cluster'));
+    document.getElementById('rebalance').addEventListener('click', () => runClusterAction('/api/cluster/advance-rebalance', 'Rebalance'));
+    document.getElementById('slow').addEventListener('click', () => showManagement('/api/slow-queries'));
+    document.getElementById('examples').addEventListener('change', (event) => {
+      if (event.target.value) document.getElementById('query').value = event.target.value;
+    });
+    document.getElementById('history').addEventListener('change', (event) => {
+      if (event.target.value) document.getElementById('query').value = event.target.value;
+    });
     resize();
+    renderHistory();
+    loadExamples().catch((err) => setStatus(String(err)));
     loadGraph().catch((err) => setStatus(String(err)));
     animate();
   </script>

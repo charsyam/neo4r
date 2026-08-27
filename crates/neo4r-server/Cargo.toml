@@ -1,0 +1,13 @@
+[package]
+name = "neo4r-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+neo4r-core = { path = "../neo4r-core" }
+neo4r-db = { path = "../neo4r-db" }
+neo4r-protocol = { path = "../neo4r-protocol" }
+neo4r-query = { path = "../neo4r-query" }
+neo4r-storage = { path = "../neo4r-storage" }

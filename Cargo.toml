@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/neo4r-protocol",
+    "crates/neo4r-db",
+    "crates/neo4r-core",
+    "crates/neo4r-query",
+    "crates/neo4r-client",
+    "crates/neo4r-server",
+    "crates/neo4r-storage",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/charsyam/neo4r"

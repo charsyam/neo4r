@@ -5,7 +5,7 @@ use neo4r_core::{
 use neo4r_db::{QueryAccessPlan, ReadConsistency, TcpShardReplicator};
 use neo4r_storage::IndexKind;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Barrier};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -93,6 +93,55 @@ fn tcp_backend_handles_ping_create_query_and_quit() {
     assert_native_response(&mut stream, NativeMessageType::Response, 5, "OK\tBYE");
 
     server.join().unwrap();
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn web_console_serves_index_and_graph_api() {
+    let dir = temp_dir("neo4r-web-console");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher(r#"CREATE (n:Person {name: "Alice"})"#)
+        .unwrap();
+    db.execute_cypher(r#"CREATE (n:Person {name: "Bob"})"#)
+        .unwrap();
+    db.execute_cypher(
+        r#"MATCH (a:Person {name: "Alice"}), (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS {since: 2026}]->(b) RETURN r"#,
+    )
+    .unwrap();
+
+    let index = web_request(
+        TcpBackend::new(db.clone()),
+        "GET / HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(index.contains("HTTP/1.1 200 OK"));
+    assert!(index.contains("neo4r graph console"));
+    assert!(index.contains("three.module.js"));
+    assert!(index.contains("id=\"labels\""));
+    assert!(index.contains(".graph-label.edge"));
+    assert!(index.contains("function nodeLabel"));
+
+    let graph = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/graph?limit=10 HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(graph.contains("HTTP/1.1 200 OK"));
+    assert!(graph.contains("\"nodes\""));
+    assert!(graph.contains("\"Alice\""));
+    assert!(graph.contains("\"relationships\""));
+    assert!(graph.contains("\"KNOWS\""));
+
+    let body = "{\"query\":\"MATCH (n:Person) WHERE n.name = \\\"Alice\\\" RETURN n\"}";
+    let query = web_request(
+        TcpBackend::new(db),
+        &format!(
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(query.contains("HTTP/1.1 200 OK"));
+    assert!(query.contains("\"rows\""));
+
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -12730,6 +12779,19 @@ fn test_map_param(entries: &[(&str, Value)]) -> String {
         .collect::<Vec<_>>()
         .join(",");
     test_hex_encode(encoded.as_bytes())
+}
+
+fn web_request(backend: TcpBackend, request: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = thread::spawn(move || backend.serve_web_listener_once(listener).unwrap());
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    server.join().unwrap();
+    response
 }
 
 fn test_encoded_value(value: &Value) -> String {

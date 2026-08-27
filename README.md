@@ -112,6 +112,7 @@ CREATE (n:Label {property: $value}) RETURN n
 CREATE (:Label {property: $value})
 CREATE (n:Label {property: $value}) SET n.other = $other RETURN n.other
 CREATE (n:Label {property: $value}) SET n += {other: $other, active: true} RETURN n
+CREATE (n:Label {property: $value}) WITH n MATCH (m:OtherLabel {id: $id}) CREATE (n)-[r:TYPE]->(m) RETURN n, r
 MERGE (n:Label {property: $value}) RETURN n
 MERGE (:Label {property: $value})
 MERGE (n:Label {id: $id}) ON CREATE SET n.created = $created ON MATCH SET n.seen = $seen RETURN n
@@ -171,6 +172,26 @@ The first backend layer is a TCP daemon crate:
 cargo run -p neo4r-server -- --bind 127.0.0.1:7687 --data-dir ./data --shards 4 --partitions 2
 ```
 
+The server can also expose a browser console with a 3D graph viewer:
+
+```bash
+cargo run -p neo4r-server -- --bind 127.0.0.1:7687 --web-bind 127.0.0.1:7474 --data-dir ./data --shards 4 --partitions 2
+```
+
+Open `http://127.0.0.1:7474/` to inspect nodes and relationships in a Three.js
+scene. The web console also exposes JSON endpoints for automation and external
+tools:
+
+![neo4r web console screenshot](images/neo4r.png)
+
+```text
+GET  /api/graph?limit=1000
+POST /api/query
+GET  /api/statistics
+GET  /api/storage
+GET  /api/metadata-log
+```
+
 The default wire protocol is a native length-prefixed frame:
 
 ```text
@@ -225,6 +246,13 @@ assert_eq!(
     Some(&QueryValue::Scalar(Value::String("Alice".to_string())))
 );
 client.close()?;
+```
+
+Run the Rust SDK example after starting a local server:
+
+```bash
+cargo run -p neo4r-server -- --bind 127.0.0.1:17687 --data-dir /tmp/neo4r-rust-sdk-example --shards 1 --partitions 1
+cargo run -p neo4r-client --example basic_usage -- 127.0.0.1:17687
 ```
 
 Python SDK:

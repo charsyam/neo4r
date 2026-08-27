@@ -111,6 +111,8 @@ Implemented:
    - Added cursor fetch/close handling so query results are collected across
      native result pages.
    - Added a server-backed SDK integration test.
+   - Added `crates/neo4r-client/examples/basic_usage.rs` for a runnable Rust
+     SDK example.
 
 3. Python SDK
    - Added `sdks/python/neo4r_client`.
@@ -124,6 +126,40 @@ Verification:
 - `cargo fmt --all`
 - `cargo test -p neo4r-protocol -p neo4r-client --quiet`
 - `PYTHONPATH=sdks/python python3 -m unittest discover -s sdks/python/tests -v`
+
+# Web Console Work Plan
+
+Requested scope: expose a browser-accessible page when the server starts so the
+graph can be inspected in 3D.
+
+Implemented:
+
+1. Web listener
+   - Added `neo4r-server --web-bind ADDR`.
+   - Added `TcpBackend::serve_web_addr`, `serve_web_listener`,
+     `serve_web_listener_once`, and `handle_web_stream`.
+   - Preserved `--web-bind` in daemon child args.
+
+2. HTTP JSON API
+   - `GET /api/graph?limit=N` returns nodes and relationships as JSON.
+   - `POST /api/query` executes a Cypher query from a JSON body.
+   - `GET /api/statistics`, `GET /api/storage`, and `GET /api/metadata-log`
+     expose management responses.
+
+3. 3D graph viewer
+   - Served a static browser console at `/`.
+   - Uses Three.js to render nodes and relationships in a 3D scene.
+   - Supports refresh, query execution, storage/statistics panels, click
+     selection, drag rotation, and wheel zoom.
+
+4. Tests
+   - Added server test coverage for HTML serving, graph API JSON, node data, and
+     relationship type output.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo test -p neo4r-server --quiet`
 
 # Engine Hardening Work Plan
 

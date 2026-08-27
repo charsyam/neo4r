@@ -195,6 +195,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     eprintln!("neo4r-server listening on {}", args.bind_addr);
+    if let Some(web_bind_addr) = args.web_bind_addr.clone() {
+        let web_backend = backend.clone();
+        std::thread::spawn(move || {
+            eprintln!("neo4r-server web console listening on {web_bind_addr}");
+            let _ = web_backend.serve_web_addr(&web_bind_addr);
+        });
+    }
     if let Some(replication_bind_addr) = args.replication_bind_addr.clone() {
         let replication_backend = backend.clone();
         let replication_listener = TcpListener::bind(&replication_bind_addr)?;
@@ -236,6 +243,7 @@ struct ServerArgs {
     sync_index_catalog_interval_ms: Option<u64>,
     recover_transactions_on_startup: bool,
     recover_transactions_interval_ms: Option<u64>,
+    web_bind_addr: Option<String>,
     daemonize: bool,
 }
 
@@ -274,6 +282,7 @@ impl ServerArgs {
             sync_index_catalog_interval_ms: None,
             recover_transactions_on_startup: false,
             recover_transactions_interval_ms: None,
+            web_bind_addr: None,
             daemonize: false,
         };
         let mut args = args.into_iter();
@@ -350,6 +359,7 @@ impl ServerArgs {
                     parsed.recover_transactions_interval_ms =
                         Some(parse_next(&mut args, "--recover-transactions-interval-ms")?)
                 }
+                "--web-bind" => parsed.web_bind_addr = Some(next_arg(&mut args, "--web-bind")?),
                 "--daemonize" => parsed.daemonize = true,
                 "--help" | "-h" => return Err(usage()),
                 value => return Err(format!("unknown argument: {value}\n{}", usage())),
@@ -478,6 +488,10 @@ fn daemon_child_args(args: &ServerArgs) -> Vec<String> {
     ];
     if let Some(addr) = &args.replication_bind_addr {
         child_args.push("--replication-bind".to_string());
+        child_args.push(addr.clone());
+    }
+    if let Some(addr) = &args.web_bind_addr {
+        child_args.push("--web-bind".to_string());
         child_args.push(addr.clone());
     }
     if let Some(path) = &args.routing_table_path {
@@ -721,7 +735,7 @@ fn parse_next<T: std::str::FromStr>(
 }
 
 fn usage() -> String {
-    "usage: neo4r-server [--bind ADDR] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 fn default_worker_count() -> usize {
@@ -769,6 +783,8 @@ mod tests {
             "12=127.0.0.1:7688".to_string(),
             "--replication-bind".to_string(),
             "127.0.0.1:9700".to_string(),
+            "--web-bind".to_string(),
+            "127.0.0.1:7474".to_string(),
             "--replication-ack".to_string(),
             "quorum".to_string(),
             "--replication-connect-timeout-ms".to_string(),
@@ -831,6 +847,7 @@ mod tests {
             args.replication_bind_addr,
             Some("127.0.0.1:9700".to_string())
         );
+        assert_eq!(args.web_bind_addr, Some("127.0.0.1:7474".to_string()));
         assert_eq!(args.replication_ack_policy, ReplicationAckPolicy::Quorum);
         assert_eq!(args.replication_connect_timeout_ms, 750);
         assert_eq!(args.replication_retry_attempts, 3);
@@ -932,6 +949,8 @@ mod tests {
             "1=127.0.0.1:7687".to_string(),
             "--replication-bind".to_string(),
             "127.0.0.1:9702".to_string(),
+            "--web-bind".to_string(),
+            "127.0.0.1:7474".to_string(),
             "--replication-ack".to_string(),
             "quorum".to_string(),
             "--replication-connect-timeout-ms".to_string(),
@@ -958,6 +977,8 @@ mod tests {
 
         assert!(child_args.contains(&"--replication-bind".to_string()));
         assert!(child_args.contains(&"127.0.0.1:9702".to_string()));
+        assert!(child_args.contains(&"--web-bind".to_string()));
+        assert!(child_args.contains(&"127.0.0.1:7474".to_string()));
         assert!(child_args.contains(&"--replication-ack".to_string()));
         assert!(child_args.contains(&"quorum".to_string()));
         assert!(child_args.contains(&"--replication-connect-timeout-ms".to_string()));

@@ -241,10 +241,27 @@ def decode_properties(payload: str) -> dict[str, Any]:
     if not payload:
         return {}
     properties: dict[str, Any] = {}
-    for entry in payload.split(","):
+    for entry in split_property_entries(payload):
         key, value = entry.split("~", 1)
         properties[bytes.fromhex(key).decode()] = decode_value(value)
     return properties
+
+
+def split_property_entries(payload: str) -> list[str]:
+    entries: list[str] = []
+    current: list[str] = []
+    for part in payload.split(","):
+        if "~" in part:
+            if current:
+                entries.append(",".join(current))
+            current = [part]
+        elif current:
+            current.append(part)
+        else:
+            raise ValueError(f"invalid property entry: {part}")
+    if current:
+        entries.append(",".join(current))
+    return entries
 
 
 def encode_stored_value(value: Any) -> str:

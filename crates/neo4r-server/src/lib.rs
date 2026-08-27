@@ -3,12 +3,13 @@
 mod peer_store;
 mod protocol;
 
+use neo4r_core::{Properties, Value};
 use neo4r_db::{
     catch_up_from_tcp_primary, catch_up_from_tcp_primary_batched, create_node_routing_key,
     handle_tcp_replication_stream, merge_node_routing_key, CreateNodeRoutingKey, DatabaseConfig,
     Neo4rDatabaseHandle, Neo4rReadTransaction, QueryOptions, ReadIsolation,
 };
-use neo4r_query::{QueryCursor, QueryRow, VecQueryCursor};
+use neo4r_query::{QueryCursor, QueryRow, QueryValue, VecQueryCursor};
 use neo4r_storage::{
     TransactionDecision, TransactionDecisionRecord, TransactionDecisionStore,
     TransactionParticipantRecord,
@@ -21,7 +22,7 @@ use protocol::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -288,6 +289,36 @@ impl TcpBackend {
         self.handle_stream(stream)
     }
 
+    pub fn serve_web_addr(self, addr: impl ToSocketAddrs) -> io::Result<SocketAddr> {
+        let listener = TcpListener::bind(addr)?;
+        let local_addr = listener.local_addr()?;
+        self.serve_web_listener(listener)?;
+        Ok(local_addr)
+    }
+
+    pub fn serve_web_listener(self, listener: TcpListener) -> io::Result<()> {
+        let backend = Arc::new(self);
+        for stream in listener.incoming() {
+            let stream = stream?;
+            let backend = backend.clone();
+            thread::spawn(move || {
+                let _ = backend.handle_web_stream(stream);
+            });
+        }
+        Ok(())
+    }
+
+    pub fn serve_web_listener_once(self, listener: TcpListener) -> io::Result<()> {
+        let (stream, _) = listener.accept()?;
+        self.handle_web_stream(stream)
+    }
+
+    pub fn handle_web_stream(&self, stream: TcpStream) -> io::Result<()> {
+        let request = read_http_request(stream.try_clone()?)?;
+        let response = self.execute_http_request(&request);
+        write_http_response(stream, response)
+    }
+
     pub fn handle_stream(&self, stream: TcpStream) -> io::Result<()> {
         self.handle_native_stream(stream)
     }
@@ -319,6 +350,100 @@ impl TcpBackend {
 
     pub fn handle_replication_stream(&self, mut stream: TcpStream) -> io::Result<()> {
         handle_tcp_replication_stream(&self.db, &mut stream).map_err(io::Error::other)
+    }
+
+    fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
+        match (request.method.as_str(), request.path.as_str()) {
+            ("GET", "/") | ("GET", "/index.html") => HttpResponse::html(WEB_INDEX_HTML),
+            ("GET", "/api/graph") => match self.graph_json(request.query_value("limit")) {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
+            ("GET", "/api/statistics") => {
+                let response = self.execute_backend_request(BackendRequest::Statistics);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("GET", "/api/storage") => {
+                let response = self.execute_backend_request(BackendRequest::StorageStatus);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("GET", "/api/metadata-log") => {
+                let response = self.execute_backend_request(BackendRequest::MetadataLog);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/query") => match extract_json_string_field(&request.body, "query") {
+                Ok(query) => match self.query_json(&query) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                },
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
+            _ => HttpResponse::json_status(404, json_error("not found")),
+        }
+    }
+
+    fn graph_json(&self, limit: Option<String>) -> Result<String, String> {
+        let limit = limit
+            .as_deref()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1000);
+        let node_rows = self
+            .db
+            .query("MATCH (n) RETURN n")
+            .map_err(|err| err.to_string())?;
+        let rel_rows = self
+            .db
+            .query("MATCH (a)-[r]->(b) RETURN r")
+            .unwrap_or_default();
+
+        let mut nodes = Vec::new();
+        let mut seen_nodes = BTreeSet::new();
+        for row in node_rows.iter().take(limit) {
+            if let Some(QueryValue::Node(node)) = row.get("n") {
+                if seen_nodes.insert(node.id) {
+                    nodes.push(format!(
+                        "{{\"id\":{},\"labels\":{},\"properties\":{}}}",
+                        node.id,
+                        string_array_json(&node.labels),
+                        properties_json(&node.properties)
+                    ));
+                }
+            }
+        }
+
+        let mut relationships = Vec::new();
+        for row in rel_rows.iter().take(limit) {
+            if let Some(QueryValue::Relationship(relationship)) = row.get("r") {
+                relationships.push(format!(
+                    "{{\"id\":{},\"from\":{},\"to\":{},\"type\":\"{}\",\"properties\":{}}}",
+                    relationship.id,
+                    relationship.from,
+                    relationship.to,
+                    json_escape(&relationship.rel_type),
+                    properties_json(&relationship.properties)
+                ));
+            }
+        }
+
+        Ok(format!(
+            "{{\"nodes\":[{}],\"relationships\":[{}]}}",
+            nodes.join(","),
+            relationships.join(",")
+        ))
+    }
+
+    fn query_json(&self, query: &str) -> Result<String, String> {
+        let rows = self
+            .db
+            .execute_cypher(query)
+            .map_err(|err| err.to_string())?;
+        Ok(format!(
+            "{{\"rows\":[{}]}}",
+            rows.iter()
+                .map(query_row_json)
+                .collect::<Vec<_>>()
+                .join(",")
+        ))
     }
 
     pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
@@ -5035,6 +5160,583 @@ fn send_native_response(
         .send(frame)
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "native response writer stopped"))
 }
+
+struct HttpRequest {
+    method: String,
+    path: String,
+    query: HashMap<String, String>,
+    body: String,
+}
+
+impl HttpRequest {
+    fn query_value(&self, key: &str) -> Option<String> {
+        self.query.get(key).cloned()
+    }
+}
+
+struct HttpResponse {
+    status: u16,
+    reason: &'static str,
+    content_type: &'static str,
+    body: String,
+}
+
+impl HttpResponse {
+    fn html(body: &str) -> Self {
+        Self {
+            status: 200,
+            reason: "OK",
+            content_type: "text/html; charset=utf-8",
+            body: body.to_string(),
+        }
+    }
+
+    fn json(body: String) -> Self {
+        Self::json_status(200, body)
+    }
+
+    fn json_status(status: u16, body: String) -> Self {
+        let reason = match status {
+            200 => "OK",
+            400 => "Bad Request",
+            404 => "Not Found",
+            500 => "Internal Server Error",
+            _ => "OK",
+        };
+        Self {
+            status,
+            reason,
+            content_type: "application/json; charset=utf-8",
+            body,
+        }
+    }
+}
+
+fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
+    let mut reader = BufReader::new(stream);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "empty HTTP request",
+        ));
+    }
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or("").to_string();
+    let target = request_parts.next().unwrap_or("/");
+    let (path, query) = parse_http_target(target);
+
+    let mut content_length = 0usize;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        let header = line.trim_end_matches(['\r', '\n']);
+        if header.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = header.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+
+    let mut body = vec![0_u8; content_length];
+    if content_length > 0 {
+        reader.read_exact(&mut body)?;
+    }
+
+    Ok(HttpRequest {
+        method,
+        path,
+        query,
+        body: String::from_utf8_lossy(&body).into_owned(),
+    })
+}
+
+fn write_http_response(mut stream: TcpStream, response: HttpResponse) -> io::Result<()> {
+    let body = response.body.as_bytes();
+    write!(
+        stream,
+        "HTTP/1.1 {} {}\r\ncontent-type: {}\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n",
+        response.status,
+        response.reason,
+        response.content_type,
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    stream.flush()
+}
+
+fn parse_http_target(target: &str) -> (String, HashMap<String, String>) {
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let mut values = HashMap::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        values.insert(percent_decode(key), percent_decode(value));
+    }
+    (path.to_string(), values)
+}
+
+fn percent_decode(input: &str) -> String {
+    let mut output = Vec::with_capacity(input.len());
+    let mut bytes = input.as_bytes().iter().copied();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'+' => output.push(b' '),
+            b'%' => {
+                let high = bytes.next();
+                let low = bytes.next();
+                if let (Some(high), Some(low)) = (high, low) {
+                    if let (Some(high), Some(low)) = (hex_value(high), hex_value(low)) {
+                        output.push((high << 4) | low);
+                    }
+                }
+            }
+            byte => output.push(byte),
+        }
+    }
+    String::from_utf8_lossy(&output).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn management_response_json(response: &BackendResponse) -> String {
+    format!(
+        "{{\"response\":\"{}\"}}",
+        json_escape(&format_response(response))
+    )
+}
+
+fn json_error(message: impl AsRef<str>) -> String {
+    format!("{{\"error\":\"{}\"}}", json_escape(message.as_ref()))
+}
+
+fn query_row_json(row: &QueryRow) -> String {
+    let mut keys = row.values().keys().collect::<Vec<_>>();
+    keys.sort();
+    let fields = keys
+        .into_iter()
+        .filter_map(|key| {
+            row.get(key)
+                .map(|value| format!("\"{}\":{}", json_escape(key), query_value_json(value)))
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{{fields}}}")
+}
+
+fn query_value_json(value: &QueryValue) -> String {
+    match value {
+        QueryValue::Scalar(value) => value_json(value),
+        QueryValue::Node(node) => format!(
+            "{{\"kind\":\"node\",\"id\":{},\"labels\":{},\"properties\":{}}}",
+            node.id,
+            string_array_json(&node.labels),
+            properties_json(&node.properties)
+        ),
+        QueryValue::BoundaryNode(node) => format!(
+            "{{\"kind\":\"boundary_node\",\"id\":{},\"owner_shard\":{},\"version\":{},\"labels\":{},\"properties\":{}}}",
+            node.id,
+            node.owner_shard,
+            node.version,
+            string_array_json(&node.labels),
+            properties_json(&node.properties)
+        ),
+        QueryValue::Relationship(relationship) => format!(
+            "{{\"kind\":\"relationship\",\"id\":{},\"from\":{},\"to\":{},\"type\":\"{}\",\"properties\":{}}}",
+            relationship.id,
+            relationship.from,
+            relationship.to,
+            json_escape(&relationship.rel_type),
+            properties_json(&relationship.properties)
+        ),
+    }
+}
+
+fn properties_json(properties: &Properties) -> String {
+    let mut keys = properties.keys().collect::<Vec<_>>();
+    keys.sort();
+    let fields = keys
+        .into_iter()
+        .filter_map(|key| {
+            properties
+                .get(key)
+                .map(|value| format!("\"{}\":{}", json_escape(key), value_json(value)))
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{{fields}}}")
+}
+
+fn value_json(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Int(value) => value.to_string(),
+        Value::Float(value) => {
+            if value.is_finite() {
+                value.to_string()
+            } else {
+                "null".to_string()
+            }
+        }
+        Value::String(value) => format!("\"{}\"", json_escape(value)),
+        Value::Vector(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(|value| {
+                    if value.is_finite() {
+                        value.to_string()
+                    } else {
+                        "null".to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Value::Map(values) => properties_json(values),
+    }
+}
+
+fn string_array_json(values: &[String]) -> String {
+    format!(
+        "[{}]",
+        values
+            .iter()
+            .map(|value| format!("\"{}\"", json_escape(value)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn json_escape(input: &str) -> String {
+    let mut output = String::new();
+    for ch in input.chars() {
+        match ch {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            ch if ch.is_control() => output.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => output.push(ch),
+        }
+    }
+    output
+}
+
+fn extract_json_string_field(input: &str, field: &str) -> Result<String, String> {
+    let needle = format!("\"{field}\"");
+    let start = input
+        .find(&needle)
+        .ok_or_else(|| format!("missing JSON string field: {field}"))?;
+    let rest = &input[start + needle.len()..];
+    let colon = rest
+        .find(':')
+        .ok_or_else(|| format!("missing ':' after JSON field: {field}"))?;
+    let rest = rest[colon + 1..].trim_start();
+    parse_json_string(rest).map(|(value, _)| value)
+}
+
+fn parse_json_string(input: &str) -> Result<(String, &str), String> {
+    let mut chars = input.char_indices();
+    if chars.next().map(|(_, ch)| ch) != Some('"') {
+        return Err("expected JSON string".to_string());
+    }
+    let mut output = String::new();
+    let mut escaped = false;
+    for (index, ch) in chars {
+        if escaped {
+            match ch {
+                '"' => output.push('"'),
+                '\\' => output.push('\\'),
+                '/' => output.push('/'),
+                'b' => output.push('\u{0008}'),
+                'f' => output.push('\u{000c}'),
+                'n' => output.push('\n'),
+                'r' => output.push('\r'),
+                't' => output.push('\t'),
+                other => return Err(format!("unsupported JSON escape: \\{other}")),
+            }
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Ok((output, &input[index + ch.len_utf8()..]));
+        } else {
+            output.push(ch);
+        }
+    }
+    Err("unterminated JSON string".to_string())
+}
+
+const WEB_INDEX_HTML: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>neo4r graph console</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #151515; color: #f4f7f5; }
+    #scene { position: fixed; inset: 0; z-index: 0; }
+    #labels { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+    .graph-label { position: absolute; max-width: 190px; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.28); border-radius: 6px; background: rgba(8,10,10,0.88); color: #ffffff; font-size: 12px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px rgba(0,0,0,0.95); box-shadow: 0 5px 18px rgba(0,0,0,0.34); transform: translate(-50%, -50%); will-change: transform, opacity; }
+    .graph-label.node { font-weight: 700; }
+    .graph-label.edge { color: #ffffff; background: rgba(32,115,101,0.92); font-size: 11px; }
+    #panel { position: fixed; z-index: 2; left: 16px; top: 16px; bottom: 16px; width: min(380px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+    .bar, .detail { border: 1px solid rgba(255,255,255,0.16); background: rgba(29,34,32,0.84); backdrop-filter: blur(12px); border-radius: 8px; box-shadow: 0 16px 50px rgba(0,0,0,0.28); pointer-events: auto; }
+    .bar { padding: 12px; display: grid; gap: 8px; }
+    h1 { font-size: 17px; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: 0; }
+    .row { display: flex; gap: 8px; min-width: 0; }
+    input, textarea { width: 100%; box-sizing: border-box; color: #f4f7f5; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 8px 10px; font: inherit; outline: none; }
+    textarea { min-height: 70px; resize: vertical; }
+    button { appearance: none; border: 1px solid rgba(255,255,255,0.22); background: #287d6f; color: white; border-radius: 6px; padding: 8px 11px; font: inherit; font-weight: 650; white-space: nowrap; cursor: pointer; }
+    button.secondary { background: rgba(255,255,255,0.08); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px; }
+    .stat { padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.08); }
+    .stat strong { display: block; font-size: 18px; margin-top: 2px; }
+    .detail { min-height: 0; overflow: auto; padding: 12px; font-size: 12px; line-height: 1.4; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    #status { min-height: 18px; color: #f0c36a; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="labels"></div>
+  <div id="panel">
+    <div class="bar">
+      <h1>neo4r graph console</h1>
+      <div class="row">
+        <input id="limit" type="number" min="1" value="1000" aria-label="graph limit">
+        <button id="refresh">Refresh</button>
+      </div>
+      <textarea id="query" spellcheck="false">MATCH (n) RETURN n</textarea>
+      <div class="row">
+        <button id="run">Run Query</button>
+        <button class="secondary" id="storage">Storage</button>
+        <button class="secondary" id="stats">Stats</button>
+      </div>
+      <div class="stats">
+        <div class="stat">Nodes<strong id="nodeCount">0</strong></div>
+        <div class="stat">Edges<strong id="edgeCount">0</strong></div>
+        <div class="stat">Selected<strong id="selectedKind">none</strong></div>
+      </div>
+      <div id="status"></div>
+    </div>
+    <div class="detail"><pre id="detail">Select a node or run a query.</pre></div>
+  </div>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
+
+    const canvas = document.getElementById('scene');
+    const labelLayer = document.getElementById('labels');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x151515);
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+    camera.position.set(0, 90, 210);
+    camera.lookAt(95, 0, 0);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const light = new THREE.DirectionalLight(0xffffff, 1.25);
+    light.position.set(120, 180, 100);
+    scene.add(light);
+
+    const nodesGroup = new THREE.Group();
+    const edgesGroup = new THREE.Group();
+    nodesGroup.position.x = 95;
+    edgesGroup.position.x = 95;
+    scene.add(edgesGroup, nodesGroup);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const nodeMeshes = [];
+    const graphLabels = [];
+    let graph = { nodes: [], relationships: [] };
+    let selected = null;
+    let dragging = false;
+    let last = { x: 0, y: 0 };
+    const palette = [0x2f80ed, 0x27ae60, 0xf2c94c, 0xeb5757, 0x9b51e0, 0x56ccf2, 0xf2994a];
+
+    function resize() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+
+    function labelColor(labels) {
+      const label = labels && labels.length ? labels[0] : 'Node';
+      let hash = 0;
+      for (const ch of label) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+      return palette[hash % palette.length];
+    }
+
+    function nodeLabel(node) {
+      return node.properties.name || node.properties.title || node.properties.email || (node.labels[0] || 'Node') + ' #' + node.id;
+    }
+
+    function createGraphLabel(kind, text, position, group) {
+      const element = document.createElement('div');
+      element.className = 'graph-label ' + kind;
+      element.textContent = text;
+      labelLayer.appendChild(element);
+      graphLabels.push({ element, position, group });
+    }
+
+    function clearGraphLabels() {
+      graphLabels.length = 0;
+      labelLayer.replaceChildren();
+    }
+
+    function rebuildScene() {
+      nodesGroup.clear();
+      edgesGroup.clear();
+      clearGraphLabels();
+      nodeMeshes.length = 0;
+      const nodeById = new Map();
+      const count = Math.max(graph.nodes.length, 1);
+      const radius = Math.max(70, Math.sqrt(count) * 18);
+      graph.nodes.forEach((node, index) => {
+        const angle = index * 2.399963229728653;
+        const y = ((index % 17) - 8) * 8;
+        const r = radius * Math.sqrt((index + 0.5) / count);
+        node.position = new THREE.Vector3(Math.cos(angle) * r, y, Math.sin(angle) * r);
+        nodeById.set(node.id, node);
+        const geometry = new THREE.SphereGeometry(9, 28, 18);
+        const material = new THREE.MeshStandardMaterial({ color: labelColor(node.labels), emissive: labelColor(node.labels), emissiveIntensity: 0.16, roughness: 0.42, metalness: 0.06 });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(node.position);
+        mesh.userData = { kind: 'node', data: node };
+        nodeMeshes.push(mesh);
+        nodesGroup.add(mesh);
+        createGraphLabel('node', nodeLabel(node), node.position.clone().add(new THREE.Vector3(0, 14, 0)), nodesGroup);
+      });
+      graph.relationships.forEach((rel) => {
+        const from = nodeById.get(rel.from);
+        const to = nodeById.get(rel.to);
+        if (!from || !to) return;
+        const points = [from.position, to.position];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({ color: 0xb7c4cc, transparent: true, opacity: 0.62 });
+        const line = new THREE.Line(geometry, material);
+        line.userData = { kind: 'relationship', data: rel };
+        edgesGroup.add(line);
+        const midpoint = from.position.clone().add(to.position).multiplyScalar(0.5);
+        createGraphLabel('edge', rel.type, midpoint, edgesGroup);
+      });
+      document.getElementById('nodeCount').textContent = graph.nodes.length;
+      document.getElementById('edgeCount').textContent = graph.relationships.length;
+    }
+
+    async function loadGraph() {
+      const limit = encodeURIComponent(document.getElementById('limit').value || '1000');
+      setStatus('Loading graph...');
+      const response = await fetch('/api/graph?limit=' + limit);
+      graph = await response.json();
+      rebuildScene();
+      setStatus('Graph loaded.');
+    }
+
+    async function runQuery() {
+      setStatus('Running query...');
+      const query = document.getElementById('query').value;
+      const response = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      const payload = await response.json();
+      document.getElementById('detail').textContent = JSON.stringify(payload, null, 2);
+      setStatus(response.ok ? 'Query complete.' : 'Query failed.');
+      await loadGraph();
+    }
+
+    async function showManagement(path) {
+      const response = await fetch(path);
+      const payload = await response.json();
+      document.getElementById('detail').textContent = JSON.stringify(payload, null, 2);
+      setStatus(path + ' loaded.');
+    }
+
+    function setStatus(value) {
+      document.getElementById('status').textContent = value;
+    }
+
+    function pick(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObjects(nodeMeshes, false)[0];
+      if (!hit) return;
+      selected = hit.object.userData;
+      document.getElementById('selectedKind').textContent = selected.kind;
+      document.getElementById('detail').textContent = JSON.stringify(selected.data, null, 2);
+    }
+
+    function updateGraphLabels() {
+      const width = renderer.domElement.clientWidth;
+      const height = renderer.domElement.clientHeight;
+      for (const label of graphLabels) {
+        const world = label.position.clone();
+        label.group.localToWorld(world);
+        world.project(camera);
+        const x = (world.x * 0.5 + 0.5) * width;
+        const y = (-world.y * 0.5 + 0.5) * height;
+        const hidden = world.z < -1 || world.z > 1 || x < 0 || x > width || y < 0 || y > height;
+        label.element.style.opacity = hidden ? '0' : '1';
+        label.element.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+      }
+    }
+
+    function animate() {
+      nodesGroup.rotation.y += 0.0018;
+      edgesGroup.rotation.y = nodesGroup.rotation.y;
+      updateGraphLabels();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    window.addEventListener('resize', resize);
+    canvas.addEventListener('click', pick);
+    canvas.addEventListener('pointerdown', (event) => { dragging = true; last = { x: event.clientX, y: event.clientY }; });
+    canvas.addEventListener('pointerup', () => { dragging = false; });
+    canvas.addEventListener('pointermove', (event) => {
+      if (!dragging) return;
+      const dx = event.clientX - last.x;
+      const dy = event.clientY - last.y;
+      nodesGroup.rotation.y += dx * 0.006;
+      nodesGroup.rotation.x += dy * 0.004;
+      edgesGroup.rotation.copy(nodesGroup.rotation);
+      last = { x: event.clientX, y: event.clientY };
+    });
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      camera.position.z = Math.max(40, Math.min(900, camera.position.z + event.deltaY * 0.25));
+    }, { passive: false });
+    document.getElementById('refresh').addEventListener('click', loadGraph);
+    document.getElementById('run').addEventListener('click', runQuery);
+    document.getElementById('storage').addEventListener('click', () => showManagement('/api/storage'));
+    document.getElementById('stats').addEventListener('click', () => showManagement('/api/statistics'));
+    resize();
+    loadGraph().catch((err) => setStatus(String(err)));
+    animate();
+  </script>
+</body>
+</html>"#;
 
 fn default_worker_count() -> usize {
     thread::available_parallelism()

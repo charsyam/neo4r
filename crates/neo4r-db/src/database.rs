@@ -393,6 +393,66 @@ impl Neo4rDatabaseHandle {
                 }
                 Ok(rows)
             }
+            Some(WriteCypher::CreateNodeThenRelationship {
+                node_variable,
+                labels,
+                node_properties,
+                node_assignments,
+                node_replacement,
+                matched_matcher,
+                relationship_variable,
+                created_node_is_from,
+                rel_type,
+                relationship_properties,
+                relationship_assignments,
+                relationship_replacement,
+                returns,
+            }) => {
+                let node_properties = create_properties_after_set(
+                    node_properties,
+                    node_assignments,
+                    node_replacement,
+                );
+                let relationship_properties = create_properties_after_set(
+                    relationship_properties,
+                    relationship_assignments,
+                    relationship_replacement,
+                );
+                let node_id = self.create_node(labels.clone(), node_properties.clone())?;
+                let node = Node::new(node_id, labels, node_properties);
+                let matched_ids = self.match_node_ids(&matched_matcher, &params)?;
+                let mut rows = Vec::new();
+                for matched_id in matched_ids {
+                    let (from, to) = if created_node_is_from {
+                        (node_id, matched_id)
+                    } else {
+                        (matched_id, node_id)
+                    };
+                    let relationship_id = self.create_relationship(
+                        from,
+                        to,
+                        rel_type.clone(),
+                        relationship_properties.clone(),
+                    )?;
+                    let relationship = Relationship::new(
+                        relationship_id,
+                        from,
+                        to,
+                        rel_type.clone(),
+                        relationship_properties.clone(),
+                    );
+                    if let Some(returns) = returns.as_ref() {
+                        rows.push(write_node_relationship_return_row(
+                            &node_variable,
+                            &node,
+                            &relationship_variable,
+                            &relationship,
+                            returns,
+                        ));
+                    }
+                }
+                Ok(rows)
+            }
             Some(WriteCypher::MergeNode { .. }) => {
                 self.lock()?.execute_cypher_with_params(query, &params)
             }
@@ -3526,6 +3586,21 @@ enum WriteCypher {
         replacement: Option<Properties>,
         returns: Option<WriteReturnItems>,
     },
+    CreateNodeThenRelationship {
+        node_variable: String,
+        labels: Vec<String>,
+        node_properties: Properties,
+        node_assignments: Vec<PropertyAssignment>,
+        node_replacement: Option<Properties>,
+        matched_matcher: NodeMatcher,
+        relationship_variable: String,
+        created_node_is_from: bool,
+        rel_type: String,
+        relationship_properties: Properties,
+        relationship_assignments: Vec<PropertyAssignment>,
+        relationship_replacement: Option<Properties>,
+        returns: Option<WriteReturnItems>,
+    },
     MergeNode {
         labels: Vec<String>,
         properties: Properties,
@@ -3720,6 +3795,9 @@ fn parse_write_cypher(query: &str, params: &QueryParams) -> DatabaseResult<Optio
         return parse_rebuild_vector_index_ddl(input).map(Some);
     }
     if starts_with_keyword(input, "CREATE") {
+        if split_keyword(input, "WITH").is_some() {
+            return parse_create_node_then_relationship_write(input, params).map(Some);
+        }
         return parse_create_node_write(input, params).map(Some);
     }
     if starts_with_keyword(input, "MERGE") {
@@ -4220,6 +4298,101 @@ fn parse_create_node_write(input: &str, params: &QueryParams) -> DatabaseResult<
         properties,
         assignments,
         replacement,
+        returns,
+    })
+}
+
+fn parse_create_node_then_relationship_write(
+    input: &str,
+    params: &QueryParams,
+) -> DatabaseResult<WriteCypher> {
+    let (create_part, with_part) =
+        split_keyword(input, "WITH").ok_or_else(|| write_parse_error("expected WITH"))?;
+    let WriteCypher::CreateNode {
+        variable: node_variable,
+        labels,
+        properties: node_properties,
+        assignments: node_assignments,
+        replacement: node_replacement,
+        returns: node_returns,
+    } = parse_create_node_write(create_part.trim(), params)?
+    else {
+        return Err(write_parse_error("WITH create must start with CREATE node"));
+    };
+    ensure_write_parse(
+        node_returns.is_none(),
+        "CREATE WITH does not allow RETURN before WITH",
+    )?;
+
+    let (with_variables, after_match) = split_keyword(with_part, "MATCH")
+        .ok_or_else(|| write_parse_error("expected MATCH after WITH"))?;
+    let with_variables = split_top_level_commas(with_variables)?;
+    ensure_write_parse(
+        with_variables.len() == 1 && with_variables[0] == node_variable,
+        "WITH must pass the created node variable",
+    )?;
+
+    let (match_part, create_relationship_part) = split_keyword(after_match, "CREATE")
+        .ok_or_else(|| write_parse_error("expected relationship CREATE after WITH MATCH"))?;
+    let matched_matcher = parse_node_matcher_body(match_part.trim(), params)?;
+    let (relationship_pattern, returns) = parse_optional_write_return(create_relationship_part)?;
+    let (relationship_pattern, set_part) = match split_keyword(relationship_pattern, "SET") {
+        Some((pattern, set_part)) => (pattern.trim(), Some(set_part.trim())),
+        None => (relationship_pattern.trim(), None),
+    };
+    let RelationshipPatternWrite {
+        variable: relationship_variable,
+        from_variable,
+        to_variable,
+        rel_type,
+        properties: relationship_properties,
+    } = parse_relationship_pattern_write(relationship_pattern, params)?;
+    let created_node_is_from =
+        if from_variable == node_variable && to_variable == matched_matcher.variable {
+            true
+        } else if to_variable == node_variable && from_variable == matched_matcher.variable {
+            false
+        } else {
+            return Err(write_parse_error(
+                "relationship CREATE must connect the WITH variable and MATCH variable",
+            ));
+        };
+    let relationship_replacement = match set_part {
+        Some(set_part) => parse_property_replacement(
+            set_part,
+            &relationship_variable,
+            params,
+            "relationship CREATE SET replacement variable must match the created relationship variable",
+        )?,
+        None => None,
+    };
+    let relationship_assignments = match (set_part, relationship_replacement.as_ref()) {
+        (Some(set_part), None) => parse_set_assignments(
+            set_part,
+            &relationship_variable,
+            params,
+            "relationship CREATE SET variable must match the created relationship variable",
+        )?,
+        _ => Vec::new(),
+    };
+    ensure_write_return_variables(
+        returns.as_ref(),
+        &[node_variable.as_str(), relationship_variable.as_str()],
+        "CREATE WITH RETURN",
+    )?;
+    Ok(WriteCypher::CreateNodeThenRelationship {
+        node_variable,
+        labels,
+        node_properties,
+        node_assignments,
+        node_replacement,
+        matched_matcher,
+        relationship_variable,
+        created_node_is_from,
+        rel_type,
+        relationship_properties,
+        relationship_assignments,
+        relationship_replacement,
         returns,
     })
 }
@@ -5170,6 +5343,27 @@ fn ensure_write_return_matches(
     Ok(())
 }
 
+fn ensure_write_return_variables(
+    returns: Option<&WriteReturnItems>,
+    allowed_variables: &[&str],
+    context: &str,
+) -> DatabaseResult<()> {
+    let Some(returns) = returns else {
+        return Ok(());
+    };
+    for item in returns {
+        let variable = match item {
+            WriteReturnItem::Variable(variable) => variable,
+            WriteReturnItem::Property { variable, .. } => variable,
+        };
+        ensure_write_parse(
+            allowed_variables.iter().any(|allowed| allowed == variable),
+            &format!("{context} variable must be produced by the query"),
+        )?;
+    }
+    Ok(())
+}
+
 fn query_match_node_ids(
     run_query: impl FnOnce(&str) -> DatabaseResult<Vec<QueryRow>>,
     matcher: &NodeMatcher,
@@ -5597,6 +5791,49 @@ fn write_relationship_return_row(
     row
 }
 
+fn write_node_relationship_return_row(
+    node_variable: &str,
+    node: &Node,
+    relationship_variable: &str,
+    relationship: &Relationship,
+    returns: &[WriteReturnItem],
+) -> QueryRow {
+    let mut row = QueryRow::new();
+    for item in returns {
+        match item {
+            WriteReturnItem::Variable(variable) if variable == node_variable => {
+                row.insert(variable.clone(), QueryValue::Node(node.clone()));
+            }
+            WriteReturnItem::Variable(variable) if variable == relationship_variable => {
+                row.insert(
+                    variable.clone(),
+                    QueryValue::Relationship(relationship.clone()),
+                );
+            }
+            WriteReturnItem::Property { variable, key } if variable == node_variable => {
+                row.insert(
+                    format!("{variable}.{key}"),
+                    QueryValue::Scalar(node.properties.get(key).cloned().unwrap_or(Value::Null)),
+                );
+            }
+            WriteReturnItem::Property { variable, key } if variable == relationship_variable => {
+                row.insert(
+                    format!("{variable}.{key}"),
+                    QueryValue::Scalar(
+                        relationship
+                            .properties
+                            .get(key)
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    ),
+                );
+            }
+            _ => {}
+        }
+    }
+    row
+}
+
 fn strip_node_pattern_properties(input: &str) -> DatabaseResult<String> {
     let input = input.trim();
     let Some(index) = top_level_brace_start(input) else {
@@ -5680,20 +5917,27 @@ fn strip_keyword_suffix<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
 }
 
 fn split_keyword<'a>(input: &'a str, keyword: &str) -> Option<(&'a str, &'a str)> {
-    let needle = format!(" {} ", keyword.to_ascii_uppercase());
     let haystack = input.to_ascii_uppercase();
-    haystack.find(&needle).map(|index| {
-        let split = index + 1;
-        (&input[..index], &input[split + keyword.len()..])
-    })
+    let keyword = keyword.to_ascii_uppercase();
+    for (index, _) in haystack.match_indices(&keyword) {
+        let before_is_boundary = input[..index]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| ch.is_whitespace());
+        let after_index = index + keyword.len();
+        let after_is_boundary = input[after_index..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_whitespace());
+        if before_is_boundary && after_is_boundary {
+            return Some((&input[..index], input[after_index..].trim_start()));
+        }
+    }
+    None
 }
 
 fn find_keyword(input: &str, keyword: &str) -> Option<usize> {
-    let needle = format!(" {} ", keyword.to_ascii_uppercase());
-    input
-        .to_ascii_uppercase()
-        .find(&needle)
-        .map(|index| index + 1)
+    split_keyword(input, keyword).map(|(before, _)| before.len())
 }
 
 fn strip_wrapping_write(input: &str, open: char, close: char) -> DatabaseResult<&str> {
@@ -6031,7 +6275,8 @@ impl Neo4rDatabase {
     ) -> DatabaseResult<Vec<ShardId>> {
         let mut shards = BTreeSet::new();
         match parse_write_cypher(query, params)? {
-            Some(WriteCypher::CreateNode { .. }) => {
+            Some(WriteCypher::CreateNode { .. })
+            | Some(WriteCypher::CreateNodeThenRelationship { .. }) => {
                 for status in self.cluster_status().shards {
                     if status.is_local_primary {
                         shards.insert(status.shard_id);
@@ -6700,7 +6945,8 @@ impl Neo4rDatabase {
                 | Some(WriteCypher::CreateVectorIndex { .. })
                 | Some(WriteCypher::RebuildVectorIndex { .. })
                 | Some(WriteCypher::DropIndex { .. })
-                | Some(WriteCypher::DropConstraint { .. }) => {
+                | Some(WriteCypher::DropConstraint { .. })
+                | Some(WriteCypher::CreateNodeThenRelationship { .. }) => {
                     return Err(DatabaseError::InvalidConfig(
                         "Cypher mutation batch only supports CREATE, MERGE, SET, REMOVE, and DELETE writes"
                             .to_string(),
@@ -6794,6 +7040,78 @@ impl Neo4rDatabase {
                             variable.clone(),
                             returns.clone(),
                             Relationship::new(id, *from, *to, rel_type.clone(), properties.clone()),
+                        ));
+                    }
+                }
+                Ok(rows)
+            }
+            Some(WriteCypher::CreateNodeThenRelationship {
+                node_variable,
+                labels,
+                node_properties,
+                node_assignments,
+                node_replacement,
+                matched_matcher,
+                relationship_variable,
+                created_node_is_from,
+                rel_type,
+                relationship_properties,
+                relationship_assignments,
+                relationship_replacement,
+                returns,
+            }) => {
+                let node_properties = create_properties_after_set(
+                    node_properties,
+                    node_assignments,
+                    node_replacement,
+                );
+                let relationship_properties = create_properties_after_set(
+                    relationship_properties,
+                    relationship_assignments,
+                    relationship_replacement,
+                );
+                let node_id = if let Some(shard_id) = target_shard {
+                    self.validate_shard_id(shard_id)?;
+                    let id = self.allocate_node_id_for_shard(shard_id);
+                    let command = Command::CreateNode {
+                        id,
+                        labels: labels.clone(),
+                        properties: node_properties.clone(),
+                    };
+                    self.write_command(shard_id, command)?;
+                    id
+                } else {
+                    self.create_node(labels.clone(), node_properties.clone())?
+                };
+                let node = Node::new(node_id, labels, node_properties);
+                let matched_ids = self.match_node_ids(&matched_matcher, params)?;
+                let mut rows = Vec::new();
+                for matched_id in matched_ids {
+                    let (from, to) = if created_node_is_from {
+                        (node_id, matched_id)
+                    } else {
+                        (matched_id, node_id)
+                    };
+                    let relationship_id = self.create_relationship(
+                        from,
+                        to,
+                        rel_type.clone(),
+                        relationship_properties.clone(),
+                    )?;
+                    let relationship = Relationship::new(
+                        relationship_id,
+                        from,
+                        to,
+                        rel_type.clone(),
+                        relationship_properties.clone(),
+                    );
+                    if let Some(returns) = returns.as_ref() {
+                        rows.push(write_node_relationship_return_row(
+                            &node_variable,
+                            &node,
+                            &relationship_variable,
+                            &relationship,
+                            returns,
                         ));
                     }
                 }

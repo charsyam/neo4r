@@ -2265,6 +2265,41 @@ fn execute_cypher_create_returns_created_properties() {
 }
 
 #[test]
+fn execute_cypher_create_node_with_match_creates_relationship() {
+    let dir = temp_dir("facade-cypher-create-with-match-relationship");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher(r#"CREATE (c:Company {name: "Neo4r Labs"})"#)
+        .unwrap();
+
+    let rows = db
+        .execute_cypher(
+            r#"CREATE (n:Person {name: "Grace", role: "Backend Engineer", age: 31, status: "active"})
+WITH n
+MATCH (c:Company {name: "Neo4r Labs"})
+CREATE (n)-[r:WORKS_AT {since: 2026}]->(c)
+RETURN n, r"#,
+        )
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(rows[0].get("n"), Some(QueryValue::Node(_))));
+    assert!(matches!(
+        rows[0].get("r"),
+        Some(QueryValue::Relationship(relationship)) if relationship.rel_type == "WORKS_AT"
+    ));
+    assert_eq!(
+        db.query(
+            r#"MATCH (a:Person)-[r:WORKS_AT]->(b:Company) WHERE a.name = "Grace" RETURN r.since"#
+        )
+        .unwrap()[0]
+            .get("r.since"),
+        Some(&QueryValue::Scalar(Value::Int(2026)))
+    );
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn execute_cypher_merges_node_idempotently() {
     let dir = temp_dir("facade-cypher-merge-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();

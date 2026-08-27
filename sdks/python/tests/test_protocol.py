@@ -63,6 +63,32 @@ class ProtocolTests(unittest.TestCase):
             ],
         )
 
+    def test_decodes_node_properties_with_vector_values(self):
+        rows = decode_query_rows(
+            "6e=N:18:446f63756d656e74:"
+            "656d62656464696e67~v:1065353216,0,"
+            "7469746c65~s:517565727920506c616e6e6572204e6f746573"
+        )
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "n": QueryValue(
+                        "node",
+                        Node(
+                            18,
+                            ["Document"],
+                            {
+                                "embedding": [1.0, 0.0],
+                                "title": "Query Planner Notes",
+                            },
+                        ),
+                    )
+                }
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -74,6 +74,17 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
         <button class="secondary" id="slow">Slow</button>
       </div>
       <div class="row">
+        <input id="backupPath" type="text" value="./backup/default" aria-label="backup path">
+        <button class="secondary" id="backup">Backup</button>
+        <button class="secondary" id="restoreDryRun">Verify Restore</button>
+      </div>
+      <div class="row">
+        <button class="secondary" id="raftStatus">Raft</button>
+        <button class="secondary" id="snapshotNow">Snapshot</button>
+        <button class="secondary" id="verifyInvariants">Verify</button>
+        <button class="secondary" id="repairInvariants">Repair</button>
+      </div>
+      <div class="row">
         <input id="adminUser" type="text" value="operator" aria-label="admin user">
         <select id="adminRole" aria-label="admin role">
           <option value="reader">reader</option>
@@ -308,6 +319,20 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       setStatus(result.response.ok ? label + ' complete.' : label + ' failed.');
     }
 
+    async function runBackup() {
+      setStatus('Backup...');
+      const result = await postJson('/api/backup', { database: selectedDatabase(), path: document.getElementById('backupPath').value.trim() });
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? 'Backup complete.' : 'Backup failed.');
+    }
+
+    async function runRestoreDryRun() {
+      setStatus('Verify restore...');
+      const result = await postJson('/api/restore', { database: selectedDatabase(), path: document.getElementById('backupPath').value.trim(), verify_only: true });
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? 'Verify restore complete.' : 'Verify restore failed.');
+    }
+
     function userPayload() {
       const expires = document.getElementById('adminExpiredAt').value;
       const expiredAt = expires ? String(Math.floor(new Date(expires).getTime() / 1000)) : '0';
@@ -510,6 +535,12 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     document.getElementById('topology').addEventListener('click', showTopology);
     document.getElementById('rebalance').addEventListener('click', () => runClusterAction('/api/cluster/advance-rebalance', 'Rebalance'));
     document.getElementById('slow').addEventListener('click', () => showManagement('/api/slow-queries'));
+    document.getElementById('backup').addEventListener('click', runBackup);
+    document.getElementById('restoreDryRun').addEventListener('click', runRestoreDryRun);
+    document.getElementById('raftStatus').addEventListener('click', () => showManagement('/api/admin/raft-status'));
+    document.getElementById('snapshotNow').addEventListener('click', () => runClusterAction('/api/admin/snapshot-now', 'Snapshot'));
+    document.getElementById('verifyInvariants').addEventListener('click', () => runClusterAction('/api/admin/verify-invariants', 'Verify invariants'));
+    document.getElementById('repairInvariants').addEventListener('click', () => runClusterAction('/api/admin/repair-invariants', 'Repair invariants'));
     document.getElementById('users').addEventListener('click', () => showManagement('/api/admin/users'));
     document.getElementById('databases').addEventListener('click', () => showManagement('/api/admin/databases'));
     document.getElementById('auditLog').addEventListener('click', () => showManagement('/api/admin/audit-log'));

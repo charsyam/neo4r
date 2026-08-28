@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scripts/ci-fast.sh
+scripts/ci-correctness.sh
+scripts/ci-crash.sh
+scripts/ci-server.sh
+scripts/protocol-compat.sh
+scripts/read-consistency.sh
+scripts/query-plan-golden.sh
+scripts/sdk-api-parity.sh
+scripts/sdk-failover.sh
+scripts/storage-atomicity.sh
+scripts/failure-injection.sh
+scripts/security-regression.sh
+scripts/bench-regression.sh
+
+if [[ "${NEO4R_RUN_RELEASE_LIVE:-0}" == "1" ]]; then
+  NEO4R_RUN_SDK_LIVE=1 scripts/sdk-live.sh
+  NEO4R_RUN_CLUSTER_SMOKE=1 scripts/multi_process_cluster_smoke.sh
+  NEO4R_RUN_JEPSEN_LITE=1 scripts/jepsen-lite-correctness.sh
+fi
+
+echo "neo4r release gate passed"

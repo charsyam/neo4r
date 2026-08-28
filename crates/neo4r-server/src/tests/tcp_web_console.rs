@@ -126,6 +126,12 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"revokeToken\""));
     assert!(index.contains("id=\"auditLog\""));
     assert!(index.contains("id=\"cleanupTokens\""));
+    assert!(index.contains("id=\"backup\""));
+    assert!(index.contains("id=\"restoreDryRun\""));
+    assert!(index.contains("id=\"raftStatus\""));
+    assert!(index.contains("id=\"snapshotNow\""));
+    assert!(index.contains("id=\"verifyInvariants\""));
+    assert!(index.contains("id=\"repairInvariants\""));
 
     let graph = web_request(
         TcpBackend::new(db.clone()),
@@ -216,6 +222,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
             "neo4r_index_ready",
             "neo4r_raft_term_max",
             "neo4r_web_audit_events",
+            "neo4r_database_db_nodes{database=\"default\"}",
         ],
     );
 
@@ -241,6 +248,9 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(backup.contains("\"target\""));
     assert!(backup.contains("\"manifest\""));
     assert!(backup.contains("\"checksum\""));
+    let manifest = fs::read_to_string(backup_dir.join(BACKUP_MANIFEST_FILE)).unwrap();
+    assert!(manifest.contains("neo4r_backup_manifest_version=1"));
+    assert!(manifest.contains("database=default"));
 
     db.execute_cypher(r#"CREATE (n:Person {name: "DryRunOnly"})"#)
         .unwrap();
@@ -632,6 +642,24 @@ pub(super) fn web_console_isolates_tenant_databases_and_scopes_tokens() {
     );
     assert!(tenant_backup.contains("HTTP/1.1 200 OK"));
     assert!(tenant_backup.contains("\"manifest\""));
+
+    let tenant_restore_default_body = format!(
+        "{{\"path\":\"{}\",\"dry_run\":true}}",
+        tenant_backup_dir.display()
+    );
+    let tenant_backup_default_restore = web_request(
+        TcpBackend::new(db.clone())
+            .with_multi_tenant_config(config.clone())
+            .unwrap()
+            .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250)),
+        &format!(
+            "POST /api/restore HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            tenant_restore_default_body.len(),
+            tenant_restore_default_body
+        ),
+    );
+    assert!(tenant_backup_default_restore.contains("HTTP/1.1 500 Internal Server Error"));
+    assert!(tenant_backup_default_restore.contains("database mismatch"));
 
     let active_delete_db_body = "{\"name\":\"tenant_a\"}";
     let active_delete_db = web_request(

@@ -553,3 +553,49 @@ Verification:
 - `cargo test -p neo4r-server web_console_isolates_tenant_databases_and_scopes_tokens --quiet`
 - `scripts/storage-atomicity.sh`
 - `scripts/failure-injection.sh`
+
+## Multi-Node Operations And Release Gate Goal 1-10
+
+Requested scope: set the next proposed items 1 through 10 as a goal and
+complete them.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Kept multi-process Raft and Jepsen-lite integration runners in the release
+   path through `scripts/release-gate.sh`, with live execution gated by
+   `NEO4R_RUN_RELEASE_LIVE=1`.
+2. Tightened membership/read/snapshot release coverage by adding
+   `scripts/read-consistency.sh` to the integration and release gates.
+3. Documented the read consistency API contract around strong read-index,
+   leader lease, and follower-stale reads.
+4. Versioned backup manifests now include the selected database name, and
+   restore rejects manifests for a different database.
+5. Added `scripts/sdk-failover.sh` for Rust/Python redirect and topology-cache
+   failover checks, with an optional live mode.
+6. Added `scripts/query-plan-golden.sh` to pin optimizer access-plan, remote
+   route, and HTTP query-plan coverage.
+7. Added admin console controls for backup, restore verification, raft status,
+   snapshots, invariant verification, and invariant repair.
+8. Extended Prometheus output with database-labeled companion metrics for node,
+   relationship, committed index, applied index, and Raft group gauges.
+9. Added `docs/disk_lifecycle.md` for checkpoint, WAL cleanup, RocksDB
+   compaction, backup, and release-check policy.
+10. Added `scripts/release-gate.sh` to tie fast, correctness, crash, server,
+    protocol, read consistency, query plan, SDK, storage, failure injection,
+    security, and benchmark regression checks together.
+
+Verification:
+
+- `cargo fmt --all`
+- `bash -n scripts/*.sh`
+- `scripts/check-file-lines.sh`
+- `cargo check --workspace`
+- `scripts/read-consistency.sh`
+- `scripts/query-plan-golden.sh`
+- `scripts/sdk-failover.sh`
+- `cargo test --workspace --quiet`
+- `scripts/release-gate.sh`

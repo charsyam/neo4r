@@ -45,6 +45,10 @@ VERIFY_INVARIANTS
 REPAIR_INVARIANTS
 ```
 
+For query APIs, `ReadConsistency::ReadIndex` is the strong default in Raft
+mode. `ReadConsistency::FollowerStale` is the explicit low-latency diagnostic
+escape hatch and should not be used for read-your-writes user flows.
+
 The web equivalents are:
 
 ```bash

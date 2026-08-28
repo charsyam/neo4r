@@ -56,7 +56,7 @@ impl TcpBackend {
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
             ("GET", "/metrics") => match selected_db() {
-                Ok(db) => HttpResponse::text(self.metrics_prometheus(&db)),
+                Ok(db) => HttpResponse::text(self.metrics_prometheus(&db, &database_name)),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
             ("GET", "/api/slow-queries") => HttpResponse::json(self.slow_queries_json()),
@@ -284,9 +284,9 @@ impl TcpBackend {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/backup") => {
-                match extract_json_string_field(&request.body, "path")
-                    .and_then(|path| selected_db().and_then(|db| self.backup_to_path(&db, &path)))
-                {
+                match extract_json_string_field(&request.body, "path").and_then(|path| {
+                    selected_db().and_then(|db| self.backup_to_path(&db, &database_name, &path))
+                }) {
                     Ok(body) => HttpResponse::json(body),
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 }
@@ -298,7 +298,8 @@ impl TcpBackend {
                 match extract_json_string_field(&request.body, "path").and_then(|path| {
                     let dry_run = extract_optional_json_bool_field(&request.body, "dry_run")?
                         || extract_optional_json_bool_field(&request.body, "verify_only")?;
-                    selected_db().and_then(|db| self.restore_from_path(&db, &path, dry_run))
+                    selected_db()
+                        .and_then(|db| self.restore_from_path(&db, &database_name, &path, dry_run))
                 }) {
                     Ok(body) => HttpResponse::json(body),
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),

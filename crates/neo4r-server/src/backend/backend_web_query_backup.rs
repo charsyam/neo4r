@@ -80,7 +80,7 @@ impl WebMetricsSnapshot {
         )
     }
 
-    pub(crate) fn to_prometheus(&self) -> String {
+    pub(crate) fn to_prometheus(&self, database_name: &str) -> String {
         let committed_max = self
             .db_committed_indexes
             .iter()
@@ -93,7 +93,7 @@ impl WebMetricsSnapshot {
             .copied()
             .max()
             .unwrap_or_default();
-        [
+        let mut metrics = [
             prometheus_metric("neo4r_http_requests_total", self.http_requests),
             prometheus_metric("neo4r_http_errors_total", self.http_errors),
             prometheus_metric("neo4r_queries_total", self.queries),
@@ -143,12 +143,45 @@ impl WebMetricsSnapshot {
             prometheus_metric("neo4r_web_user_tokens", self.web_user_token_count as u64),
             prometheus_metric("neo4r_web_audit_events", self.web_audit_event_count as u64),
         ]
-        .join("")
+        .join("");
+        metrics.push_str(&prometheus_database_metric(
+            "neo4r_database_db_nodes",
+            database_name,
+            self.db_nodes as u64,
+        ));
+        metrics.push_str(&prometheus_database_metric(
+            "neo4r_database_db_relationships",
+            database_name,
+            self.db_relationships as u64,
+        ));
+        metrics.push_str(&prometheus_database_metric(
+            "neo4r_database_committed_index_max",
+            database_name,
+            committed_max,
+        ));
+        metrics.push_str(&prometheus_database_metric(
+            "neo4r_database_applied_index_max",
+            database_name,
+            applied_max,
+        ));
+        metrics.push_str(&prometheus_database_metric(
+            "neo4r_database_raft_groups",
+            database_name,
+            self.raft_group_count as u64,
+        ));
+        metrics
     }
 }
 
 fn prometheus_metric(name: &str, value: u64) -> String {
     format!("# TYPE {name} gauge\n{name} {value}\n")
+}
+
+fn prometheus_database_metric(name: &str, database_name: &str, value: u64) -> String {
+    format!(
+        "# TYPE {name} gauge\n{name}{{database=\"{}\"}} {value}\n",
+        json_escape(database_name)
+    )
 }
 
 impl TcpBackend {
@@ -426,9 +459,13 @@ impl TcpBackend {
         metrics.to_json()
     }
 
-    pub(crate) fn metrics_prometheus(&self, db: &Neo4rDatabaseHandle) -> String {
+    pub(crate) fn metrics_prometheus(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        database_name: &str,
+    ) -> String {
         let metrics = self.metrics_snapshot(db);
-        metrics.to_prometheus()
+        metrics.to_prometheus(database_name)
     }
 
     pub(crate) fn metrics_snapshot(&self, db: &Neo4rDatabaseHandle) -> WebMetricsSnapshot {
@@ -589,6 +626,7 @@ impl TcpBackend {
     pub(crate) fn backup_to_path(
         &self,
         db: &Neo4rDatabaseHandle,
+        database_name: &str,
         path: &str,
     ) -> Result<String, String> {
         let source = db.data_dir().map_err(|err| err.to_string())?;
@@ -596,7 +634,8 @@ impl TcpBackend {
         copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
         let stats = collect_backup_manifest_stats(&target).map_err(|err| err.to_string())?;
         let manifest = format!(
-            "neo4r_backup_manifest_version=1\nsource={}\ntarget={}\nfile_count={}\ntotal_bytes={}\nchecksum={}\n",
+            "neo4r_backup_manifest_version=1\ndatabase={}\nsource={}\ntarget={}\nfile_count={}\ntotal_bytes={}\nchecksum={}\n",
+            database_name,
             source.display(),
             target.display(),
             stats.file_count,
@@ -618,6 +657,7 @@ impl TcpBackend {
     pub(crate) fn restore_from_path(
         &self,
         db: &Neo4rDatabaseHandle,
+        database_name: &str,
         path: &str,
         dry_run: bool,
     ) -> Result<String, String> {
@@ -629,7 +669,7 @@ impl TcpBackend {
             ));
         }
         let stats = collect_backup_manifest_stats(&source).map_err(|err| err.to_string())?;
-        verify_backup_manifest(&source, &stats).map_err(|err| err.to_string())?;
+        verify_backup_manifest(&source, &stats, database_name).map_err(|err| err.to_string())?;
         let target = db.data_dir().map_err(|err| err.to_string())?;
         if !dry_run {
             copy_dir_all(&source, &target).map_err(|err| err.to_string())?;

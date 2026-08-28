@@ -3,6 +3,7 @@
 Backups copy one selected database directory and write a manifest containing:
 
 - manifest version
+- selected database name
 - source path
 - target path
 - file count
@@ -11,6 +12,7 @@ Backups copy one selected database directory and write a manifest containing:
 
 Restore first verifies the manifest against the copied payload. A dry run
 performs the same verification without writing into the target database.
+The selected restore database must match the manifest database.
 
 Operational constraints:
 

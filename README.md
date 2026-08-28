@@ -231,6 +231,7 @@ Additional operator and contributor contracts:
 - [Architecture layers](docs/architecture_layers.md)
 - [Atomic apply audit](docs/atomic_apply_audit.md)
 - [Fault injection matrix](docs/fault_injection_matrix.md)
+- [Disk lifecycle policy](docs/disk_lifecycle.md)
 - [API compatibility](docs/api_compatibility.md)
 - [SDK API parity](docs/sdk_api_parity.md)
 - [Security notes](docs/security.md)
@@ -337,8 +338,12 @@ scripts/multi-node-integration.sh
 scripts/security-regression.sh
 scripts/bench-regression.sh
 scripts/protocol-compat.sh
+scripts/read-consistency.sh
 scripts/storage-atomicity.sh
 scripts/failure-injection.sh
+scripts/query-plan-golden.sh
+scripts/sdk-failover.sh
+scripts/release-gate.sh
 ```
 
 The live path runs the Rust and Python examples against the same endpoint. Both

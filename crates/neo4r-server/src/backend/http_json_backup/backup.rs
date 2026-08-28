@@ -53,7 +53,11 @@ pub(crate) fn collect_backup_manifest_stats_inner(
     Ok(())
 }
 
-pub(crate) fn verify_backup_manifest(path: &Path, stats: &BackupManifestStats) -> io::Result<()> {
+pub(crate) fn verify_backup_manifest(
+    path: &Path,
+    stats: &BackupManifestStats,
+    database: &str,
+) -> io::Result<()> {
     let manifest = fs::read_to_string(path.join(BACKUP_MANIFEST_FILE))?;
     let fields = manifest
         .lines()
@@ -63,6 +67,12 @@ pub(crate) fn verify_backup_manifest(path: &Path, stats: &BackupManifestStats) -
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "unsupported backup manifest version",
+        ));
+    }
+    if fields.get("database") != Some(&database) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "backup manifest database mismatch",
         ));
     }
     verify_manifest_u64(&fields, "file_count", stats.file_count)?;

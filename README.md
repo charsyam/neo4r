@@ -232,6 +232,7 @@ Additional operator and contributor contracts:
 - [Atomic apply audit](docs/atomic_apply_audit.md)
 - [Fault injection matrix](docs/fault_injection_matrix.md)
 - [API compatibility](docs/api_compatibility.md)
+- [SDK API parity](docs/sdk_api_parity.md)
 - [Security notes](docs/security.md)
 - [Backup/restore contract](docs/backup_restore.md)
 
@@ -281,6 +282,24 @@ maintenance responses include a versioned safety manifest with shard, term,
 index, byte size, and checksum fields. Restore copies files into the live data
 directory, so it is intended for local development and controlled maintenance
 windows.
+
+SDK examples can be checked without a long-running server for static
+compatibility, or with one local live server for Rust and Python examples:
+
+```bash
+scripts/sdk-compat.sh
+NEO4R_RUN_SDK_LIVE=1 scripts/sdk-compat.sh
+```
+
+The live path runs the Rust and Python examples against the same endpoint. Both
+examples use `MERGE` with a stable sample id so repeat runs do not require an
+empty database. For the web/admin tenant API, start a web listener with an admin
+token and run the HTTP example:
+
+```bash
+cargo run -p neo4r-server -- --bind 127.0.0.1:7687 --web-bind 127.0.0.1:7474 --web-auth-token admin:secret --data-dir ./data --shards 1 --partitions 1
+python3 sdks/python/examples/http_admin_tenant.py --base-url http://127.0.0.1:7474 --admin-token admin:secret
+```
 
 The default wire protocol is a native length-prefixed frame:
 
@@ -406,6 +425,7 @@ RECOVER_TX_DECISIONS
 VECTOR_INDEX_STATUS
 VECTOR_INDEX_STATUS	doc_embedding
 REGISTER_REPLICATION_PEER	2	127.0.0.1:17687
+REGISTER_REPLICATION_PEER	2	127.0.0.1:17687	2	tcp
 REPLICATION_PEER_STATUS
 REPLICATION_PEER_STATUS	2
 REPLICATION_STATUS

@@ -29,15 +29,87 @@ fn tcp_replication_channel_reports_tcp_kind_and_default_config() {
 fn unsupported_replication_channels_are_explicit_placeholders() {
     let udp = UnsupportedReplicationChannel::udp();
     let rdma = UnsupportedReplicationChannel::rdma();
+    let endpoint = ReplicationEndpoint::udp("127.0.0.1:1", 1200);
 
     assert_eq!(udp.kind(), ReplicationChannelKind::Udp);
     assert_eq!(rdma.kind(), ReplicationChannelKind::Rdma);
     let err = udp
-        .send_replication_batch("127.0.0.1:1", &ReplicationChannelConfig::default(), &[])
+        .send_replication_batch(&endpoint, &ReplicationChannelConfig::default(), &[])
         .unwrap_err();
     assert!(err
         .to_string()
         .contains("Udp replication channel is not implemented"));
+}
+
+#[test]
+fn replication_endpoint_records_transport_and_capabilities() {
+    let tcp = ReplicationEndpoint::tcp("127.0.0.1:17687");
+    let udp = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);
+
+    assert_eq!(tcp.kind, ReplicationChannelKind::Tcp);
+    assert!(tcp.capabilities.raft_append);
+    assert!(tcp.capabilities.snapshot);
+    assert_eq!(udp.kind, ReplicationChannelKind::Udp);
+    assert!(!udp.capabilities.raft_append);
+    assert_eq!(udp.capabilities.max_frame_bytes, Some(1200));
+}
+
+#[test]
+fn replication_channel_negotiation_uses_preference_order() {
+    let offer = ReplicationChannelOffer {
+        server_id: 2,
+        endpoints: vec![
+            ReplicationEndpoint::tcp("127.0.0.1:17687"),
+            ReplicationEndpoint::udp("127.0.0.1:17688", 1200),
+        ],
+    };
+
+    let agreement = negotiate_replication_channel(
+        &[ReplicationChannelKind::Udp, ReplicationChannelKind::Tcp],
+        offer,
+    )
+    .unwrap();
+
+    assert_eq!(agreement.server_id, 2);
+    assert_eq!(agreement.endpoint.kind, ReplicationChannelKind::Udp);
+}
+
+#[test]
+fn udp_replication_channel_has_explicit_reliability_boundary() {
+    let channel = UdpReplicationChannel::prototype(1200);
+    let endpoint = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);
+
+    let err = channel
+        .send_raft_append_batch(&endpoint, &ReplicationChannelConfig::default(), 0, 0, &[])
+        .unwrap_err();
+
+    assert!(err
+        .to_string()
+        .contains("reliable raft delivery is not implemented"));
+}
+
+#[test]
+fn tcp_replicator_registers_endpoint_and_tracks_channel_metrics() {
+    let routing_table = ShardRoutingTable {
+        version: 1,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let replicator = TcpShardReplicator::new(routing_table);
+
+    replicator
+        .register_peer_endpoint(2, ReplicationEndpoint::tcp("127.0.0.1:1"))
+        .unwrap();
+    let entry = LogEntry::new(0, 1, 1, Command::DeleteNode { id: 1 });
+    let err = replicator.publish(&entry).unwrap_err();
+    let metrics = replicator.channel_metrics();
+
+    assert!(err.to_string().contains("replication ack policy"));
+    assert_eq!(metrics.sent_batches, 1);
+    assert_eq!(metrics.failed_batches, 1);
+    assert_eq!(metrics.sent_entries, 1);
 }
 
 #[test]
@@ -295,6 +367,6 @@ fn tcp_replicator_rejects_peer_response_without_exact_entry_ack() {
     let err = replicator.publish(&entry).unwrap_err();
     assert!(err
         .to_string()
-        .contains("tcp peer 2 ack did not include shard 0 index 7"));
+        .contains("replication peer 2 ack did not include shard 0 index 7"));
     server.join().unwrap();
 }

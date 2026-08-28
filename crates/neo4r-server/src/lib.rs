@@ -9,7 +9,8 @@ use neo4r_core::{Properties, Value};
 use neo4r_db::{
     catch_up_from_tcp_primary, catch_up_from_tcp_primary_batched, create_node_routing_key,
     handle_tcp_replication_stream, merge_node_routing_key, CreateNodeRoutingKey, DatabaseConfig,
-    Neo4rDatabaseHandle, Neo4rReadTransaction, QueryOptions, ReadIsolation,
+    Neo4rDatabaseHandle, Neo4rReadTransaction, QueryOptions, ReadIsolation, ReplicationChannelKind,
+    ReplicationEndpoint,
 };
 use neo4r_query::{QueryCursor, QueryParams, QueryRow, QueryValue, VecQueryCursor};
 use neo4r_storage::{

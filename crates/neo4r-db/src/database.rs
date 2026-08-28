@@ -1,8 +1,8 @@
 use crate::{
     AppendEntriesRequest, AppendEntriesResponse, DatabaseError, DatabaseResult,
     InstallSnapshotRequest, InstallSnapshotResponse, NoopShardReplicator, RaftCore, RaftMembership,
-    RaftPersistentStateStore, RaftRole, RaftSnapshotMetadata, ReplicationOutcome,
-    RequestVoteRequest, RequestVoteResponse, ShardReplicator,
+    RaftPersistentStateStore, RaftRole, RaftSnapshotMetadata, ReplicationEndpoint,
+    ReplicationOutcome, RequestVoteRequest, RequestVoteResponse, ShardReplicator,
 };
 mod vector_index;
 use neo4r_core::{
@@ -339,6 +339,7 @@ mod db_index_validation;
 mod db_maintenance_plan;
 mod db_open_write;
 mod db_raft_apply;
+mod db_read_consistency;
 mod db_write_schema;
 mod helpers;
 

@@ -141,8 +141,15 @@ impl TcpBackend {
                 Ok(peers) => BackendResponse::OkQueryPeers(format_query_peers(&peers)),
                 Err(err) => BackendResponse::Err(err.to_string()),
             },
-            BackendRequest::RegisterReplicationPeer { server_id, address } => {
-                match self.register_replication_peer(server_id, address) {
+            BackendRequest::RegisterReplicationPeer {
+                server_id,
+                address,
+                node_id,
+                transport,
+            } => {
+                match self
+                    .register_replication_peer_endpoint(server_id, address, node_id, transport)
+                {
                     Ok(()) => BackendResponse::OkUnit,
                     Err(err) => BackendResponse::Err(err.to_string()),
                 }

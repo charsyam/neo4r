@@ -125,9 +125,18 @@ impl NativeExecutionContext {
                     format_query_peers(&peers),
                 )))
             }
-            BackendRequest::RegisterReplicationPeer { server_id, address } => {
+            BackendRequest::RegisterReplicationPeer {
+                server_id,
+                address,
+                node_id,
+                transport,
+            } => {
+                validate_replication_peer_identity(&self.db, server_id, node_id)?;
                 self.db
-                    .register_replication_peer(server_id, address.clone())
+                    .register_replication_peer_endpoint(
+                        server_id,
+                        replication_endpoint(address.clone(), transport)?,
+                    )
                     .map_err(|err| err.to_string())?;
                 self.replication_peers
                     .register(server_id, address)

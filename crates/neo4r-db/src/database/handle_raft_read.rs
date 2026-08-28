@@ -76,6 +76,25 @@ impl Neo4rDatabaseHandle {
         self.query_with_params_and_options(query, QueryParams::new(), options)
     }
 
+    pub fn query_local_stale(&self, query: &str) -> DatabaseResult<Vec<QueryRow>> {
+        self.query_with_options(
+            query,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+    }
+
+    pub fn query_local_stale_with_params(
+        &self,
+        query: &str,
+        params: QueryParams,
+    ) -> DatabaseResult<Vec<QueryRow>> {
+        self.query_with_params_and_options(
+            query,
+            params,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+    }
+
     pub fn query_with_params_and_options(
         &self,
         query: &str,
@@ -102,6 +121,19 @@ impl Neo4rDatabaseHandle {
             query,
             QueryParams::new(),
             QueryOptions::default(),
+        )
+    }
+
+    pub fn query_local_stale_shard(
+        &self,
+        shard_id: ShardId,
+        query: &str,
+    ) -> DatabaseResult<Vec<QueryRow>> {
+        self.query_shard_with_params_and_options(
+            shard_id,
+            query,
+            QueryParams::new(),
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
         )
     }
 

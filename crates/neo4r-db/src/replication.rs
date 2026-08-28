@@ -58,6 +58,14 @@ pub trait ShardReplicator: Send + Sync {
         Ok(())
     }
 
+    fn register_peer_endpoint(
+        &self,
+        server_id: ServerId,
+        endpoint: ReplicationEndpoint,
+    ) -> DatabaseResult<()> {
+        self.register_peer_address(server_id, endpoint.address)
+    }
+
     fn unregister_peer_address(&self, _server_id: ServerId) -> DatabaseResult<()> {
         Ok(())
     }
@@ -135,8 +143,9 @@ pub struct TcpShardReplicator {
     ack_policy: ReplicationAckPolicy,
     channel_config: ReplicationChannelConfig,
     channel: Arc<dyn ReplicationChannel>,
+    channel_metrics: ReplicationChannelMetrics,
     raft_transport: bool,
-    peers: Mutex<BTreeMap<ServerId, String>>,
+    peers: Mutex<BTreeMap<ServerId, ReplicationEndpoint>>,
     raft_peer_progress: Mutex<BTreeMap<(ServerId, ShardId), RaftPeerProgress>>,
 }
 
@@ -147,6 +156,7 @@ impl TcpShardReplicator {
             ack_policy: ReplicationAckPolicy::All,
             channel_config: ReplicationChannelConfig::default(),
             channel: Arc::new(TcpReplicationChannel),
+            channel_metrics: ReplicationChannelMetrics::default(),
             raft_transport: false,
             peers: Mutex::new(BTreeMap::new()),
             raft_peer_progress: Mutex::new(BTreeMap::new()),
@@ -184,10 +194,18 @@ impl TcpShardReplicator {
         server_id: ServerId,
         address: impl Into<String>,
     ) -> DatabaseResult<()> {
+        self.register_peer_endpoint(server_id, ReplicationEndpoint::tcp(address))
+    }
+
+    pub fn register_peer_endpoint(
+        &self,
+        server_id: ServerId,
+        endpoint: ReplicationEndpoint,
+    ) -> DatabaseResult<()> {
         self.peers
             .lock()
             .map_err(|_| DatabaseError::LockPoisoned)?
-            .insert(server_id, address.into());
+            .insert(server_id, endpoint);
         Ok(())
     }
 
@@ -199,6 +217,10 @@ impl TcpShardReplicator {
         Ok(())
     }
 
+    pub fn channel_metrics(&self) -> ReplicationChannelMetricsSnapshot {
+        self.channel_metrics.snapshot()
+    }
+
     pub fn send_raft_heartbeats(&self, committed_indexes: &[LogIndex]) -> DatabaseResult<()> {
         if !self.raft_transport {
             return Ok(());
@@ -208,10 +230,11 @@ impl TcpShardReplicator {
             .lock()
             .map_err(|_| DatabaseError::LockPoisoned)?
             .clone();
-        for (_, address) in peers {
+        for (_, endpoint) in peers {
             for (shard_id, leader_commit) in committed_indexes.iter().copied().enumerate() {
+                self.record_channel_send(&[]);
                 let _ = self.channel.send_raft_append_batch(
-                    &address,
+                    &endpoint,
                     &self.channel_config,
                     shard_id as ShardId,
                     leader_commit,
@@ -233,7 +256,7 @@ impl TcpShardReplicator {
             .clone();
         let committed_indexes = db.committed_indexes()?;
         let mut sent = 0_usize;
-        for (server_id, address) in peers {
+        for (server_id, endpoint) in peers {
             for (shard_id, leader_commit) in committed_indexes.iter().copied().enumerate() {
                 let shard_id = shard_id as ShardId;
                 for _ in 0..3 {
@@ -244,8 +267,9 @@ impl TcpShardReplicator {
                         .into_iter()
                         .filter(|entry| entry.index <= leader_commit)
                         .collect::<Vec<_>>();
+                    self.record_channel_send(&entries);
                     let response = self.channel.send_raft_append_batch_once(
-                        &address,
+                        &endpoint,
                         &self.channel_config,
                         shard_id,
                         leader_commit,
@@ -253,6 +277,7 @@ impl TcpShardReplicator {
                     );
                     match response {
                         Ok(response) if response.append.success => {
+                            self.channel_metrics.record_ack();
                             let acked = response
                                 .ack_positions
                                 .into_iter()
@@ -272,6 +297,7 @@ impl TcpShardReplicator {
                             break;
                         }
                         Ok(response) => {
+                            self.channel_metrics.record_failure();
                             if let Some(snapshot) =
                                 db.install_snapshot_request_for_shard(shard_id)?
                             {
@@ -279,11 +305,12 @@ impl TcpShardReplicator {
                                     index <= snapshot.metadata.last_included_index
                                 }) {
                                     let installed = self.channel.install_snapshot(
-                                        &address,
+                                        &endpoint,
                                         &self.channel_config,
                                         snapshot,
                                     )?;
                                     if installed.success {
+                                        self.channel_metrics.record_ack();
                                         self.set_raft_progress(
                                             server_id,
                                             shard_id,
@@ -302,6 +329,7 @@ impl TcpShardReplicator {
                             self.rewind_raft_progress(server_id, shard_id, &response.append)?;
                         }
                         Err(_) if next_index > 1 => {
+                            self.channel_metrics.record_failure();
                             self.set_raft_progress(
                                 server_id,
                                 shard_id,
@@ -313,7 +341,10 @@ impl TcpShardReplicator {
                                 },
                             )?;
                         }
-                        Err(_) => break,
+                        Err(_) => {
+                            self.channel_metrics.record_failure();
+                            break;
+                        }
                     }
                 }
             }
@@ -402,9 +433,9 @@ impl TcpShardReplicator {
                 }
                 Err(err) => return Err(err),
             };
-            for (server_id, address) in &peers {
+            for (server_id, endpoint) in &peers {
                 let response = self.channel.request_vote(
-                    &address,
+                    endpoint,
                     &self.channel_config,
                     shard_id,
                     request.clone(),
@@ -437,6 +468,14 @@ impl TcpShardReplicator {
             .read()
             .map_err(|_| DatabaseError::LockPoisoned)?;
         voter_count(&routing_table, entry)
+    }
+
+    fn record_channel_send(&self, entries: &[LogEntry]) {
+        let bytes = entries
+            .iter()
+            .map(|entry| encode_log_entry(entry).len() as u64)
+            .sum();
+        self.channel_metrics.record_send(entries.len(), bytes);
     }
 }
 
@@ -594,6 +633,14 @@ impl ShardReplicator for TcpShardReplicator {
         self.register_peer(server_id, address)
     }
 
+    fn register_peer_endpoint(
+        &self,
+        server_id: ServerId,
+        endpoint: ReplicationEndpoint,
+    ) -> DatabaseResult<()> {
+        TcpShardReplicator::register_peer_endpoint(self, server_id, endpoint)
+    }
+
     fn unregister_peer_address(&self, server_id: ServerId) -> DatabaseResult<()> {
         self.unregister_peer(server_id)
     }
@@ -630,16 +677,16 @@ impl ShardReplicator for TcpShardReplicator {
         drop(peers);
 
         for (target, indexed_entries) in batches {
-            let address = self
+            let endpoint = self
                 .peers
                 .lock()
                 .map_err(|_| DatabaseError::LockPoisoned)?
                 .get(&target)
                 .cloned();
-            let Some(address) = address else {
+            let Some(endpoint) = endpoint else {
                 for (position, entry) in indexed_entries {
                     errors_by_entry[position].push(format!(
-                        "missing tcp peer {target} for shard {}",
+                        "missing replication peer {target} for shard {}",
                         entry.shard_id
                     ));
                 }
@@ -649,34 +696,37 @@ impl ShardReplicator for TcpShardReplicator {
                 .iter()
                 .map(|(_, entry)| entry.clone())
                 .collect::<Vec<_>>();
+            self.record_channel_send(&replicated_entries);
             let append_result = if self.raft_transport {
                 self.channel.send_raft_append_batches_by_shard(
-                    &address,
+                    &endpoint,
                     &self.channel_config,
                     &replicated_entries,
                 )
             } else {
                 self.channel.send_replication_batch(
-                    &address,
+                    &endpoint,
                     &self.channel_config,
                     &replicated_entries,
                 )
             };
             match append_result {
                 Ok(ack_positions) => {
+                    self.channel_metrics.record_ack();
                     let acked_entries = ack_positions.into_iter().collect::<BTreeSet<_>>();
                     for (position, entry) in indexed_entries {
                         if acked_entries.contains(&(entry.shard_id, entry.index)) {
                             outcomes[position].ack(target, entry.shard_id, entry.index);
                         } else {
                             errors_by_entry[position].push(format!(
-                                "tcp peer {target} ack did not include shard {} index {}",
+                                "replication peer {target} ack did not include shard {} index {}",
                                 entry.shard_id, entry.index
                             ));
                         }
                     }
                 }
                 Err(err) => {
+                    self.channel_metrics.record_failure();
                     let message = err.to_string();
                     for (position, _) in indexed_entries {
                         errors_by_entry[position].push(message.clone());
@@ -725,7 +775,7 @@ impl TcpShardReplicator {
             }
         }
         for ((server_id, shard_id), leader_commit) in commits_by_peer {
-            let Some(address) = self
+            let Some(endpoint) = self
                 .peers
                 .lock()
                 .map_err(|_| DatabaseError::LockPoisoned)?
@@ -734,8 +784,9 @@ impl TcpShardReplicator {
             else {
                 continue;
             };
+            self.record_channel_send(&[]);
             let _ = self.channel.send_raft_append_batch(
-                &address,
+                &endpoint,
                 &self.channel_config,
                 shard_id,
                 leader_commit,

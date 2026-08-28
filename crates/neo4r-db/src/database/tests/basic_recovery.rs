@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 use super::*;
 use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
-use neo4r_query::QueryValue;
+use neo4r_query::{QueryParams, QueryValue};
 use std::fs;
 use std::net::TcpListener;
 use std::sync::{Arc, Barrier};
@@ -40,6 +40,38 @@ pub(super) fn creates_nodes_relationships_and_queries_them() {
         Some(&QueryValue::Scalar(Value::String("Bob".to_string())))
     );
 
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn handle_local_stale_query_uses_follower_read_path() {
+    let dir = temp_dir("handle-local-stale-query");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher_on_shard(
+        0,
+        r#"CREATE (n:Person {name: "Alice"}) RETURN n"#,
+        QueryParams::new(),
+    )
+    .unwrap();
+
+    let rows = db
+        .query_local_stale(r#"MATCH (n:Person) WHERE n.name = "Alice" RETURN n.name"#)
+        .unwrap();
+    let shard_rows = db
+        .query_local_stale_shard(
+            0,
+            r#"MATCH (n:Person) WHERE n.name = "Alice" RETURN n.name"#,
+        )
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(shard_rows.len(), 1);
+    assert_eq!(
+        rows[0].get("n.name"),
+        Some(&QueryValue::Scalar(Value::String("Alice".to_string())))
+    );
+
+    drop(db);
     let _ = fs::remove_dir_all(dir);
 }
 

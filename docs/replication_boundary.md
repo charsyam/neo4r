@@ -25,3 +25,24 @@ METADATA_LOG
 When a bug report involves write visibility or primary authority, record whether
 the database was opened with Raft enabled and include the current routing table
 version.
+
+## Endpoint Identity
+
+Replication peers are negotiated as endpoints, not bare socket addresses. The
+native command keeps the legacy form and also accepts endpoint identity fields:
+
+```text
+REGISTER_REPLICATION_PEER server_id address
+REGISTER_REPLICATION_PEER server_id address node_id transport
+```
+
+`node_id` identifies the remote node that owns the endpoint. It lets the receiver
+reject self-loop registrations before any replication request is sent, including
+cases where a different `server_id` is accidentally mapped to the local node.
+`transport` is one of `tcp`, `udp`, `rdma`, or `custom`; only `tcp` is currently
+usable for raft delivery. UDP is a negotiated prototype boundary and RDMA/custom
+require provider implementations.
+
+The endpoint identity check is intentionally local and conservative. It prevents
+obvious cycles at registration time; full topology-cycle detection still belongs
+in cluster membership consensus and routing-table validation.

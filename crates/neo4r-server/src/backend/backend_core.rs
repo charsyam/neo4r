@@ -27,7 +27,7 @@ impl TcpBackend {
                 .join(PREPARED_TRANSACTIONS_FILE),
         )?;
         for (server_id, address) in replication_peers.list()? {
-            db.register_replication_peer(server_id, address)
+            db.register_replication_peer_endpoint(server_id, ReplicationEndpoint::tcp(address))
                 .map_err(io::Error::other)?;
         }
         let backend = Self::with_stores(
@@ -156,9 +156,23 @@ impl TcpBackend {
         server_id: u64,
         address: impl Into<String>,
     ) -> io::Result<()> {
+        self.register_replication_peer_endpoint(server_id, address, None, None)
+    }
+
+    pub fn register_replication_peer_endpoint(
+        &self,
+        server_id: u64,
+        address: impl Into<String>,
+        node_id: Option<u64>,
+        transport: Option<ReplicationChannelKind>,
+    ) -> io::Result<()> {
         let address = address.into();
+        validate_replication_peer_identity(&self.db, server_id, node_id)
+            .map_err(io::Error::other)?;
+        let endpoint =
+            replication_endpoint(address.clone(), transport).map_err(io::Error::other)?;
         self.db
-            .register_replication_peer(server_id, address.clone())
+            .register_replication_peer_endpoint(server_id, endpoint)
             .map_err(io::Error::other)?;
         self.replication_peers.register(server_id, address)
     }
@@ -302,4 +316,42 @@ impl TcpBackend {
     pub fn handle_replication_stream(&self, mut stream: TcpStream) -> io::Result<()> {
         handle_tcp_replication_stream(&self.db, &mut stream).map_err(io::Error::other)
     }
+}
+
+pub(crate) fn replication_endpoint(
+    address: String,
+    transport: Option<ReplicationChannelKind>,
+) -> Result<ReplicationEndpoint, String> {
+    match transport.unwrap_or(ReplicationChannelKind::Tcp) {
+        ReplicationChannelKind::Tcp => Ok(ReplicationEndpoint::tcp(address)),
+        ReplicationChannelKind::Udp => Ok(ReplicationEndpoint::udp(address, 1200)),
+        ReplicationChannelKind::Rdma => {
+            Err("rdma replication endpoints require an rdma-enabled provider boundary".to_string())
+        }
+        ReplicationChannelKind::Custom => {
+            Err("custom replication endpoints require an explicit provider boundary".to_string())
+        }
+    }
+}
+
+pub(crate) fn validate_replication_peer_identity(
+    db: &Neo4rDatabaseHandle,
+    server_id: u64,
+    node_id: Option<u64>,
+) -> Result<(), String> {
+    let local_server_id = db
+        .cluster_status()
+        .map_err(|err| err.to_string())?
+        .server_id;
+    if server_id == local_server_id {
+        return Err(format!(
+            "replication peer {server_id} cannot point to local server"
+        ));
+    }
+    if node_id == Some(local_server_id) {
+        return Err(format!(
+            "replication peer node_id {local_server_id} cannot point to local server"
+        ));
+    }
+    Ok(())
 }

@@ -40,14 +40,17 @@ def main() -> None:
     try:
         client.ping()
         rows = client.execute(
-            "CREATE (n:Person {name: $name, age: $age}) RETURN n.name, n.age",
-            {"name": "Alice", "age": 42},
+            "MERGE (n:Person {sample_id: $sample_id}) "
+            "ON CREATE SET n.name = $name, n.age = $age "
+            "ON MATCH SET n.name = $name, n.age = $age "
+            "RETURN n.name, n.age",
+            {"sample_id": "basic-usage", "name": "Alice", "age": 42},
         )
         print("created:", scalar(rows[0], "n.name"), scalar(rows[0], "n.age"))
 
         rows = client.query(
-            "MATCH (n:Person) WHERE n.name = $name RETURN n.name, n.age",
-            {"name": "Alice"},
+            "MATCH (n:Person) WHERE n.sample_id = $sample_id RETURN n.name, n.age",
+            {"sample_id": "basic-usage"},
         )
         print("matched:", scalar(rows[0], "n.name"), scalar(rows[0], "n.age"))
 

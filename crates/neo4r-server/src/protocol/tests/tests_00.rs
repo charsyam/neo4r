@@ -407,6 +407,17 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
         BackendRequest::RegisterReplicationPeer {
             server_id: 3,
             address: "127.0.0.1:7689".to_string(),
+            node_id: None,
+            transport: None,
+        }
+    );
+    assert_eq!(
+        parse_request("REGISTER_REPLICATION_PEER\t3\t127.0.0.1:7689\t30\ttcp").unwrap(),
+        BackendRequest::RegisterReplicationPeer {
+            server_id: 3,
+            address: "127.0.0.1:7689".to_string(),
+            node_id: Some(30),
+            transport: Some(neo4r_db::ReplicationChannelKind::Tcp),
         }
     );
     assert_eq!(

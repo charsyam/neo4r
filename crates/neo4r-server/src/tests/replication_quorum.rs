@@ -77,11 +77,38 @@ pub(super) fn backend_register_replication_peer_updates_write_replicator() {
             .len(),
         1
     );
-
     drop(primary);
     drop(replica);
     let _ = fs::remove_dir_all(primary_dir);
     let _ = fs::remove_dir_all(replica_dir);
+}
+
+#[test]
+pub(super) fn backend_rejects_replication_peer_identity_cycles() {
+    let dir = temp_dir("neo4r-server-register-repl-self-cycle");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(7)).unwrap();
+    let backend = TcpBackend::new(db.clone());
+
+    let alias_cycle = backend.execute_backend_request(
+        parse_request("REGISTER_REPLICATION_PEER\t8\t127.0.0.1:17687\t7\ttcp").unwrap(),
+    );
+
+    let BackendResponse::Err(message) = alias_cycle else {
+        panic!("expected alias cycle rejection");
+    };
+    assert!(message.contains("node_id 7 cannot point to local server"));
+
+    let direct_cycle = backend.execute_backend_request(
+        parse_request("REGISTER_REPLICATION_PEER\t7\t127.0.0.1:17687\t8\ttcp").unwrap(),
+    );
+
+    let BackendResponse::Err(message) = direct_cycle else {
+        panic!("expected direct cycle rejection");
+    };
+    assert!(message.contains("replication peer 7 cannot point to local server"));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]

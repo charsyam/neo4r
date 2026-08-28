@@ -58,6 +58,15 @@ impl Neo4rDatabaseHandle {
             .register_replication_peer(server_id, address.into())
     }
 
+    pub fn register_replication_peer_endpoint(
+        &self,
+        server_id: ServerId,
+        endpoint: ReplicationEndpoint,
+    ) -> DatabaseResult<()> {
+        self.lock()?
+            .register_replication_peer_endpoint(server_id, endpoint)
+    }
+
     pub fn unregister_replication_peer(&self, server_id: ServerId) -> DatabaseResult<()> {
         self.lock()?.unregister_replication_peer(server_id)
     }

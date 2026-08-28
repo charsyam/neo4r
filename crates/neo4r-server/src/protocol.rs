@@ -5,7 +5,8 @@ use neo4r_db::{
     MetadataOperationRecord, Neo4rDatabaseHandle, NodeMembershipState, QueryAccessPlan,
     QueryOperatorProfile, QueryProfile, QueryRoute, RebalanceExecution, RebalancePlan,
     RebalancePlanState, RebalancePolicy, RebalanceStep, RebalanceStepState, RemoteTraversalPolicy,
-    ShardAssignmentState, ShardStatus, StatisticsCatalog, StorageMaintenanceResult, StorageStatus,
+    ReplicationChannelKind, ShardAssignmentState, ShardStatus, StatisticsCatalog,
+    StorageMaintenanceResult, StorageStatus,
 };
 use neo4r_query::{QueryParams, QueryRow};
 use std::io::{self, Write};
@@ -59,6 +60,8 @@ pub enum BackendRequest {
     RegisterReplicationPeer {
         server_id: u64,
         address: String,
+        node_id: Option<u64>,
+        transport: Option<ReplicationChannelKind>,
     },
     UnregisterReplicationPeer(u64),
     ListReplicationPeers,
@@ -364,9 +367,28 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
         )?)),
         "REGISTER_REPLICATION_PEER" => {
             let mut parts = rest.split('\t');
+            let server_id =
+                parse_u64(parts.next(), "REGISTER_REPLICATION_PEER requires server id")?;
+            let address =
+                parse_address(parts.next(), "REGISTER_REPLICATION_PEER requires address")?;
+            let node_id = match parts.next() {
+                Some(value) if !value.trim().is_empty() => Some(parse_u64(
+                    Some(value),
+                    "REGISTER_REPLICATION_PEER node id must be numeric",
+                )?),
+                _ => None,
+            };
+            let transport = match parts.next() {
+                Some(value) if !value.trim().is_empty() => {
+                    Some(parse_replication_channel_kind(value)?)
+                }
+                _ => None,
+            };
             let request = BackendRequest::RegisterReplicationPeer {
-                server_id: parse_u64(parts.next(), "REGISTER_REPLICATION_PEER requires server id")?,
-                address: parse_address(parts.next(), "REGISTER_REPLICATION_PEER requires address")?,
+                server_id,
+                address,
+                node_id,
+                transport,
             };
             if parts.next().is_some() {
                 return Err("REGISTER_REPLICATION_PEER got extra fields".to_string());
@@ -711,6 +733,16 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
             rest,
         )?)),
         _ => Err(format!("unknown command: {command}")),
+    }
+}
+
+fn parse_replication_channel_kind(input: &str) -> Result<ReplicationChannelKind, String> {
+    match input.to_ascii_lowercase().as_str() {
+        "tcp" => Ok(ReplicationChannelKind::Tcp),
+        "udp" => Ok(ReplicationChannelKind::Udp),
+        "rdma" => Ok(ReplicationChannelKind::Rdma),
+        "custom" => Ok(ReplicationChannelKind::Custom),
+        other => Err(format!("unsupported replication transport {other:?}")),
     }
 }
 

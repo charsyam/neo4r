@@ -1,5 +1,6 @@
 use super::tcp_responses::request_tcp_catch_up_limited;
 use super::*;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplicationChannelKind {
@@ -7,6 +8,161 @@ pub enum ReplicationChannelKind {
     Udp,
     Rdma,
     Custom,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplicationChannelCapabilities {
+    pub raft_append: bool,
+    pub vote: bool,
+    pub snapshot: bool,
+    pub catch_up: bool,
+    pub max_frame_bytes: Option<usize>,
+}
+
+impl ReplicationChannelCapabilities {
+    pub fn reliable_stream() -> Self {
+        Self {
+            raft_append: true,
+            vote: true,
+            snapshot: true,
+            catch_up: true,
+            max_frame_bytes: None,
+        }
+    }
+
+    pub fn unreliable_datagram(max_frame_bytes: usize) -> Self {
+        Self {
+            raft_append: false,
+            vote: false,
+            snapshot: false,
+            catch_up: false,
+            max_frame_bytes: Some(max_frame_bytes),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplicationEndpoint {
+    pub kind: ReplicationChannelKind,
+    pub address: String,
+    pub capabilities: ReplicationChannelCapabilities,
+}
+
+impl ReplicationEndpoint {
+    pub fn tcp(address: impl Into<String>) -> Self {
+        Self {
+            kind: ReplicationChannelKind::Tcp,
+            address: address.into(),
+            capabilities: ReplicationChannelCapabilities::reliable_stream(),
+        }
+    }
+
+    pub fn udp(address: impl Into<String>, max_frame_bytes: usize) -> Self {
+        Self {
+            kind: ReplicationChannelKind::Udp,
+            address: address.into(),
+            capabilities: ReplicationChannelCapabilities::unreliable_datagram(max_frame_bytes),
+        }
+    }
+
+    #[cfg(feature = "rdma")]
+    pub fn rdma(address: impl Into<String>) -> Self {
+        Self {
+            kind: ReplicationChannelKind::Rdma,
+            address: address.into(),
+            capabilities: ReplicationChannelCapabilities::reliable_stream(),
+        }
+    }
+
+    pub fn ensure_kind(&self, expected: ReplicationChannelKind) -> DatabaseResult<()> {
+        if self.kind == expected {
+            Ok(())
+        } else {
+            Err(DatabaseError::Replication(format!(
+                "replication endpoint kind mismatch: channel {:?}, endpoint {:?}",
+                expected, self.kind
+            )))
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplicationChannelOffer {
+    pub server_id: ServerId,
+    pub endpoints: Vec<ReplicationEndpoint>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplicationChannelAgreement {
+    pub server_id: ServerId,
+    pub endpoint: ReplicationEndpoint,
+}
+
+pub fn negotiate_replication_channel(
+    preferred: &[ReplicationChannelKind],
+    offer: ReplicationChannelOffer,
+) -> DatabaseResult<ReplicationChannelAgreement> {
+    for kind in preferred {
+        if let Some(endpoint) = offer
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.kind == *kind)
+            .cloned()
+        {
+            return Ok(ReplicationChannelAgreement {
+                server_id: offer.server_id,
+                endpoint,
+            });
+        }
+    }
+    Err(DatabaseError::Replication(format!(
+        "no compatible replication channel for server {}",
+        offer.server_id
+    )))
+}
+
+#[derive(Debug, Default)]
+pub struct ReplicationChannelMetrics {
+    sent_batches: AtomicUsize,
+    acked_batches: AtomicUsize,
+    failed_batches: AtomicUsize,
+    sent_entries: AtomicUsize,
+    sent_bytes: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ReplicationChannelMetricsSnapshot {
+    pub sent_batches: usize,
+    pub acked_batches: usize,
+    pub failed_batches: usize,
+    pub sent_entries: usize,
+    pub sent_bytes: u64,
+}
+
+impl ReplicationChannelMetrics {
+    pub fn record_send(&self, entries: usize, bytes: u64) {
+        self.sent_batches.fetch_add(1, Ordering::Relaxed);
+        self.sent_entries.fetch_add(entries, Ordering::Relaxed);
+        self.sent_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn record_ack(&self) {
+        self.acked_batches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_failure(&self) {
+        self.failed_batches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> ReplicationChannelMetricsSnapshot {
+        ReplicationChannelMetricsSnapshot {
+            sent_batches: self.sent_batches.load(Ordering::Relaxed),
+            acked_batches: self.acked_batches.load(Ordering::Relaxed),
+            failed_batches: self.failed_batches.load(Ordering::Relaxed),
+            sent_entries: self.sent_entries.load(Ordering::Relaxed),
+            sent_bytes: self.sent_bytes.load(Ordering::Relaxed),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,14 +187,14 @@ pub trait ReplicationChannel: Send + Sync {
 
     fn send_replication_batch(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>>;
 
     fn send_raft_append_batch(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         leader_commit: LogIndex,
@@ -47,14 +203,14 @@ pub trait ReplicationChannel: Send + Sync {
 
     fn send_raft_append_batches_by_shard(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>>;
 
     fn send_raft_append_batch_once(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         leader_commit: LogIndex,
@@ -63,7 +219,7 @@ pub trait ReplicationChannel: Send + Sync {
 
     fn request_vote(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         request: RequestVoteRequest,
@@ -71,14 +227,14 @@ pub trait ReplicationChannel: Send + Sync {
 
     fn install_snapshot(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         request: InstallSnapshotRequest,
     ) -> DatabaseResult<InstallSnapshotResponse>;
 
     fn catch_up(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         start_index: LogIndex,
@@ -96,12 +252,13 @@ impl ReplicationChannel for TcpReplicationChannel {
 
     fn send_replication_batch(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
         send_tcp_replication_batch(
-            address,
+            &endpoint.address,
             config.connect_timeout,
             config.max_attempts,
             config.retry_backoff,
@@ -111,14 +268,15 @@ impl ReplicationChannel for TcpReplicationChannel {
 
     fn send_raft_append_batch(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         leader_commit: LogIndex,
         entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
         send_tcp_raft_append_batch(
-            address,
+            &endpoint.address,
             config.connect_timeout,
             config.max_attempts,
             config.retry_backoff,
@@ -130,12 +288,13 @@ impl ReplicationChannel for TcpReplicationChannel {
 
     fn send_raft_append_batches_by_shard(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
         send_tcp_raft_append_batches_by_shard(
-            address,
+            &endpoint.address,
             config.connect_timeout,
             config.max_attempts,
             config.retry_backoff,
@@ -145,14 +304,15 @@ impl ReplicationChannel for TcpReplicationChannel {
 
     fn send_raft_append_batch_once(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         leader_commit: LogIndex,
         entries: &[LogEntry],
     ) -> DatabaseResult<RaftAppendChannelResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
         send_tcp_raft_append_batch_once(
-            address,
+            &endpoint.address,
             config.connect_timeout,
             shard_id,
             leader_commit,
@@ -162,37 +322,57 @@ impl ReplicationChannel for TcpReplicationChannel {
 
     fn request_vote(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         request: RequestVoteRequest,
     ) -> DatabaseResult<RequestVoteResponse> {
-        request_tcp_raft_vote(address, config.connect_timeout, shard_id, request)
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
+        request_tcp_raft_vote(&endpoint.address, config.connect_timeout, shard_id, request)
     }
 
     fn install_snapshot(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         request: InstallSnapshotRequest,
     ) -> DatabaseResult<InstallSnapshotResponse> {
-        request_tcp_install_snapshot(address, config.connect_timeout, request)
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
+        request_tcp_install_snapshot(&endpoint.address, config.connect_timeout, request)
     }
 
     fn catch_up(
         &self,
-        address: &str,
+        endpoint: &ReplicationEndpoint,
         config: &ReplicationChannelConfig,
         shard_id: ShardId,
         start_index: LogIndex,
         max_entries: Option<usize>,
     ) -> DatabaseResult<Vec<LogEntry>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
         request_tcp_catch_up_limited(
-            address,
+            &endpoint.address,
             config.connect_timeout,
             shard_id,
             start_index,
             max_entries,
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UdpReplicationChannel {
+    pub max_frame_bytes: usize,
+}
+
+impl UdpReplicationChannel {
+    pub fn prototype(max_frame_bytes: usize) -> Self {
+        Self { max_frame_bytes }
+    }
+
+    fn unsupported(&self) -> DatabaseError {
+        DatabaseError::Replication(
+            "udp replication channel negotiation is available, but reliable raft delivery is not implemented".to_string(),
         )
     }
 }
@@ -230,7 +410,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn send_replication_batch(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
@@ -239,7 +419,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn send_raft_append_batch(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _shard_id: ShardId,
         _leader_commit: LogIndex,
@@ -250,7 +430,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn send_raft_append_batches_by_shard(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _entries: &[LogEntry],
     ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
@@ -259,7 +439,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn send_raft_append_batch_once(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _shard_id: ShardId,
         _leader_commit: LogIndex,
@@ -270,7 +450,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn request_vote(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _shard_id: ShardId,
         _request: RequestVoteRequest,
@@ -280,7 +460,7 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn install_snapshot(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _request: InstallSnapshotRequest,
     ) -> DatabaseResult<InstallSnapshotResponse> {
@@ -289,12 +469,197 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
 
     fn catch_up(
         &self,
-        _address: &str,
+        _endpoint: &ReplicationEndpoint,
         _config: &ReplicationChannelConfig,
         _shard_id: ShardId,
         _start_index: LogIndex,
         _max_entries: Option<usize>,
     ) -> DatabaseResult<Vec<LogEntry>> {
         Err(self.unsupported())
+    }
+}
+
+impl ReplicationChannel for UdpReplicationChannel {
+    fn kind(&self) -> ReplicationChannelKind {
+        ReplicationChannelKind::Udp
+    }
+
+    fn send_replication_batch(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn send_raft_append_batch(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _leader_commit: LogIndex,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn send_raft_append_batches_by_shard(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn send_raft_append_batch_once(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _leader_commit: LogIndex,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<RaftAppendChannelResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn request_vote(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _request: RequestVoteRequest,
+    ) -> DatabaseResult<RequestVoteResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn install_snapshot(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _request: InstallSnapshotRequest,
+    ) -> DatabaseResult<InstallSnapshotResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+
+    fn catch_up(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _start_index: LogIndex,
+        _max_entries: Option<usize>,
+    ) -> DatabaseResult<Vec<LogEntry>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
+        Err(self.unsupported())
+    }
+}
+
+#[cfg(feature = "rdma")]
+#[derive(Debug, Default)]
+pub struct RdmaReplicationChannel;
+
+#[cfg(feature = "rdma")]
+impl ReplicationChannel for RdmaReplicationChannel {
+    fn kind(&self) -> ReplicationChannelKind {
+        ReplicationChannelKind::Rdma
+    }
+
+    fn send_replication_batch(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn send_raft_append_batch(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _leader_commit: LogIndex,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn send_raft_append_batches_by_shard(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn send_raft_append_batch_once(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _leader_commit: LogIndex,
+        _entries: &[LogEntry],
+    ) -> DatabaseResult<RaftAppendChannelResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn request_vote(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _request: RequestVoteRequest,
+    ) -> DatabaseResult<RequestVoteResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn install_snapshot(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _request: InstallSnapshotRequest,
+    ) -> DatabaseResult<InstallSnapshotResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn catch_up(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _start_index: LogIndex,
+        _max_entries: Option<usize>,
+    ) -> DatabaseResult<Vec<LogEntry>> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
     }
 }

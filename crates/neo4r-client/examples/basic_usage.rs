@@ -18,10 +18,14 @@ fn main() -> Result<(), ClientError> {
     client.ping()?;
 
     let mut params = QueryParams::new();
+    params.insert(
+        "sample_id".to_string(),
+        Value::String("basic-usage".to_string()),
+    );
     params.insert("name".to_string(), Value::String("Alice".to_string()));
     params.insert("age".to_string(), Value::Int(42));
     let rows = client.execute_with_params(
-        "CREATE (n:Person {name: $name, age: $age}) RETURN n.name, n.age",
+        "MERGE (n:Person {sample_id: $sample_id}) ON CREATE SET n.name = $name, n.age = $age ON MATCH SET n.name = $name, n.age = $age RETURN n.name, n.age",
         &params,
     )?;
     println!(
@@ -31,9 +35,12 @@ fn main() -> Result<(), ClientError> {
     );
 
     let mut params = QueryParams::new();
-    params.insert("name".to_string(), Value::String("Alice".to_string()));
+    params.insert(
+        "sample_id".to_string(),
+        Value::String("basic-usage".to_string()),
+    );
     let rows = client.query_with_params(
-        "MATCH (n:Person) WHERE n.name = $name RETURN n.name, n.age",
+        "MATCH (n:Person) WHERE n.sample_id = $sample_id RETURN n.name, n.age",
         &params,
     )?;
     println!(

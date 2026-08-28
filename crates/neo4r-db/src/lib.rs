@@ -32,12 +32,17 @@ pub use raft::{
     RaftCore, RaftMembership, RaftMembershipChange, RaftPersistentState, RaftPersistentStateStore,
     RaftRole, RaftSnapshotMetadata, RequestVoteRequest, RequestVoteResponse,
 };
+#[cfg(feature = "rdma")]
+pub use replication::RdmaReplicationChannel;
 pub use replication::{
     catch_up_from_tcp_primaries, catch_up_from_tcp_primaries_batched, catch_up_from_tcp_primary,
-    catch_up_from_tcp_primary_batched, handle_tcp_replication_stream, request_tcp_install_snapshot,
+    catch_up_from_tcp_primary_batched, handle_tcp_replication_stream,
+    negotiate_replication_channel, request_tcp_install_snapshot,
     request_tcp_raft_append_or_install_snapshot, request_tcp_raft_vote, InProcessShardReplicator,
     NoopShardReplicator, RaftAppendChannelResponse, ReplicationAckPolicy, ReplicationChannel,
-    ReplicationChannelConfig, ReplicationChannelKind, ReplicationOutcome, ShardReplicator,
-    TcpCatchUpResult, TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator,
+    ReplicationChannelAgreement, ReplicationChannelCapabilities, ReplicationChannelConfig,
+    ReplicationChannelKind, ReplicationChannelMetricsSnapshot, ReplicationChannelOffer,
+    ReplicationEndpoint, ReplicationOutcome, ShardReplicator, TcpCatchUpResult,
+    TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator, UdpReplicationChannel,
     UnsupportedReplicationChannel,
 };

@@ -19,8 +19,8 @@ target/debug/neo4r-server --bind 127.0.0.1:17689 --replication-bind 127.0.0.1:18
 Register replication peers on the primary:
 
 ```text
-REGISTER_REPLICATION_PEER	2	127.0.0.1:18688
-REGISTER_REPLICATION_PEER	3	127.0.0.1:18689
+REGISTER_REPLICATION_PEER	2	127.0.0.1:18688	2	tcp
+REGISTER_REPLICATION_PEER	3	127.0.0.1:18689	3	tcp
 RAFT_STATUS
 ```
 

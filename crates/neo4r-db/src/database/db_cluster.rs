@@ -54,6 +54,19 @@ impl Neo4rDatabase {
         self.replicator.register_peer_address(server_id, address)
     }
 
+    pub fn register_replication_peer_endpoint(
+        &mut self,
+        server_id: ServerId,
+        endpoint: ReplicationEndpoint,
+    ) -> DatabaseResult<()> {
+        if endpoint.address.trim().is_empty() {
+            return Err(DatabaseError::InvalidConfig(
+                "replication endpoint address must not be empty".to_string(),
+            ));
+        }
+        self.replicator.register_peer_endpoint(server_id, endpoint)
+    }
+
     pub fn unregister_replication_peer(&mut self, server_id: ServerId) -> DatabaseResult<()> {
         self.replicator.unregister_peer_address(server_id)
     }

@@ -2,7 +2,7 @@ use super::tcp_responses::*;
 use super::*;
 
 pub(super) fn preflight_tcp_ack_capacity(
-    peers: &BTreeMap<ServerId, String>,
+    peers: &BTreeMap<ServerId, ReplicationEndpoint>,
     batches: &BTreeMap<ServerId, Vec<(usize, LogEntry)>>,
     required_acks: &[usize],
 ) -> DatabaseResult<()> {
@@ -20,7 +20,7 @@ pub(super) fn preflight_tcp_ack_capacity(
     for (position, required) in required_acks.iter().enumerate() {
         if possible_acks[position] < *required {
             return Err(DatabaseError::Replication(format!(
-                "replication ack policy cannot be satisfied for entry {position}: possible {}, required {}; missing tcp peers: {:?}",
+                "replication ack policy cannot be satisfied for entry {position}: possible {}, required {}; missing replication peers: {:?}",
                 possible_acks[position], required, missing
             )));
         }

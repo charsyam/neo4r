@@ -102,6 +102,7 @@ Verification:
 
 - `scripts/check-file-lines.sh`
 - `cargo test --workspace --quiet`
+
 - `scripts/bench-smoke.sh`
 - `cargo fmt --all --check`
 - `git diff --check`
@@ -176,3 +177,117 @@ Completed changes:
   `UnsupportedReplicationChannel` so unsupported transports fail clearly until
   real implementations are added.
 - Added unit coverage for the new channel kind/config and placeholder behavior.
+
+## Replication Channel Follow-up Goal 1-10
+
+Requested scope: set items 1 through 10 as a goal and complete them in order.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Committed the existing formal boundary and replication channel abstraction
+   work as `2a63365 Add replication channel abstraction and architecture guards`.
+2. Reduced TCP coupling in the replication channel API by moving channel calls
+   from raw addresses to transport-neutral `ReplicationEndpoint` values.
+3. Added `ReplicationEndpoint` and `ReplicationChannelCapabilities` so peer
+   addresses carry transport kind and capability metadata.
+4. Added `ReplicationChannelOffer`, `ReplicationChannelAgreement`, and
+   `negotiate_replication_channel` for explicit endpoint selection.
+5. Added a UDP channel prototype boundary and UDP endpoint metadata. UDP can be
+   negotiated but fails raft delivery explicitly until reliable datagram
+   semantics are implemented.
+6. Added a `rdma` feature gate with an RDMA endpoint/channel boundary for
+   provider integration without linking RDMA dependencies by default.
+7. Added channel metrics snapshots and wired `TcpShardReplicator` to record
+   sends, acks, failures, entries, and approximate encoded bytes.
+8. Added explicit `query_local_stale*` handle APIs for follower/local stale read
+   correctness paths.
+9. Added a server backend module ownership manifest and architecture guard.
+10. Split DB read snapshot/read-index consistency code into
+    `database/db_read_consistency.rs` to keep large DB files below the line
+    guard and make read consistency ownership explicit.
+
+Verification:
+
+- `cargo fmt --all --check`
+- `scripts/check-architecture.sh`
+- `git diff --check`
+- `cargo check -p neo4r-db --features rdma`
+- `cargo test -p neo4r-db --quiet`
+- `cargo test --workspace --quiet`
+
+## Sample Verification
+
+Requested scope: check whether the repository samples run correctly and identify
+the next useful work.
+
+Status:
+
+- Completed.
+
+Findings and changes:
+
+- `cargo run -p neo4r-query --example cypher_demo` ran successfully.
+- `NEO4R_PERF_NODES=200 NEO4R_PERF_SHARDS=4 NEO4R_PERF_PARTITIONS=2 cargo run -p neo4r-db --example basic_perf`
+  ran successfully.
+- `NEO4R_RUN_SDK_COMPAT=1 NEO4R_SDK_COMPAT_PORT=17698 scripts/sdk-compat.sh`
+  initially failed because the script started the live server on the configured
+  port but ran the Python example against its default port.
+- Updated `scripts/sdk-compat.sh` to pass `--host` and `--port` to the Python
+  SDK example.
+- Re-ran the live SDK compatibility script successfully; Rust and Python SDK
+  examples both created, queried, profiled, planned, and read status from the
+  same server.
+
+Verification:
+
+- `bash -n scripts/sdk-compat.sh`
+- `cargo fmt --all --check`
+- `scripts/check-architecture.sh`
+- `NEO4R_RUN_SDK_COMPAT=1 NEO4R_SDK_COMPAT_PORT=17698 scripts/sdk-compat.sh`
+
+## SDK and Replication Protocol Follow-up Goal 1-7
+
+Requested scope: complete the proposed follow-up items 1 through 7 and include
+node identity in the replication protocol to prevent endpoint cycle mistakes.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Added `scripts/sdk-api-parity.sh` and wired SDK parity checks into
+   `scripts/sdk-compat.sh`.
+2. Made Rust and Python SDK examples idempotent by using `MERGE` with a stable
+   `sample_id`; live SDK runs now keep Person cardinality at 1 across both
+   examples.
+3. Added `docs/sdk_api_parity.md` and linked it from README.
+4. Updated README with verified SDK static/live commands and added a Python
+   HTTP tenant/admin example workflow.
+5. Added `sdks/python/examples/http_admin_tenant.py` for database creation,
+   token invocation, scoped tenant query, and database selection.
+6. Extended `REGISTER_REPLICATION_PEER` to accept optional `node_id` and
+   `transport`, then wired server registration through `ReplicationEndpoint`.
+   The backend now rejects replication peers whose `server_id` or `node_id`
+   points to the local server, preventing obvious self-loop/cycle mistakes.
+7. Documented the replication transport contract and node identity semantics in
+   `docs/replication_boundary.md`; UDP remains a negotiated prototype boundary
+   and RDMA/custom require provider implementations.
+
+Verification:
+
+- `bash -n scripts/sdk-compat.sh`
+- `bash -n scripts/sdk-api-parity.sh`
+- `bash -n scripts/ci-integration.sh`
+- `python3 -m py_compile sdks/python/examples/basic_usage.py sdks/python/examples/http_admin_tenant.py sdks/python/neo4r_client/client.py`
+- `scripts/sdk-api-parity.sh`
+- `scripts/check-architecture.sh`
+- `cargo check -p neo4r-db --features rdma`
+- `cargo check -p neo4r-server`
+- `cargo test -p neo4r-server --quiet`
+- `NEO4R_RUN_SDK_LIVE=1 NEO4R_SDK_COMPAT_PORT=17698 scripts/sdk-compat.sh`
+- `cargo test --workspace --quiet`

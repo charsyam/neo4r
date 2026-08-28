@@ -283,6 +283,28 @@ impl SegmentedShardLog {
         Ok(())
     }
 
+    pub fn compaction_candidates_before(
+        &self,
+        retained_index: LogIndex,
+    ) -> StorageResult<Vec<PathBuf>> {
+        let retained_segment = self.segment_start_for_index(retained_index);
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(&self.segments_dir)? {
+            let path = entry?.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(segment_start) = segment_start_from_path(&path)? else {
+                continue;
+            };
+            if segment_start < retained_segment {
+                paths.push((segment_start, path));
+            }
+        }
+        paths.sort_by_key(|(segment_start, _)| *segment_start);
+        Ok(paths.into_iter().map(|(_, path)| path).collect())
+    }
+
     fn segment_paths_from(&self, start_index: LogIndex) -> StorageResult<Vec<PathBuf>> {
         let start_segment = self.segment_start_for_index(start_index);
         let mut paths = Vec::new();
@@ -725,6 +747,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(1, 1), (2, 2), (3, 3), (4, 9)]
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn segmented_shard_log_reports_compaction_candidates_before_retained_index() {
+        let dir = temp_dir("neo4r-segmented-compaction-candidates");
+        let log = SegmentedShardLog::open(&dir, 3, 2).unwrap();
+
+        for index in 1..=6 {
+            log.append(&LogEntry::new(
+                3,
+                index,
+                index,
+                Command::SetNodeProperty {
+                    id: 1,
+                    key: "position".to_string(),
+                    value: Value::Int(index as i64),
+                },
+            ))
+            .unwrap();
+        }
+
+        let candidates = log.compaction_candidates_before(5).unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates[0].ends_with("00000000000000000001.log"));
+        assert!(candidates[1].ends_with("00000000000000000003.log"));
+        assert!(log.compaction_candidates_before(1).unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(dir);
     }

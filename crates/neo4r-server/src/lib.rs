@@ -107,6 +107,7 @@ impl Default for TcpBackendConfig {
 struct WebMetrics {
     http_requests: Arc<AtomicU64>,
     http_errors: Arc<AtomicU64>,
+    auth_failures: Arc<AtomicU64>,
     queries: Arc<AtomicU64>,
     query_errors: Arc<AtomicU64>,
     slow_queries: Arc<AtomicU64>,

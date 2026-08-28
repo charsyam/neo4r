@@ -553,12 +553,16 @@ impl Client {
 
     fn update_topology_cache_from_registry(&mut self, registry: &str) {
         let mut ttl_ms = None;
+        let mut local_server = None;
+        let mut query_peers = None;
+        let mut nodes = None;
         for part in registry.split_whitespace() {
             let Some((key, value)) = part.split_once('=') else {
                 continue;
             };
             match key {
                 "database" => self.topology_cache.database = value.to_string(),
+                "local_server" => local_server = value.parse::<u64>().ok(),
                 "routing_version" => {
                     self.topology_cache.routing_version = value.parse().unwrap_or_default()
                 }
@@ -566,13 +570,54 @@ impl Client {
                     self.topology_cache.ownership_epoch = value.parse().unwrap_or_default()
                 }
                 "ttl_ms" => ttl_ms = value.parse::<u64>().ok(),
+                "query_peers" => query_peers = Some(value),
+                "nodes" => nodes = Some(value),
                 _ => {}
             }
         }
         if let Some(ttl_ms) = ttl_ms {
             self.topology_cache.expires_at = Some(Instant::now() + Duration::from_millis(ttl_ms));
         }
+        if let Some(address) = first_registry_address(local_server, query_peers, nodes) {
+            self.topology_cache.last_address = Some(address);
+        }
     }
+}
+
+fn first_registry_address(
+    local_server: Option<u64>,
+    query_peers: Option<&str>,
+    nodes: Option<&str>,
+) -> Option<String> {
+    if let Some(query_peers) = query_peers.filter(|peers| *peers != "none") {
+        for peer in query_peers.split('|') {
+            let Some((server, address)) = peer.split_once(':') else {
+                continue;
+            };
+            if !address.is_empty()
+                && local_server
+                    .map(|local| server != local.to_string())
+                    .unwrap_or(true)
+            {
+                return Some(address.to_string());
+            }
+        }
+    }
+    if let Some(nodes) = nodes {
+        for node in nodes.split('|') {
+            let parts = node.splitn(3, ':').collect::<Vec<_>>();
+            if parts.len() == 3
+                && parts[1] == "active"
+                && !parts[2].is_empty()
+                && local_server
+                    .map(|local| parts[0] != local.to_string())
+                    .unwrap_or(true)
+            {
+                return Some(parts[2].to_string());
+            }
+        }
+    }
+    None
 }
 
 fn parse_redirect_response(input: &str) -> Option<RedirectInfo> {
@@ -825,6 +870,26 @@ mod tests {
         let err = client.ping().unwrap_err();
         assert!(format!("{err}").contains("redirect loop detected"));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn client_registry_address_prefers_remote_query_peer() {
+        let address = first_registry_address(
+            Some(1),
+            Some("1:127.0.0.1:17687|2:127.0.0.1:17688"),
+            Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688"),
+        );
+        assert_eq!(address.as_deref(), Some("127.0.0.1:17688"));
+    }
+
+    #[test]
+    fn client_registry_address_falls_back_to_active_remote_node() {
+        let address = first_registry_address(
+            Some(1),
+            Some("none"),
+            Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688|3:down:127.0.0.1:17689"),
+        );
+        assert_eq!(address.as_deref(), Some("127.0.0.1:17688"));
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {

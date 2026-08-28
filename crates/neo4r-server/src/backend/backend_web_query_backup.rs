@@ -3,6 +3,7 @@ use super::*;
 pub(crate) struct WebMetricsSnapshot {
     pub(crate) http_requests: u64,
     pub(crate) http_errors: u64,
+    pub(crate) auth_failures: u64,
     pub(crate) queries: u64,
     pub(crate) query_errors: u64,
     pub(crate) slow_queries: u64,
@@ -37,9 +38,10 @@ pub(crate) struct WebMetricsSnapshot {
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
             self.http_requests,
             self.http_errors,
+            self.auth_failures,
             self.queries,
             self.query_errors,
             self.slow_queries,
@@ -80,7 +82,7 @@ impl WebMetricsSnapshot {
         )
     }
 
-    pub(crate) fn to_prometheus(&self, database_name: &str) -> String {
+    pub(crate) fn to_prometheus(&self, database_name: &str, server_id: u64) -> String {
         let committed_max = self
             .db_committed_indexes
             .iter()
@@ -96,6 +98,7 @@ impl WebMetricsSnapshot {
         let mut metrics = [
             prometheus_metric("neo4r_http_requests_total", self.http_requests),
             prometheus_metric("neo4r_http_errors_total", self.http_errors),
+            prometheus_metric("neo4r_auth_failures_total", self.auth_failures),
             prometheus_metric("neo4r_queries_total", self.queries),
             prometheus_metric("neo4r_query_errors_total", self.query_errors),
             prometheus_metric("neo4r_slow_queries_total", self.slow_queries),
@@ -169,6 +172,26 @@ impl WebMetricsSnapshot {
             database_name,
             self.raft_group_count as u64,
         ));
+        for (shard_id, committed_index) in self.db_committed_indexes.iter().copied().enumerate() {
+            metrics.push_str(&prometheus_shard_metric(
+                "neo4r_database_shard_committed_index",
+                database_name,
+                shard_id as u64,
+                server_id,
+                "unknown",
+                committed_index,
+            ));
+        }
+        for (shard_id, applied_index) in self.db_applied_indexes.iter().copied().enumerate() {
+            metrics.push_str(&prometheus_shard_metric(
+                "neo4r_database_shard_applied_index",
+                database_name,
+                shard_id as u64,
+                server_id,
+                "unknown",
+                applied_index,
+            ));
+        }
         metrics
     }
 }
@@ -181,6 +204,23 @@ fn prometheus_database_metric(name: &str, database_name: &str, value: u64) -> St
     format!(
         "# TYPE {name} gauge\n{name}{{database=\"{}\"}} {value}\n",
         json_escape(database_name)
+    )
+}
+
+fn prometheus_shard_metric(
+    name: &str,
+    database_name: &str,
+    shard_id: u64,
+    server_id: u64,
+    role: &str,
+    value: u64,
+) -> String {
+    format!(
+        "# TYPE {name} gauge\n{name}{{database=\"{}\",shard=\"{}\",server=\"{}\",role=\"{}\"}} {value}\n",
+        json_escape(database_name),
+        shard_id,
+        server_id,
+        json_escape(role)
     )
 }
 
@@ -465,7 +505,38 @@ impl TcpBackend {
         database_name: &str,
     ) -> String {
         let metrics = self.metrics_snapshot(db);
-        metrics.to_prometheus(database_name)
+        let server_id = db
+            .cluster_status()
+            .map(|status| status.server_id)
+            .unwrap_or_default();
+        let mut output = metrics.to_prometheus(database_name, server_id);
+        for status in db.raft_status().unwrap_or_default() {
+            output.push_str(&prometheus_shard_metric(
+                "neo4r_raft_shard_commit_index",
+                database_name,
+                status.shard_id,
+                server_id,
+                &format!("{:?}", status.role),
+                status.commit_index,
+            ));
+            output.push_str(&prometheus_shard_metric(
+                "neo4r_raft_shard_last_log_index",
+                database_name,
+                status.shard_id,
+                server_id,
+                &format!("{:?}", status.role),
+                status.last_log_index,
+            ));
+            output.push_str(&prometheus_shard_metric(
+                "neo4r_raft_shard_snapshot_index",
+                database_name,
+                status.shard_id,
+                server_id,
+                &format!("{:?}", status.role),
+                status.snapshot_index,
+            ));
+        }
+        output
     }
 
     pub(crate) fn metrics_snapshot(&self, db: &Neo4rDatabaseHandle) -> WebMetricsSnapshot {
@@ -545,6 +616,7 @@ impl TcpBackend {
         WebMetricsSnapshot {
             http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
             http_errors: self.metrics.http_errors.load(Ordering::Relaxed),
+            auth_failures: self.metrics.auth_failures.load(Ordering::Relaxed),
             queries: self.metrics.queries.load(Ordering::Relaxed),
             query_errors: self.metrics.query_errors.load(Ordering::Relaxed),
             slow_queries: self.metrics.slow_queries.load(Ordering::Relaxed),
@@ -671,6 +743,11 @@ impl TcpBackend {
         let stats = collect_backup_manifest_stats(&source).map_err(|err| err.to_string())?;
         verify_backup_manifest(&source, &stats, database_name).map_err(|err| err.to_string())?;
         let target = db.data_dir().map_err(|err| err.to_string())?;
+        let _lock = if dry_run {
+            None
+        } else {
+            Some(RestoreLock::acquire(&target)?)
+        };
         if !dry_run {
             copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
         }
@@ -684,5 +761,30 @@ impl TcpBackend {
             stats.total_bytes,
             stats.checksum
         ))
+    }
+}
+
+struct RestoreLock {
+    path: PathBuf,
+}
+
+impl RestoreLock {
+    fn acquire(target: &Path) -> Result<Self, String> {
+        let path = target.join("system").join("restore.lock");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|err| format!("restore lock is already held or unavailable: {err}"))?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for RestoreLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }

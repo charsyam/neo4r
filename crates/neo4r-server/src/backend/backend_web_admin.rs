@@ -8,6 +8,7 @@ impl TcpBackend {
         };
         let Some(role) = self.authorized_role(request, &database_name) else {
             self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+            self.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
             return HttpResponse::json_status(401, json_error("unauthorized"));
         };
         let selected_db = || self.database_for_name(&database_name);

@@ -20,6 +20,9 @@ from a snapshot whose `last_included_index` is greater than or equal to the
 deleted segment's max index. Replica migration and catch-up should prefer log
 catch-up when the previous index is available, and install a snapshot when the
 replica is behind the retained log window.
+The segmented shard WAL exposes compaction candidates before a retained index,
+so snapshot-driven pruning can be planned and validated before deleting old log
+segments.
 
 ## RocksDB
 

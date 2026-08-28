@@ -20,6 +20,8 @@ Operational constraints:
 - manifest file itself is excluded from file count and checksum.
 - tenant graph backups do not restore system auth/audit state.
 - interrupted restore is recovered through `system/restore.pending`.
+- destructive restore acquires `system/restore.lock` with create-new semantics.
+  A second restore fails before copying any backup payload.
 
 Recommended validation after restore:
 

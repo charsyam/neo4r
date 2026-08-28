@@ -11,6 +11,9 @@ scripts/query-plan-golden.sh
 scripts/storage-atomicity.sh
 scripts/failure-injection.sh
 scripts/security-regression.sh
+scripts/multi-node-live-gate.sh
+scripts/membership-automation.sh
+scripts/wal-compaction.sh
 scripts/multi-node-integration.sh
 scripts/bench-regression.sh
 

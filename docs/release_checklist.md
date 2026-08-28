@@ -1,0 +1,45 @@
+# Release Checklist
+
+Use this checklist before publishing a neo4r build or SDK package.
+
+## Required Metadata
+
+- Git commit SHA
+- Rust crate versions
+- Python SDK version
+- protocol capability string from `CAPABILITIES`
+- supported native wire result contract version
+- RocksDB format compatibility note
+- migration and backup/restore notes
+
+## Required Gates
+
+```bash
+scripts/release-gate.sh
+```
+
+For live cluster validation:
+
+```bash
+NEO4R_RUN_RELEASE_LIVE=1 scripts/release-gate.sh
+```
+
+## Operator Checks
+
+- Run a dry-run restore from the target backup before destructive restore.
+- Confirm no `system/restore.lock` exists unless an active restore owns it.
+- Confirm Prometheus scraping includes database, shard, server, and role labels.
+- Confirm admin users have scoped database permissions, expiry, and revocation
+  paths tested.
+- Confirm SDK examples can connect, query, and recover from topology redirects.
+
+## Artifact Notes
+
+Every release artifact should include:
+
+- `README.md`
+- `docs/query_result_contract.md`
+- `docs/backup_restore.md`
+- `docs/security.md`
+- `docs/replication_boundary.md`
+- output from `scripts/release-gate.sh`

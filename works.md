@@ -1,5 +1,39 @@
 # Module Boundary, Raft/API Hardening, Chaos Goal
 
+## Release Gate And Operations Hardening Goal 1-10
+
+Requested scope: commit the current baseline first, then set items 1 through 10
+as a goal and complete them.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Promote multi-node live Raft coverage into a named gate.
+2. Complete membership automation safeguards with a repeatable script.
+3. Add snapshot/WAL compaction hooks and focused tests.
+4. Extend Prometheus output with database, shard, server, and role labels.
+5. Keep admin destructive actions covered by explicit restore locking.
+6. Strengthen Rust/Python SDK topology failover parity.
+7. Add backup/restore lock and online restore policy checks.
+8. Stabilize QueryResult/wire result format documentation.
+9. Harden security metrics and audit guidance for auth failures.
+10. Add release artifact metadata and checklist documentation.
+
+Verification:
+
+- `cargo fmt --all --check`
+- `cargo check --workspace`
+- `scripts/check-file-lines.sh`
+- `scripts/wal-compaction.sh`
+- `scripts/membership-automation.sh`
+- `scripts/multi-node-live-gate.sh`
+- `scripts/sdk-failover.sh`
+- `scripts/security-regression.sh`
+- `scripts/release-gate.sh`
+
 Requested scope: set items 1 through 10 as a goal and complete them, with item
 1 specifically keeping individual files around the 1000-line range.
 

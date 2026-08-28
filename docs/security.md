@@ -7,6 +7,8 @@ Current hardening:
   on token replacement/revoke/delete.
 - tokens can be scoped per database and can expire.
 - admin mutations append audit events.
+- web authentication failures are exported as `auth_failures` in JSON metrics
+  and `neo4r_auth_failures_total` in Prometheus metrics.
 
 Next hardening targets:
 

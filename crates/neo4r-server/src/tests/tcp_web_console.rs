@@ -194,6 +194,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         &metrics,
         &[
             "\"http_requests\"",
+            "\"auth_failures\"",
             "\"db_nodes\"",
             "\"db_committed_indexes\"",
             "\"db_applied_indexes\"",
@@ -217,12 +218,14 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         &prometheus,
         &[
             "neo4r_http_requests_total",
+            "neo4r_auth_failures_total",
             "neo4r_db_nodes",
             "neo4r_db_committed_index_max",
             "neo4r_index_ready",
             "neo4r_raft_term_max",
             "neo4r_web_audit_events",
             "neo4r_database_db_nodes{database=\"default\"}",
+            "neo4r_database_shard_committed_index{database=\"default\",shard=\"0\",server=\"0\",role=\"unknown\"}",
         ],
     );
 
@@ -275,6 +278,25 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         1
     );
 
+    let restore_lock = dir.join("system").join("restore.lock");
+    fs::create_dir_all(restore_lock.parent().unwrap()).unwrap();
+    fs::write(&restore_lock, b"held").unwrap();
+    let restore_locked_body = format!(
+        "{{\"path\":\"{}\",\"dry_run\":false}}",
+        backup_dir.display()
+    );
+    let restore_locked = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/restore HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            restore_locked_body.len(),
+            restore_locked_body
+        ),
+    );
+    assert!(restore_locked.contains("HTTP/1.1 500 Internal Server Error"));
+    assert!(restore_locked.contains("restore lock"));
+    fs::remove_file(&restore_lock).unwrap();
+
     let verify_invariants = web_request(
         TcpBackend::new(db.clone())
             .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250)),
@@ -305,9 +327,10 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(restore_tampered.contains("HTTP/1.1 500 Internal Server Error"));
     assert!(restore_tampered.contains("backup manifest"));
 
+    let secure_backend = TcpBackend::new(db.clone())
+        .with_web_options(Some("secret".to_string()), Duration::from_millis(250));
     let unauthorized = web_request(
-        TcpBackend::new(db.clone())
-            .with_web_options(Some("secret".to_string()), Duration::from_millis(250)),
+        secure_backend.clone(),
         "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
     );
     assert!(unauthorized.contains("HTTP/1.1 401 Unauthorized"));
@@ -327,11 +350,11 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(reader_forbidden.contains("HTTP/1.1 403 Forbidden"));
 
     let authorized = web_request(
-        TcpBackend::new(db.clone())
-            .with_web_options(Some("secret".to_string()), Duration::from_millis(250)),
+        secure_backend.clone(),
         "GET /api/metrics?token=secret HTTP/1.1\r\nhost: localhost\r\n\r\n",
     );
     assert!(authorized.contains("HTTP/1.1 200 OK"));
+    assert!(authorized.contains("\"auth_failures\":1"));
 
     let add_user_body =
         "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"writer\",\"token\":\"alice-token\",\"expired_at\":\"0\"}";

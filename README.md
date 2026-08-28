@@ -34,6 +34,13 @@ The remaining limitations are production-grade lease clock-bound validation and
 fully applying replicated configuration-change commands as cluster metadata
 state transitions.
 
+Operational contracts are tracked in:
+
+- [QueryResult contract](docs/query_result_contract.md)
+- [Release checklist](docs/release_checklist.md)
+- [Backup and restore](docs/backup_restore.md)
+- [Security](docs/security.md)
+
 Replay is shard-local, not cluster-global. A node only replays log entries for
 shards it hosts.
 

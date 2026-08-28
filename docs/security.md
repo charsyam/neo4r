@@ -13,13 +13,17 @@ Current hardening:
   `auth_rate_limited` / `neo4r_auth_rate_limited_total`.
 - token lookup keys use a stable keyed digest instead of Rust's randomized
   `DefaultHasher`.
+- new token lookups support a primary digest key with legacy digest lookup during
+  rotation.
+- browser session cookies include a bounded `Max-Age`, and cookie-authenticated
+  mutation requests require `X-Neo4r-Csrf: neo4r-admin`.
 
 Next hardening targets:
 
 - replace the built-in stable digest with a dedicated KDF or keyed MAC.
-- avoid storing plaintext token material in user records.
 - redact token-like values from audit and slow query output.
-- separate session cookies from bearer tokens for browser admin usage.
+- move browser sessions from bearer-token cookies to opaque server-side session
+  records.
 
 Until token storage is fully migrated, operators should rotate tokens after
 backup/restore and avoid sharing tenant admin tokens across environments.

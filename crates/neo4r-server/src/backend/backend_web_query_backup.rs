@@ -403,8 +403,12 @@ impl TcpBackend {
             .query_plan_with_params(query, params)
             .map_err(|err| err.to_string())?;
         Ok(format!(
-            "{{\"plan\":\"{}\"}}",
-            json_escape(&format_query_plan(&plan))
+            "{{\"plan\":\"{}\",\"explain\":{{\"cost_model_version\":{},\"estimated_cost\":{},\"estimated_rows\":{},\"remote_shard_count\":{}}}}}",
+            json_escape(&format_query_plan(&plan)),
+            plan.cost_model_version,
+            plan.estimated_cost,
+            plan.estimated_rows,
+            plan.remote_shard_count
         ))
     }
 
@@ -836,24 +840,37 @@ impl TcpBackend {
         let target = PathBuf::from(path);
         copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
         let stats = collect_backup_manifest_stats(&target).map_err(|err| err.to_string())?;
+        let commit_indexes = db.committed_indexes().map_err(|err| err.to_string())?;
+        let commit_marker = commit_indexes
+            .iter()
+            .map(|index| index.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         let manifest = format!(
-            "neo4r_backup_manifest_version=1\ndatabase={}\nsource={}\ntarget={}\nfile_count={}\ntotal_bytes={}\nchecksum={}\n",
+            "neo4r_backup_manifest_version=1\ndatabase={}\nsource={}\ntarget={}\nfile_count={}\ntotal_bytes={}\nchecksum={}\ncommit_indexes={}\n",
             database_name,
             source.display(),
             target.display(),
             stats.file_count,
             stats.total_bytes,
-            stats.checksum
+            stats.checksum,
+            commit_marker
         );
         fs::write(target.join(BACKUP_MANIFEST_FILE), manifest).map_err(|err| err.to_string())?;
+        self.audit_admin(
+            "backup.create",
+            database_name,
+            &format!("target={} commit_indexes={commit_marker}", target.display()),
+        );
         Ok(format!(
-            "{{\"source\":\"{}\",\"target\":\"{}\",\"manifest\":\"{}\",\"file_count\":{},\"total_bytes\":{},\"checksum\":{}}}",
+            "{{\"source\":\"{}\",\"target\":\"{}\",\"manifest\":\"{}\",\"file_count\":{},\"total_bytes\":{},\"checksum\":{},\"commit_indexes\":[{}]}}",
             json_escape(&source.display().to_string()),
             json_escape(&target.display().to_string()),
             json_escape(BACKUP_MANIFEST_FILE),
             stats.file_count,
             stats.total_bytes,
-            stats.checksum
+            stats.checksum,
+            commit_marker
         ))
     }
 
@@ -888,6 +905,15 @@ impl TcpBackend {
         if !dry_run {
             copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
         }
+        self.audit_admin(
+            if dry_run {
+                "restore.verify"
+            } else {
+                "restore.apply"
+            },
+            database_name,
+            &format!("source={} dry_run={dry_run}", source.display()),
+        );
         Ok(format!(
             "{{\"source\":\"{}\",\"target\":\"{}\",\"manifest\":\"{}\",\"dry_run\":{},\"verified\":true,\"file_count\":{},\"total_bytes\":{},\"checksum\":{}}}",
             json_escape(&source.display().to_string()),
@@ -941,37 +967,4 @@ fn query_columns_json(rows: &[QueryRow]) -> String {
             .collect::<Vec<_>>()
             .join(",")
     )
-}
-
-fn restore_maintenance_mode_path(db: &Neo4rDatabaseHandle) -> Result<PathBuf, String> {
-    Ok(db
-        .data_dir()
-        .map_err(|err| err.to_string())?
-        .join("system")
-        .join("maintenance.mode"))
-}
-
-struct RestoreLock {
-    path: PathBuf,
-}
-
-impl RestoreLock {
-    fn acquire(target: &Path) -> Result<Self, String> {
-        let path = target.join("system").join("restore.lock");
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-        }
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|err| format!("restore lock is already held or unavailable: {err}"))?;
-        Ok(Self { path })
-    }
-}
-
-impl Drop for RestoreLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
 }

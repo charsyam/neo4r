@@ -697,3 +697,54 @@ Verification:
    rounds, append conflicts, snapshot install duration, and per-shard lag.
 10. Admin UI login now writes a session cookie, and the server accepts that
     cookie as an auth fallback without exposing token material in user lists.
+
+## 2026-08-29 Goal: Raft, Transport, Security, Backup, Query, Ops, Deploy 1-10
+
+Requested scope: commit and push existing work first, then set the next proposed
+items 1 through 10 as a goal and implement them in order.
+
+Status:
+
+- Completed.
+
+Planned and implemented changes:
+
+1. Synced README and operational docs with current Raft, security, backup, and
+   readiness behavior.
+2. Re-ran the release benchmark regression path in live mode and used failures
+   as the active validation gate.
+3. Added Raft PreVote checks, leader-transfer preconditions, snapshot chunk
+   framing, and focused unit coverage.
+4. Added reliable datagram wire-format encode/decode coverage for future UDP
+   replication transport work.
+5. Hardened browser admin auth with bounded session cookies, CSRF headers, and
+   token digest rotation lookup.
+6. Extended backup/restore safety with commit-index markers, restore guard
+   module separation, and backup/restore audit events.
+7. Extended HTTP query-plan output with structured cost-model `explain` fields.
+8. Added retrying timeout-based remote peer connects for distributed query and
+   remote command forwarding.
+9. Added unauthenticated `/healthz` and database-backed `/readyz` probes.
+10. Added a multi-node Docker Compose deployment example under `deploy/`.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo check --workspace`
+- `scripts/check-file-lines.sh`
+- `cargo test -p neo4r-db raft::tests --quiet`
+- `cargo test -p neo4r-db replication::tests --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `cargo test -p neo4r-server web_console_isolates_tenant_databases_and_scopes_tokens --quiet`
+- `NEO4R_RUN_BENCH_REGRESSION=1 scripts/bench-regression.sh`
+- `cargo test --workspace --quiet`
+
+Benchmark output:
+
+- create_nodes: 5,000 ops, 20,528.026 ms, 243.6 ops/sec.
+- create_relationships: 4,999 ops, 30,227.506 ms, 165.4 ops/sec.
+- set_node_property: 500 ops, 3,459.962 ms, 144.5 ops/sec.
+- indexed_query: 1 op, 0.248 ms, 4,037.8 ops/sec.
+- traversal_query: 1 op, 0.044 ms, 22,587.6 ops/sec.
+- reopen_replay: 1 op, 1,647.668 ms, 0.6 ops/sec.
+- total: 10,499 ops, 55,915.745 ms, 187.8 ops/sec.

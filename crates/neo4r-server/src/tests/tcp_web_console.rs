@@ -136,6 +136,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"snapshotNow\""));
     assert!(index.contains("id=\"verifyInvariants\""));
     assert!(index.contains("id=\"repairInvariants\""));
+    assert!(index.contains("x-neo4r-csrf"));
 
     let graph = web_request(
         TcpBackend::new(db.clone()),
@@ -180,6 +181,22 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     );
     assert!(plan.contains("HTTP/1.1 200 OK"));
     assert!(plan.contains("\"plan\""));
+    assert!(plan.contains("\"explain\""));
+    assert!(plan.contains("\"estimated_cost\""));
+
+    let health = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /healthz HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(health.contains("HTTP/1.1 200 OK"));
+    assert!(health.contains("\"status\":\"ok\""));
+
+    let ready = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /readyz HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(ready.contains("HTTP/1.1 200 OK"));
+    assert!(ready.contains("\"status\":\"ready\""));
 
     let profile = web_request(
         TcpBackend::new(db.clone()),
@@ -269,9 +286,11 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(backup.contains("\"target\""));
     assert!(backup.contains("\"manifest\""));
     assert!(backup.contains("\"checksum\""));
+    assert!(backup.contains("\"commit_indexes\""));
     let manifest = fs::read_to_string(backup_dir.join(BACKUP_MANIFEST_FILE)).unwrap();
     assert!(manifest.contains("neo4r_backup_manifest_version=1"));
     assert!(manifest.contains("database=default"));
+    assert!(manifest.contains("commit_indexes="));
 
     db.execute_cypher(r#"CREATE (n:Person {name: "DryRunOnly"})"#)
         .unwrap();
@@ -426,6 +445,16 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session=secret\r\n\r\n",
     );
     assert!(cookie_authorized.contains("HTTP/1.1 200 OK"));
+
+    let cookie_post_without_csrf = web_request(
+        secure_backend.clone(),
+        &format!(
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session=secret\r\ncontent-length: {}\r\n\r\n{}",
+            reader_query_body.len(),
+            reader_query_body
+        ),
+    );
+    assert!(cookie_post_without_csrf.contains("HTTP/1.1 403 Forbidden"));
 
     let add_user_body =
         "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"writer\",\"token\":\"alice-token\",\"expired_at\":\"0\"}";

@@ -258,8 +258,7 @@ impl RemoteShardQueryCursor {
         payload: String,
         operation: &str,
     ) -> Result<Self, String> {
-        let mut stream = TcpStream::connect(address)
-            .map_err(|err| format!("connect query peer {address}: {err}"))?;
+        let mut stream = connect_remote_peer(address, "query peer")?;
         write_frame(
             &mut stream,
             &NativeFrame::new(NativeMessageType::Command, 1, payload.into_bytes()),
@@ -438,9 +437,28 @@ pub(crate) fn request_remote_query_shard(
 }
 
 pub(crate) fn request_remote_command(address: &str, payload: &str) -> Result<String, String> {
-    let mut stream = TcpStream::connect(address)
-        .map_err(|err| format!("connect write peer {address}: {err}"))?;
+    let mut stream = connect_remote_peer(address, "write peer")?;
     request_command_on_stream(&mut stream, 1, payload)
+}
+
+fn connect_remote_peer(address: &str, role: &str) -> Result<TcpStream, String> {
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let result = address
+            .to_socket_addrs()
+            .map_err(|err| format!("resolve {role} {address}: {err}"))?
+            .find_map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(1)).ok());
+        if let Some(stream) = result {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+            return Ok(stream);
+        }
+        last_error = Some(format!("connect {role} {address} failed"));
+        if attempt == 0 {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+    Err(last_error.unwrap_or_else(|| format!("connect {role} {address} failed")))
 }
 
 pub(crate) fn request_command_on_stream(

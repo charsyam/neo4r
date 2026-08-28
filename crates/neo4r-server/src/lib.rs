@@ -2,6 +2,8 @@
 
 mod peer_store;
 mod protocol;
+#[path = "backend/restore_guard.rs"]
+mod restore_guard;
 mod tenant;
 mod web_auth;
 
@@ -28,6 +30,7 @@ use protocol::{
     format_query_plan, format_response, format_routing_table, parse_query_payload, parse_request,
     write_response, BackendRedirect, BackendResponse, RedirectKind,
 };
+use restore_guard::{restore_maintenance_mode_path, RestoreLock};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};

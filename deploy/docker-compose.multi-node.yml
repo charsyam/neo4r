@@ -1,0 +1,43 @@
+services:
+  node1:
+    image: rust:1
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    command: >
+      cargo run -p neo4r-server -- --bind 0.0.0.0:17687
+      --web-bind 0.0.0.0:18080 --replication-bind 0.0.0.0:18687
+      --data-dir /workspace/data/node1 --server-id 1 --primary-server-id 1
+      --shards 2 --partitions 2 --web-auth-token admin:secret
+    ports:
+      - "17687:17687"
+      - "18080:18080"
+      - "18687:18687"
+  node2:
+    image: rust:1
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    command: >
+      cargo run -p neo4r-server -- --bind 0.0.0.0:17688
+      --web-bind 0.0.0.0:18081 --replication-bind 0.0.0.0:18688
+      --data-dir /workspace/data/node2 --server-id 2 --primary-server-id 1
+      --shards 2 --partitions 2 --web-auth-token admin:secret
+    ports:
+      - "17688:17688"
+      - "18081:18081"
+      - "18688:18688"
+  node3:
+    image: rust:1
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    command: >
+      cargo run -p neo4r-server -- --bind 0.0.0.0:17689
+      --web-bind 0.0.0.0:18082 --replication-bind 0.0.0.0:18689
+      --data-dir /workspace/data/node3 --server-id 3 --primary-server-id 1
+      --shards 2 --partitions 2 --web-auth-token admin:secret
+    ports:
+      - "17689:17689"
+      - "18082:18082"
+      - "18689:18689"

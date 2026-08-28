@@ -3,6 +3,8 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+const RELIABLE_DATAGRAM_MAGIC: &[u8] = b"N4RUDP1";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplicationChannelKind {
     Tcp,
@@ -346,6 +348,75 @@ impl ReliableDatagramFrame {
             })
             .collect()
     }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(RELIABLE_DATAGRAM_MAGIC.len() + 34 + self.payload.len());
+        out.extend_from_slice(RELIABLE_DATAGRAM_MAGIC);
+        out.extend_from_slice(&self.stream_id.to_be_bytes());
+        out.extend_from_slice(&self.sequence.to_be_bytes());
+        out.extend_from_slice(&self.ack.unwrap_or(0).to_be_bytes());
+        out.extend_from_slice(&self.fragment_index.to_be_bytes());
+        out.extend_from_slice(&self.fragment_count.to_be_bytes());
+        out.extend_from_slice(&(self.payload.len() as u32).to_be_bytes());
+        out.extend_from_slice(&self.payload);
+        out
+    }
+
+    pub fn decode(input: &[u8]) -> DatabaseResult<Self> {
+        let header_len = RELIABLE_DATAGRAM_MAGIC.len() + 8 + 8 + 8 + 2 + 2 + 4;
+        if input.len() < header_len || !input.starts_with(RELIABLE_DATAGRAM_MAGIC) {
+            return Err(DatabaseError::Replication(
+                "invalid reliable datagram frame header".to_string(),
+            ));
+        }
+        let mut offset = RELIABLE_DATAGRAM_MAGIC.len();
+        let stream_id = read_u64(input, &mut offset)?;
+        let sequence = read_u64(input, &mut offset)?;
+        let ack = match read_u64(input, &mut offset)? {
+            0 => None,
+            value => Some(value),
+        };
+        let fragment_index = read_u16(input, &mut offset)?;
+        let fragment_count = read_u16(input, &mut offset)?;
+        let payload_len = read_u32(input, &mut offset)? as usize;
+        if input.len() != offset + payload_len {
+            return Err(DatabaseError::Replication(
+                "invalid reliable datagram payload length".to_string(),
+            ));
+        }
+        Ok(Self {
+            stream_id,
+            sequence,
+            ack,
+            fragment_index,
+            fragment_count,
+            payload: input[offset..].to_vec(),
+        })
+    }
+}
+
+fn read_u64(input: &[u8], offset: &mut usize) -> DatabaseResult<u64> {
+    let bytes = input
+        .get(*offset..*offset + 8)
+        .ok_or_else(|| DatabaseError::Replication("truncated datagram u64".to_string()))?;
+    *offset += 8;
+    Ok(u64::from_be_bytes(bytes.try_into().unwrap()))
+}
+
+fn read_u32(input: &[u8], offset: &mut usize) -> DatabaseResult<u32> {
+    let bytes = input
+        .get(*offset..*offset + 4)
+        .ok_or_else(|| DatabaseError::Replication("truncated datagram u32".to_string()))?;
+    *offset += 4;
+    Ok(u32::from_be_bytes(bytes.try_into().unwrap()))
+}
+
+fn read_u16(input: &[u8], offset: &mut usize) -> DatabaseResult<u16> {
+    let bytes = input
+        .get(*offset..*offset + 2)
+        .ok_or_else(|| DatabaseError::Replication("truncated datagram u16".to_string()))?;
+    *offset += 2;
+    Ok(u16::from_be_bytes(bytes.try_into().unwrap()))
 }
 
 #[derive(Debug, Default)]

@@ -1,73 +1,13 @@
 use crate::{DatabaseError, DatabaseResult};
 use neo4r_core::{Command, LogEntry, LogIndex, ServerId, ShardId, Term};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const RAFT_STATE_MAGIC: &str = "N4RRAFT1";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RaftPersistentState {
-    pub current_term: Term,
-    pub voted_for: Option<ServerId>,
-}
-
-impl Default for RaftPersistentState {
-    fn default() -> Self {
-        Self {
-            current_term: 0,
-            voted_for: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RaftPersistentStateStore {
-    path: PathBuf,
-}
-
-impl RaftPersistentStateStore {
-    pub fn open(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-
-    pub fn load(&self) -> DatabaseResult<RaftPersistentState> {
-        match fs::read_to_string(&self.path) {
-            Ok(text) => decode_persistent_state(&text),
-            Err(err) if err.kind() == ErrorKind::NotFound => Ok(RaftPersistentState::default()),
-            Err(err) => Err(DatabaseError::InvalidConfig(format!(
-                "failed to read raft state {}: {err}",
-                self.path.display()
-            ))),
-        }
-    }
-
-    pub fn save(&self, state: &RaftPersistentState) -> DatabaseResult<()> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(|err| {
-                DatabaseError::InvalidConfig(format!(
-                    "failed to create raft state dir {}: {err}",
-                    parent.display()
-                ))
-            })?;
-        }
-        let temp_path = temp_path(&self.path);
-        fs::write(&temp_path, encode_persistent_state(state)).map_err(|err| {
-            DatabaseError::InvalidConfig(format!(
-                "failed to write raft state {}: {err}",
-                temp_path.display()
-            ))
-        })?;
-        fs::rename(&temp_path, &self.path).map_err(|err| {
-            DatabaseError::InvalidConfig(format!(
-                "failed to install raft state {}: {err}",
-                self.path.display()
-            ))
-        })
-    }
-}
+#[path = "raft/persistent.rs"]
+mod persistent;
+pub use persistent::{RaftPersistentState, RaftPersistentStateStore};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestVoteRequest {
@@ -79,6 +19,20 @@ pub struct RequestVoteRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestVoteResponse {
+    pub term: Term,
+    pub vote_granted: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreVoteRequest {
+    pub next_term: Term,
+    pub candidate_id: ServerId,
+    pub last_log_index: LogIndex,
+    pub last_log_term: Term,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreVoteResponse {
     pub term: Term,
     pub vote_granted: bool,
 }
@@ -115,6 +69,13 @@ pub struct InstallSnapshotRequest {
     pub leader_id: ServerId,
     pub metadata: RaftSnapshotMetadata,
     pub payload: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstallSnapshotChunk {
+    pub request: InstallSnapshotRequest,
+    pub offset: u64,
+    pub done: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -463,6 +424,16 @@ impl RaftCore {
         Ok(false)
     }
 
+    pub fn pre_vote(&self, request: PreVoteRequest) -> PreVoteResponse {
+        let vote_granted = request.next_term >= self.persistent.current_term
+            && self.membership.contains(request.candidate_id)
+            && self.is_log_up_to_date(request.last_log_index, request.last_log_term);
+        PreVoteResponse {
+            term: self.persistent.current_term,
+            vote_granted,
+        }
+    }
+
     pub fn request_vote(
         &mut self,
         request: RequestVoteRequest,
@@ -480,10 +451,8 @@ impl RaftCore {
 
         let can_vote = self.persistent.voted_for.is_none()
             || self.persistent.voted_for == Some(request.candidate_id);
-        let up_to_date = request.last_log_term > self.last_log_term()
-            || (request.last_log_term == self.last_log_term()
-                && request.last_log_index >= self.last_log_index());
-        let vote_granted = can_vote && up_to_date;
+        let vote_granted =
+            can_vote && self.is_log_up_to_date(request.last_log_index, request.last_log_term);
 
         if vote_granted {
             self.persistent.voted_for = Some(request.candidate_id);
@@ -493,6 +462,40 @@ impl RaftCore {
         Ok(RequestVoteResponse {
             term: self.persistent.current_term,
             vote_granted,
+        })
+    }
+
+    pub fn leader_transfer_request(
+        &self,
+        transferee_id: ServerId,
+    ) -> DatabaseResult<RequestVoteRequest> {
+        if self.role != RaftRole::Leader {
+            return Err(DatabaseError::Replication(
+                "leader transfer requires raft leader".to_string(),
+            ));
+        }
+        if !self.membership.contains(transferee_id) {
+            return Err(DatabaseError::Replication(format!(
+                "leader transfer target {transferee_id} is not a voter"
+            )));
+        }
+        if self
+            .match_indexes
+            .get(&transferee_id)
+            .copied()
+            .unwrap_or_default()
+            < self.commit_index
+        {
+            return Err(DatabaseError::Replication(format!(
+                "leader transfer target {transferee_id} is behind commit index {}",
+                self.commit_index
+            )));
+        }
+        Ok(RequestVoteRequest {
+            term: self.persistent.current_term.saturating_add(1),
+            candidate_id: transferee_id,
+            last_log_index: self.last_log_index(),
+            last_log_term: self.last_log_term(),
         })
     }
 
@@ -946,52 +949,38 @@ impl RaftCore {
             self.lease_deadline = Some(Instant::now() + self.lease_duration);
         }
     }
-}
 
-fn encode_persistent_state(state: &RaftPersistentState) -> String {
-    format!(
-        "{RAFT_STATE_MAGIC}\nterm={}\nvoted_for={}\n",
-        state.current_term,
-        state
-            .voted_for
-            .map(|server_id| server_id.to_string())
-            .unwrap_or_else(|| "-".to_string())
-    )
-}
-
-fn decode_persistent_state(input: &str) -> DatabaseResult<RaftPersistentState> {
-    let mut lines = input.lines();
-    if lines.next() != Some(RAFT_STATE_MAGIC) {
-        return Err(DatabaseError::InvalidConfig(
-            "invalid raft state header".to_string(),
-        ));
+    fn is_log_up_to_date(&self, last_log_index: LogIndex, last_log_term: Term) -> bool {
+        last_log_term > self.last_log_term()
+            || (last_log_term == self.last_log_term() && last_log_index >= self.last_log_index())
     }
-    let term = lines
-        .next()
-        .and_then(|line| line.strip_prefix("term="))
-        .ok_or_else(|| DatabaseError::InvalidConfig("missing raft term".to_string()))?
-        .parse::<Term>()
-        .map_err(|_| DatabaseError::InvalidConfig("invalid raft term".to_string()))?;
-    let voted_for = match lines
-        .next()
-        .and_then(|line| line.strip_prefix("voted_for="))
-        .ok_or_else(|| DatabaseError::InvalidConfig("missing raft vote".to_string()))?
-    {
-        "-" => None,
-        value => Some(
-            value
-                .parse::<ServerId>()
-                .map_err(|_| DatabaseError::InvalidConfig("invalid raft vote".to_string()))?,
-        ),
-    };
-    Ok(RaftPersistentState {
-        current_term: term,
-        voted_for,
-    })
 }
 
-fn temp_path(path: &Path) -> PathBuf {
-    path.with_extension("tmp")
+impl InstallSnapshotRequest {
+    pub fn chunks(&self, max_payload_bytes: usize) -> Vec<InstallSnapshotChunk> {
+        let max_payload_bytes = max_payload_bytes.max(1);
+        if self.payload.is_empty() {
+            return vec![InstallSnapshotChunk {
+                request: self.clone(),
+                offset: 0,
+                done: true,
+            }];
+        }
+        self.payload
+            .chunks(max_payload_bytes)
+            .enumerate()
+            .map(|(index, payload)| {
+                let offset = (index * max_payload_bytes) as u64;
+                let mut request = self.clone();
+                request.payload = payload.to_vec();
+                InstallSnapshotChunk {
+                    request,
+                    offset,
+                    done: offset as usize + payload.len() >= self.payload.len(),
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

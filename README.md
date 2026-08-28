@@ -32,7 +32,8 @@ membership changes pass through a joint quorum model in RaftCore. Routing table
 installs also append a durable `ClusterConfigChange` command to the shard log,
 and committed install-phase config changes update durable local cluster
 metadata. The remaining production limitation is validating leader lease
-clock-bound assumptions across hosts.
+clock-bound assumptions against each deployment's measured clock and network
+bounds before enabling lease reads for production-critical traffic.
 
 Operational contracts are tracked in:
 
@@ -218,6 +219,7 @@ admin. Admin users can manage persistent RocksDB-backed web users under
 `expired_at` unix-second expiry (`0` means no expiry). Tokens can also be scoped
 to database roles, for example `database_roles:"tenant_a=writer,tenant_b=reader"`.
 Expired, revoked, or non-authorized database tokens cannot authorize requests.
+Browser session-cookie mutations require `X-Neo4r-Csrf: neo4r-admin`.
 The server exposes multi-tenant databases under `DATA_DIR/databases/{name}` and
 system metadata under `DATA_DIR/system`.
 The existing root data directory remains the `default` database for compatibility.
@@ -300,10 +302,11 @@ database and return `{"database":"tenant_a"}`. `POST /api/admin/databases`
 accepts `{"name":"tenant_a"}`.
 `POST /api/admin/invoke-token` accepts
 `{"name":"operator","token_id":"main","role":"writer","token":"writer:operator-token","expired_at":"0"}`.
-Backup and restore requests accept `{"path":"/path/to/backup"}`. Snapshot
-maintenance responses include a versioned safety manifest with shard, term,
-index, byte size, and checksum fields. Restore copies files into the live data
-directory, so it is intended for local development and controlled maintenance
+Backup and restore requests accept `{"path":"/path/to/backup"}`. Backup manifests
+include file statistics, checksum, database name, and committed shard indexes.
+Snapshot maintenance responses include a versioned safety manifest with shard,
+term, index, byte size, and checksum fields. Restore copies files into the live
+data directory, so it is intended for local development and controlled maintenance
 windows.
 
 Clients can discover shard placement with the native `ROUTING_TABLE` command,
@@ -383,6 +386,8 @@ Prometheus text format, including HTTP/query counts, committed/applied index
 maxima, index lifecycle counts, tenant counts, and Raft term/snapshot/joint
 consensus gauges. `GET /api/admin/audit-log` accepts optional `action`,
 `target`, and `limit` query parameters for RocksDB-backed audit log searches.
+`GET /healthz` is an unauthenticated liveness probe. `GET /readyz` validates the
+selected database can open and answer storage statistics before returning ready.
 
 Current request message types:
 

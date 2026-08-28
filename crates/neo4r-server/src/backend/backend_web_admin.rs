@@ -2,10 +2,25 @@ use super::*;
 impl TcpBackend {
     pub(crate) fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
         self.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
+        if request.method == "GET" && request.path == "/healthz" {
+            return HttpResponse::json("{\"status\":\"ok\"}".to_string());
+        }
         let database_name = match self.request_database_name(request) {
             Ok(database_name) => database_name,
             Err(err) => return HttpResponse::json_status(400, json_error(&err)),
         };
+        if request.method == "GET" && request.path == "/readyz" {
+            return match self.database_for_name(&database_name) {
+                Ok(db) => match db.statistics_catalog() {
+                    Ok(_) => HttpResponse::json(format!(
+                        "{{\"status\":\"ready\",\"database\":\"{}\"}}",
+                        json_escape(&database_name)
+                    )),
+                    Err(err) => HttpResponse::json_status(503, json_error(&err.to_string())),
+                },
+                Err(err) => HttpResponse::json_status(503, json_error(&err)),
+            };
+        }
         let Some(role) = self.authorized_role(request, &database_name) else {
             self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
             self.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
@@ -20,6 +35,12 @@ impl TcpBackend {
             }
             return HttpResponse::json_status(401, json_error("unauthorized"));
         };
+        if !request.method.eq_ignore_ascii_case("GET") && request_uses_session_cookie(request) {
+            if request.header("x-neo4r-csrf") != Some("neo4r-admin") {
+                self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+                return HttpResponse::json_status(403, json_error("missing csrf token"));
+            }
+        }
         let selected_db = || self.database_for_name(&database_name);
         if matches!(
             request.path.as_str(),
@@ -718,6 +739,14 @@ fn request_session_token(request: &HttpRequest) -> Option<String> {
                 None
             }
         })
+    })
+}
+
+fn request_uses_session_cookie(request: &HttpRequest) -> bool {
+    request.header("cookie").is_some_and(|cookie| {
+        cookie
+            .split(';')
+            .any(|part| part.trim().starts_with("neo4r.session="))
     })
 }
 

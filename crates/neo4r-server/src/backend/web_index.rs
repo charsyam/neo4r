@@ -202,12 +202,13 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       const token = authToken();
       if (token) headers.authorization = 'Bearer ' + token;
       headers['x-neo4r-database'] = selectedDatabase();
+      headers['x-neo4r-csrf'] = 'neo4r-admin';
       return headers;
     }
 
     function saveLogin() {
       localStorage.setItem('neo4r.authToken', authToken());
-      document.cookie = 'neo4r.session=' + encodeURIComponent(authToken()) + '; SameSite=Strict; path=/';
+      document.cookie = 'neo4r.session=' + encodeURIComponent(authToken()) + '; Max-Age=3600; SameSite=Strict; path=/';
       setStatus('Login saved.');
     }
 

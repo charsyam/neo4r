@@ -160,10 +160,9 @@ impl WebUserTokenStore {
             .kv
             .lock()
             .map_err(|_| "web token store lock poisoned".to_string())?;
-        let digest = web_token_digest(token);
-        let Some(user_key) = kv
-            .get(&web_token_digest_key(&digest))
-            .map_err(|err| err.to_string())?
+        let Some(user_key) = web_token_digests(token)
+            .iter()
+            .find_map(|digest| kv.get(&web_token_digest_key(digest)).ok().flatten())
             .or_else(|| {
                 kv.get(&web_token_lookup_key(token))
                     .map_err(|err| err.to_string())
@@ -421,7 +420,18 @@ pub(super) fn unix_millis_now() -> u128 {
 }
 
 pub(super) fn web_token_digest(token: &str) -> String {
-    stable_keyed_digest_hex(b"neo4r-web-token-v2", token.as_bytes())
+    stable_keyed_digest_hex(web_token_digest_primary_key(), token.as_bytes())
+}
+
+fn web_token_digests(token: &str) -> Vec<String> {
+    vec![
+        stable_keyed_digest_hex(web_token_digest_primary_key(), token.as_bytes()),
+        stable_keyed_digest_hex(b"neo4r-web-token-v1", token.as_bytes()),
+    ]
+}
+
+fn web_token_digest_primary_key() -> &'static [u8] {
+    b"neo4r-web-token-v2"
 }
 
 fn stable_keyed_digest_hex(key: &[u8], value: &[u8]) -> String {

@@ -166,6 +166,28 @@ fn reliable_datagram_frame_carries_ack_sequence() {
 }
 
 #[test]
+fn reliable_datagram_frame_wire_format_round_trips_and_rejects_truncation() {
+    let frame = ReliableDatagramFrame {
+        stream_id: 3,
+        sequence: 8,
+        ack: Some(7),
+        fragment_index: 1,
+        fragment_count: 3,
+        payload: b"payload".to_vec(),
+    };
+
+    let encoded = frame.encode();
+    assert_eq!(ReliableDatagramFrame::decode(&encoded).unwrap(), frame);
+
+    let mut truncated = encoded;
+    truncated.pop();
+    assert!(ReliableDatagramFrame::decode(&truncated)
+        .unwrap_err()
+        .to_string()
+        .contains("payload length"));
+}
+
+#[test]
 fn rdma_provider_trait_builds_reliable_endpoint_and_validates_availability() {
     let provider = MockRdmaReplicationProvider::available("mock-rdma");
     let endpoint = provider.endpoint("rdma://node-a".to_string());

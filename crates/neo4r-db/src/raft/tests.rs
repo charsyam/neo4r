@@ -1,5 +1,6 @@
 use super::*;
 use neo4r_core::Properties;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
@@ -231,6 +232,84 @@ fn candidate_becomes_leader_after_vote_quorum() {
         .unwrap());
     assert_eq!(raft.role(), &RaftRole::Leader);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn pre_vote_checks_log_without_persisting_vote_or_term() {
+    let dir = temp_dir("neo4r-raft-prevote");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store.clone(), membership).unwrap();
+    raft.append_entries(AppendEntriesRequest {
+        term: 2,
+        leader_id: 2,
+        prev_log_index: 0,
+        prev_log_term: 0,
+        entries: vec![entry(0, 2, 1)],
+        leader_commit: 1,
+    })
+    .unwrap();
+
+    let stale = raft.pre_vote(PreVoteRequest {
+        next_term: 3,
+        candidate_id: 3,
+        last_log_index: 0,
+        last_log_term: 0,
+    });
+    assert!(!stale.vote_granted);
+    let fresh = raft.pre_vote(PreVoteRequest {
+        next_term: 3,
+        candidate_id: 3,
+        last_log_index: 1,
+        last_log_term: 2,
+    });
+    assert!(fresh.vote_granted);
+    assert_eq!(store.load().unwrap().voted_for, None);
+    assert_eq!(store.load().unwrap().current_term, 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn leader_transfer_requires_voter_to_be_caught_up() {
+    let dir = temp_dir("neo4r-raft-leader-transfer");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership).unwrap();
+    raft.start_election().unwrap();
+    raft.become_leader();
+    let first = raft.append_local_entry(command(1)).unwrap();
+    assert_eq!(raft.record_replication_match(2, first.index).unwrap(), 1);
+
+    let request = raft.leader_transfer_request(2).unwrap();
+    assert_eq!(request.candidate_id, 2);
+    assert_eq!(request.term, 2);
+    let err = raft.leader_transfer_request(3).unwrap_err();
+    assert!(err.to_string().contains("behind commit index"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn install_snapshot_request_chunks_payload_with_offsets() {
+    let request = InstallSnapshotRequest {
+        term: 4,
+        leader_id: 1,
+        metadata: RaftSnapshotMetadata {
+            shard_id: 0,
+            last_included_term: 4,
+            last_included_index: 9,
+        },
+        payload: b"abcdef".to_vec(),
+    };
+
+    let chunks = request.chunks(2);
+
+    assert_eq!(chunks.len(), 3);
+    assert_eq!(chunks[0].offset, 0);
+    assert_eq!(chunks[1].offset, 2);
+    assert_eq!(chunks[2].offset, 4);
+    assert!(!chunks[0].done);
+    assert!(chunks[2].done);
+    assert_eq!(chunks[2].request.payload, b"ef".to_vec());
 }
 
 #[test]

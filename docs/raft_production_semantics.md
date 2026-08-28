@@ -4,6 +4,8 @@ Neo4r's Raft path now persists term/voted-for, performs RequestVote and
 AppendEntries consistency checks, repairs divergent suffixes, advances commit
 after quorum match indexes, supports read-index and leader-lease reads, and
 applies committed routing-table install commands into local cluster metadata.
+PreVote checks, leader-transfer preconditions, and snapshot chunk boundaries are
+implemented in RaftCore and covered by focused unit tests.
 
 ## Lease Reads
 
@@ -13,9 +15,10 @@ Leader lease reads expose remaining lease time through:
 - `/api/admin/raft-status`
 - `neo4r_raft_shard_leader_lease_remaining_ms`
 
-The remaining production work is validating clock-bound assumptions across
-hosts. Until that is complete, operators should prefer read-index reads when
-machine clocks or scheduling latency are not tightly controlled.
+Lease reads are enabled only when the configured lease duration is greater than
+the configured clock plus message-delay bound. Operators still need to set those
+bounds from measured host and network behavior; otherwise use read-index reads
+for strong semantics.
 
 ## Config Changes
 

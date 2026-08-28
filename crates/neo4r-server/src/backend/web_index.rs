@@ -206,9 +206,16 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       return headers;
     }
 
-    function saveLogin() {
+    async function saveLogin() {
       localStorage.setItem('neo4r.authToken', authToken());
-      document.cookie = 'neo4r.session=' + encodeURIComponent(authToken()) + '; Max-Age=3600; SameSite=Strict; path=/';
+      const response = await fetch('/api/session', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ token: authToken(), database: selectedDatabase() })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Login failed');
+      document.cookie = 'neo4r.session=' + encodeURIComponent(body.session_id) + '; Max-Age=3600; SameSite=Strict; path=/';
       setStatus('Login saved.');
     }
 

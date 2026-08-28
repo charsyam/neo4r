@@ -97,6 +97,10 @@ impl TcpBackend {
             .data_dir()
             .ok()
             .and_then(|data_dir| WebAuditStore::open(data_dir.join(WEB_AUDIT_ROCKS_DIR)).ok());
+        let web_sessions = db
+            .data_dir()
+            .ok()
+            .and_then(|data_dir| WebSessionStore::open(data_dir.join(WEB_SESSION_ROCKS_DIR)).ok());
         Self {
             workers: NativeWorkerPool::new(
                 NativeExecutionContext {
@@ -134,6 +138,7 @@ impl TcpBackend {
             slow_queries: SlowQueryLog::default(),
             web_user_tokens,
             web_audit,
+            web_sessions,
             tenant_databases: None,
         }
     }

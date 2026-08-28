@@ -17,13 +17,14 @@ Current hardening:
   rotation.
 - browser session cookies include a bounded `Max-Age`, and cookie-authenticated
   mutation requests require `X-Neo4r-Csrf: neo4r-admin`.
+- browser login exchanges bearer tokens for opaque `sid:` records stored under
+  `system/web-session-rocksdb`.
 
 Next hardening targets:
 
 - replace the built-in stable digest with a dedicated KDF or keyed MAC.
 - redact token-like values from audit and slow query output.
-- move browser sessions from bearer-token cookies to opaque server-side session
-  records.
+- replace the static CSRF marker with per-session CSRF secrets.
 
 Until token storage is fully migrated, operators should rotate tokens after
 backup/restore and avoid sharing tenant admin tokens across environments.

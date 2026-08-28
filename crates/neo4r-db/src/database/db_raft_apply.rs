@@ -145,6 +145,34 @@ impl Neo4rDatabase {
         raft_groups.group_mut(shard_id)?.request_vote(request)
     }
 
+    pub fn request_raft_pre_vote(
+        &mut self,
+        shard_id: ShardId,
+        request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse> {
+        let Some(raft_groups) = self.raft_groups.as_mut() else {
+            return Err(DatabaseError::Replication(
+                "raft is not enabled for this database".to_string(),
+            ));
+        };
+        Ok(raft_groups.group_mut(shard_id)?.pre_vote(request))
+    }
+
+    pub fn request_raft_leader_transfer(
+        &mut self,
+        shard_id: ShardId,
+        transferee_id: ServerId,
+    ) -> DatabaseResult<RequestVoteRequest> {
+        let Some(raft_groups) = self.raft_groups.as_mut() else {
+            return Err(DatabaseError::Replication(
+                "raft is not enabled for this database".to_string(),
+            ));
+        };
+        raft_groups
+            .group_mut(shard_id)?
+            .leader_transfer_request(transferee_id)
+    }
+
     pub fn install_raft_snapshot(
         &mut self,
         request: InstallSnapshotRequest,

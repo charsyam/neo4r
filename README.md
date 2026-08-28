@@ -42,6 +42,8 @@ Operational contracts are tracked in:
 - [Release checklist](docs/release_checklist.md)
 - [Backup and restore](docs/backup_restore.md)
 - [Security](docs/security.md)
+- [Protocol matrix](docs/protocol_matrix.md)
+- [Prometheus alerts](docs/prometheus_alerts.yml)
 - [Performance baseline](docs/performance_baseline.md)
 - [Replication fault model](docs/replication_fault_model.md)
 
@@ -219,7 +221,8 @@ admin. Admin users can manage persistent RocksDB-backed web users under
 `expired_at` unix-second expiry (`0` means no expiry). Tokens can also be scoped
 to database roles, for example `database_roles:"tenant_a=writer,tenant_b=reader"`.
 Expired, revoked, or non-authorized database tokens cannot authorize requests.
-Browser session-cookie mutations require `X-Neo4r-Csrf: neo4r-admin`.
+Browser login exchanges a bearer token for an opaque RocksDB-backed `sid:`
+session cookie. Session-cookie mutations require `X-Neo4r-Csrf: neo4r-admin`.
 The server exposes multi-tenant databases under `DATA_DIR/databases/{name}` and
 system metadata under `DATA_DIR/system`.
 The existing root data directory remains the `default` database for compatibility.

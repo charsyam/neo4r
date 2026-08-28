@@ -45,8 +45,9 @@ use tenant::{validate_database_name, TenantDatabaseManager, DEFAULT_DATABASE};
 use web_auth::{
     constant_time_token_eq, format_database_roles, parse_database_roles, parse_web_role,
     unix_millis_now, unix_seconds_now, validate_web_token_id, validate_web_user_name,
-    validate_web_user_token, web_role_from_token, WebAuditStore, WebRole, WebUserToken,
-    WebUserTokenStore, WEB_AUDIT_ROCKS_DIR, WEB_AUTH_ROCKS_DIR,
+    validate_web_user_token, web_role_from_token, WebAuditStore, WebRole, WebSessionStore,
+    WebUserToken, WebUserTokenStore, WEB_AUDIT_ROCKS_DIR, WEB_AUTH_ROCKS_DIR,
+    WEB_SESSION_ROCKS_DIR,
 };
 
 const PREPARED_TRANSACTIONS_FILE: &str = "prepared.log";
@@ -77,6 +78,7 @@ pub struct TcpBackend {
     slow_queries: SlowQueryLog,
     web_user_tokens: Option<WebUserTokenStore>,
     web_audit: Option<WebAuditStore>,
+    web_sessions: Option<WebSessionStore>,
     tenant_databases: Option<TenantDatabaseManager>,
 }
 

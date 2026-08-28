@@ -1,9 +1,10 @@
 use crate::{
     AppendEntriesRequest, AppendEntriesResponse, DatabaseError, DatabaseResult,
-    InstallSnapshotRequest, InstallSnapshotResponse, NoopShardReplicator, RaftCore, RaftMembership,
-    RaftPersistentStateStore, RaftRole, RaftSnapshotMetadata, ReplicationChannelMetricsSnapshot,
-    ReplicationEndpoint, ReplicationNodeIdentity, ReplicationOutcome, RequestVoteRequest,
-    RequestVoteResponse, ShardReplicator,
+    InstallSnapshotRequest, InstallSnapshotResponse, NoopShardReplicator, PreVoteRequest,
+    PreVoteResponse, RaftCore, RaftMembership, RaftPersistentStateStore, RaftRole,
+    RaftSnapshotMetadata, ReplicationChannelMetricsSnapshot, ReplicationEndpoint,
+    ReplicationNodeIdentity, ReplicationOutcome, RequestVoteRequest, RequestVoteResponse,
+    ShardReplicator,
 };
 mod vector_index;
 use neo4r_core::{

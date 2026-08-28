@@ -403,12 +403,13 @@ impl TcpBackend {
             .query_plan_with_params(query, params)
             .map_err(|err| err.to_string())?;
         Ok(format!(
-            "{{\"plan\":\"{}\",\"explain\":{{\"cost_model_version\":{},\"estimated_cost\":{},\"estimated_rows\":{},\"remote_shard_count\":{}}}}}",
+            "{{\"plan\":\"{}\",\"explain\":{{\"cost_model_version\":{},\"estimated_cost\":{},\"estimated_rows\":{},\"remote_shard_count\":{},\"selectivity_estimate\":{:.6}}}}}",
             json_escape(&format_query_plan(&plan)),
             plan.cost_model_version,
             plan.estimated_cost,
             plan.estimated_rows,
-            plan.remote_shard_count
+            plan.remote_shard_count,
+            selectivity_estimate(plan.estimated_rows, plan.estimated_cost)
         ))
     }
 
@@ -947,7 +948,10 @@ impl TcpBackend {
         ))
     }
 
-    fn restore_maintenance_mode_enabled(&self, db: &Neo4rDatabaseHandle) -> Result<bool, String> {
+    pub(crate) fn restore_maintenance_mode_enabled(
+        &self,
+        db: &Neo4rDatabaseHandle,
+    ) -> Result<bool, String> {
         Ok(restore_maintenance_mode_path(db)?.is_file())
     }
 }
@@ -967,4 +971,11 @@ fn query_columns_json(rows: &[QueryRow]) -> String {
             .collect::<Vec<_>>()
             .join(",")
     )
+}
+
+fn selectivity_estimate(estimated_rows: u64, estimated_cost: u64) -> f64 {
+    if estimated_cost == 0 {
+        return 1.0;
+    }
+    (estimated_rows as f64 / estimated_cost as f64).clamp(0.0, 1.0)
 }

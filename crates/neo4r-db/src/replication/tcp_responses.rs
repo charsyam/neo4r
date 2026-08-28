@@ -456,6 +456,127 @@ pub(super) fn read_tcp_raft_vote_response(
     }
 }
 
+pub(super) fn write_tcp_raft_pre_vote_response(
+    writer: &mut impl Write,
+    result: &DatabaseResult<PreVoteResponse>,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_REPLICATION_RESPONSE_MAGIC)
+        .map_err(|err| {
+            DatabaseError::Replication(format!("write raft pre-vote response: {err}"))
+        })?;
+    match result {
+        Ok(response) => {
+            writer.write_all(&[TCP_REPLICATION_OK]).map_err(|err| {
+                DatabaseError::Replication(format!("write raft pre-vote ok: {err}"))
+            })?;
+            let mut payload = Vec::with_capacity(9);
+            payload.extend_from_slice(&response.term.to_be_bytes());
+            payload.push(u8::from(response.vote_granted));
+            write_u32(writer, payload.len() as u32)?;
+            writer.write_all(&payload).map_err(|err| {
+                DatabaseError::Replication(format!("write raft pre-vote ok payload: {err}"))
+            })
+        }
+        Err(err) => {
+            writer.write_all(&[TCP_REPLICATION_ERR]).map_err(|err| {
+                DatabaseError::Replication(format!("write raft pre-vote err: {err}"))
+            })?;
+            let message = err.to_string();
+            write_u32(writer, message.len() as u32)?;
+            writer.write_all(message.as_bytes()).map_err(|err| {
+                DatabaseError::Replication(format!("write raft pre-vote err payload: {err}"))
+            })
+        }
+    }
+}
+
+pub(super) fn read_tcp_raft_pre_vote_response(
+    reader: &mut impl Read,
+) -> DatabaseResult<PreVoteResponse> {
+    read_tcp_raft_vote_response(reader).map(|response| PreVoteResponse {
+        term: response.term,
+        vote_granted: response.vote_granted,
+    })
+}
+
+pub(super) fn write_tcp_raft_leader_transfer_response(
+    writer: &mut impl Write,
+    result: &DatabaseResult<RequestVoteRequest>,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_REPLICATION_RESPONSE_MAGIC)
+        .map_err(|err| {
+            DatabaseError::Replication(format!("write raft leader-transfer response: {err}"))
+        })?;
+    match result {
+        Ok(request) => {
+            writer.write_all(&[TCP_REPLICATION_OK]).map_err(|err| {
+                DatabaseError::Replication(format!("write leader-transfer ok: {err}"))
+            })?;
+            let mut payload = Vec::with_capacity(32);
+            payload.extend_from_slice(&request.term.to_be_bytes());
+            payload.extend_from_slice(&request.candidate_id.to_be_bytes());
+            payload.extend_from_slice(&request.last_log_index.to_be_bytes());
+            payload.extend_from_slice(&request.last_log_term.to_be_bytes());
+            write_u32(writer, payload.len() as u32)?;
+            writer.write_all(&payload).map_err(|err| {
+                DatabaseError::Replication(format!("write leader-transfer payload: {err}"))
+            })
+        }
+        Err(err) => {
+            writer.write_all(&[TCP_REPLICATION_ERR]).map_err(|err| {
+                DatabaseError::Replication(format!("write leader-transfer err: {err}"))
+            })?;
+            let message = err.to_string();
+            write_u32(writer, message.len() as u32)?;
+            writer.write_all(message.as_bytes()).map_err(|err| {
+                DatabaseError::Replication(format!("write leader-transfer err payload: {err}"))
+            })
+        }
+    }
+}
+
+pub(super) fn read_tcp_raft_leader_transfer_response(
+    reader: &mut impl Read,
+) -> DatabaseResult<RequestVoteRequest> {
+    read_magic(
+        reader,
+        TCP_REPLICATION_RESPONSE_MAGIC,
+        "raft leader-transfer response",
+    )?;
+    let mut status = [0; 1];
+    reader
+        .read_exact(&mut status)
+        .map_err(|err| DatabaseError::Replication(format!("read leader-transfer status: {err}")))?;
+    let message_len = read_u32(reader)? as usize;
+    let mut message = vec![0; message_len];
+    reader.read_exact(&mut message).map_err(|err| {
+        DatabaseError::Replication(format!("read leader-transfer response: {err}"))
+    })?;
+    match status[0] {
+        TCP_REPLICATION_OK => {
+            if message.len() != 32 {
+                return Err(DatabaseError::Replication(
+                    "invalid leader-transfer response payload".to_string(),
+                ));
+            }
+            Ok(RequestVoteRequest {
+                term: u64::from_be_bytes(message[0..8].try_into().unwrap()),
+                candidate_id: u64::from_be_bytes(message[8..16].try_into().unwrap()),
+                last_log_index: u64::from_be_bytes(message[16..24].try_into().unwrap()),
+                last_log_term: u64::from_be_bytes(message[24..32].try_into().unwrap()),
+            })
+        }
+        TCP_REPLICATION_ERR => Err(DatabaseError::Replication(
+            String::from_utf8_lossy(&message).into_owned(),
+        )),
+        value => Err(DatabaseError::Replication(format!(
+            "unknown leader-transfer response status {value}"
+        ))),
+    }
+}
+
 pub(super) fn write_tcp_install_snapshot_response(
     writer: &mut impl Write,
     result: &DatabaseResult<InstallSnapshotResponse>,

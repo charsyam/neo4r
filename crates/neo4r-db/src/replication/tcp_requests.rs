@@ -80,6 +80,20 @@ pub fn handle_tcp_replication_stream(
             write_tcp_raft_vote_response(stream, &result)?;
             result.map(|_| ())
         }
+        TCP_RAFT_PRE_VOTE_REQUEST_MAGIC => {
+            let shard_id = read_u64(stream)?;
+            let request = read_tcp_raft_pre_vote_request_after_magic(stream)?;
+            let result = db.request_raft_pre_vote(shard_id, request);
+            write_tcp_raft_pre_vote_response(stream, &result)?;
+            result.map(|_| ())
+        }
+        TCP_RAFT_LEADER_TRANSFER_REQUEST_MAGIC => {
+            let shard_id = read_u64(stream)?;
+            let transferee_id = read_u64(stream)?;
+            let result = db.request_raft_leader_transfer(shard_id, transferee_id);
+            write_tcp_raft_leader_transfer_response(stream, &result)?;
+            result.map(|_| ())
+        }
         TCP_RAFT_SNAPSHOT_REQUEST_MAGIC => {
             let request = read_tcp_install_snapshot_request_after_magic(stream)?;
             let result = db.install_raft_snapshot(request);
@@ -136,6 +150,34 @@ pub fn request_tcp_raft_vote(
         .flush()
         .map_err(|err| DatabaseError::Replication(format!("flush raft vote request: {err}")))?;
     read_tcp_raft_vote_response(&mut stream)
+}
+
+pub fn request_tcp_raft_pre_vote(
+    address: &str,
+    connect_timeout: Duration,
+    shard_id: ShardId,
+    request: PreVoteRequest,
+) -> DatabaseResult<PreVoteResponse> {
+    let mut stream = connect_tcp_replication(address, connect_timeout)?;
+    write_tcp_raft_pre_vote_request(&mut stream, shard_id, &request)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush raft pre-vote request: {err}")))?;
+    read_tcp_raft_pre_vote_response(&mut stream)
+}
+
+pub fn request_tcp_raft_leader_transfer(
+    address: &str,
+    connect_timeout: Duration,
+    shard_id: ShardId,
+    transferee_id: ServerId,
+) -> DatabaseResult<RequestVoteRequest> {
+    let mut stream = connect_tcp_replication(address, connect_timeout)?;
+    write_tcp_raft_leader_transfer_request(&mut stream, shard_id, transferee_id)?;
+    stream.flush().map_err(|err| {
+        DatabaseError::Replication(format!("flush raft leader-transfer request: {err}"))
+    })?;
+    read_tcp_raft_leader_transfer_response(&mut stream)
 }
 
 pub fn request_tcp_replication_hello(
@@ -557,6 +599,35 @@ pub(super) fn write_tcp_raft_vote_request(
     write_u64(writer, request.last_log_term)
 }
 
+pub(super) fn write_tcp_raft_pre_vote_request(
+    writer: &mut impl Write,
+    shard_id: ShardId,
+    request: &PreVoteRequest,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_RAFT_PRE_VOTE_REQUEST_MAGIC)
+        .map_err(|err| DatabaseError::Replication(format!("write raft pre-vote magic: {err}")))?;
+    write_u64(writer, shard_id)?;
+    write_u64(writer, request.next_term)?;
+    write_u64(writer, request.candidate_id)?;
+    write_u64(writer, request.last_log_index)?;
+    write_u64(writer, request.last_log_term)
+}
+
+pub(super) fn write_tcp_raft_leader_transfer_request(
+    writer: &mut impl Write,
+    shard_id: ShardId,
+    transferee_id: ServerId,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_RAFT_LEADER_TRANSFER_REQUEST_MAGIC)
+        .map_err(|err| {
+            DatabaseError::Replication(format!("write raft leader-transfer magic: {err}"))
+        })?;
+    write_u64(writer, shard_id)?;
+    write_u64(writer, transferee_id)
+}
+
 pub(super) fn write_tcp_install_snapshot_request(
     writer: &mut impl Write,
     request: &InstallSnapshotRequest,
@@ -611,6 +682,28 @@ pub(super) fn read_tcp_raft_vote_request_after_magic(
         last_log_index: read_u64(reader)?,
         last_log_term: read_u64(reader)?,
     })
+}
+
+pub(super) fn read_tcp_raft_pre_vote_request_after_magic(
+    reader: &mut impl Read,
+) -> DatabaseResult<PreVoteRequest> {
+    Ok(PreVoteRequest {
+        next_term: read_u64(reader)?,
+        candidate_id: read_u64(reader)?,
+        last_log_index: read_u64(reader)?,
+        last_log_term: read_u64(reader)?,
+    })
+}
+
+fn connect_tcp_replication(address: &str, connect_timeout: Duration) -> DatabaseResult<TcpStream> {
+    let mut addrs = address
+        .to_socket_addrs()
+        .map_err(|err| DatabaseError::Replication(format!("resolve {address}: {err}")))?;
+    let addr = addrs
+        .next()
+        .ok_or_else(|| DatabaseError::Replication(format!("no socket address for {address}")))?;
+    TcpStream::connect_timeout(&addr, connect_timeout)
+        .map_err(|err| DatabaseError::Replication(format!("connect {address}: {err}")))
 }
 
 pub(super) fn send_tcp_replication_batch_once(

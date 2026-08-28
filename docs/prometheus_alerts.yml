@@ -1,0 +1,38 @@
+groups:
+  - name: neo4r-operational-alerts
+    rules:
+      - alert: Neo4rRaftNoLeader
+        expr: neo4r_raft_group_leaders == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "Neo4r Raft group has no leader"
+      - alert: Neo4rShardReplicationLag
+        expr: neo4r_database_shard_lag > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r shard replication lag is high"
+      - alert: Neo4rAuthRateLimitSpike
+        expr: increase(neo4r_auth_rate_limited_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r web auth is rate limiting frequently"
+      - alert: Neo4rRestoreMaintenanceStuck
+        expr: neo4r_http_errors_total > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r may be stuck in restore maintenance or rejecting traffic"
+      - alert: Neo4rAppendConflicts
+        expr: increase(neo4r_raft_append_conflicts_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r Raft append conflicts were observed"

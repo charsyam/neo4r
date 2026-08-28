@@ -22,6 +22,8 @@ Operational constraints:
 - tenant graph backups do not restore system auth/audit state.
 - interrupted restore is recovered through `system/restore.pending`.
 - destructive restore requires explicit restore maintenance mode.
+- restore maintenance mode drains mutating HTTP query requests before restore
+  application.
 - destructive restore acquires `system/restore.lock` with create-new semantics.
   A second restore fails before copying any backup payload.
 - backup creation and restore verification/application append audit events.

@@ -332,6 +332,23 @@ impl Neo4rDatabaseHandle {
         self.lock()?.request_raft_vote(shard_id, request)
     }
 
+    pub fn request_raft_pre_vote(
+        &self,
+        shard_id: ShardId,
+        request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse> {
+        self.lock()?.request_raft_pre_vote(shard_id, request)
+    }
+
+    pub fn request_raft_leader_transfer(
+        &self,
+        shard_id: ShardId,
+        transferee_id: ServerId,
+    ) -> DatabaseResult<RequestVoteRequest> {
+        self.lock()?
+            .request_raft_leader_transfer(shard_id, transferee_id)
+    }
+
     pub fn install_raft_snapshot(
         &self,
         request: InstallSnapshotRequest,

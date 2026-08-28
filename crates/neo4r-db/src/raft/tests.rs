@@ -313,6 +313,27 @@ fn install_snapshot_request_chunks_payload_with_offsets() {
 }
 
 #[test]
+fn snapshot_chunk_assembler_rebuilds_payload_and_rejects_gaps() {
+    let request = InstallSnapshotRequest {
+        term: 4,
+        leader_id: 1,
+        metadata: RaftSnapshotMetadata {
+            shard_id: 0,
+            last_included_term: 4,
+            last_included_index: 9,
+        },
+        payload: b"abcdef".to_vec(),
+    };
+    let chunks = request.chunks(2);
+    let mut assembler = SnapshotChunkAssembler::new(chunks[0].clone()).unwrap();
+
+    let gap = assembler.push(chunks[2].clone()).unwrap_err();
+    assert!(gap.to_string().contains("offset gap"));
+    assert_eq!(assembler.push(chunks[1].clone()).unwrap(), None);
+    assert_eq!(assembler.push(chunks[2].clone()).unwrap().unwrap(), request);
+}
+
+#[test]
 fn membership_change_updates_voter_set() {
     let dir = temp_dir("neo4r-raft-membership");
     let store = RaftPersistentStateStore::open(dir.join("state.txt"));

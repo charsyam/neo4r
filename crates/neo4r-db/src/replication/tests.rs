@@ -188,6 +188,23 @@ fn reliable_datagram_frame_wire_format_round_trips_and_rejects_truncation() {
 }
 
 #[test]
+fn reliable_datagram_socket_sends_and_receives_encoded_frame() {
+    let left = ReliableDatagramSocket::bind("127.0.0.1:0", 1500).unwrap();
+    let right = ReliableDatagramSocket::bind("127.0.0.1:0", 1500).unwrap();
+    right
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .unwrap();
+    let frame = ReliableDatagramFrame::single(1, 2, b"hello".to_vec());
+
+    left.send_frame_to(&frame, right.local_addr().unwrap())
+        .unwrap();
+    let (received, source) = right.recv_frame_from().unwrap();
+
+    assert_eq!(received, frame);
+    assert_eq!(source, left.local_addr().unwrap());
+}
+
+#[test]
 fn rdma_provider_trait_builds_reliable_endpoint_and_validates_availability() {
     let provider = MockRdmaReplicationProvider::available("mock-rdma");
     let endpoint = provider.endpoint("rdma://node-a".to_string());
@@ -497,4 +514,61 @@ fn tcp_replicator_rejects_peer_response_without_exact_entry_ack() {
         .to_string()
         .contains("replication peer 2 ack did not include shard 0 index 7"));
     server.join().unwrap();
+}
+
+#[test]
+fn tcp_raft_pre_vote_codec_round_trips() {
+    let request = PreVoteRequest {
+        next_term: 7,
+        candidate_id: 2,
+        last_log_index: 11,
+        last_log_term: 6,
+    };
+    let mut bytes = Vec::new();
+    super::tcp_requests::write_tcp_raft_pre_vote_request(&mut bytes, 0, &request).unwrap();
+    let mut cursor = std::io::Cursor::new(&bytes[TCP_RAFT_PRE_VOTE_REQUEST_MAGIC.len() + 8..]);
+
+    assert_eq!(
+        super::tcp_requests::read_tcp_raft_pre_vote_request_after_magic(&mut cursor).unwrap(),
+        request
+    );
+
+    let response = PreVoteResponse {
+        term: 7,
+        vote_granted: true,
+    };
+    let mut response_bytes = Vec::new();
+    super::tcp_responses::write_tcp_raft_pre_vote_response(
+        &mut response_bytes,
+        &Ok(response.clone()),
+    )
+    .unwrap();
+    assert_eq!(
+        super::tcp_responses::read_tcp_raft_pre_vote_response(&mut std::io::Cursor::new(
+            response_bytes
+        ))
+        .unwrap(),
+        response
+    );
+}
+
+#[test]
+fn tcp_raft_leader_transfer_response_codec_round_trips() {
+    let request = RequestVoteRequest {
+        term: 9,
+        candidate_id: 3,
+        last_log_index: 14,
+        last_log_term: 8,
+    };
+    let mut bytes = Vec::new();
+    super::tcp_responses::write_tcp_raft_leader_transfer_response(&mut bytes, &Ok(request.clone()))
+        .unwrap();
+
+    assert_eq!(
+        super::tcp_responses::read_tcp_raft_leader_transfer_response(&mut std::io::Cursor::new(
+            bytes
+        ))
+        .unwrap(),
+        request
+    );
 }

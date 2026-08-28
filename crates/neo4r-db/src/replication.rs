@@ -1,13 +1,13 @@
 use crate::{
     AppendEntriesResponse, DatabaseError, DatabaseResult, InstallSnapshotRequest,
-    InstallSnapshotResponse, Neo4rDatabaseHandle, RaftSnapshotMetadata, RequestVoteRequest,
-    RequestVoteResponse,
+    InstallSnapshotResponse, Neo4rDatabaseHandle, PreVoteRequest, PreVoteResponse,
+    RaftSnapshotMetadata, RequestVoteRequest, RequestVoteResponse,
 };
 use neo4r_core::{LogEntry, LogIndex, ServerId, ShardId, ShardRole, ShardRoutingTable};
 use neo4r_storage::{decode_log_entry, encode_log_entry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,6 +17,8 @@ const TCP_REPLICATION_HELLO_MAGIC: &[u8] = b"N4RRH1\n";
 const TCP_RAFT_APPEND_REQUEST_MAGIC: &[u8] = b"N4RRAE\n";
 const TCP_RAFT_APPEND_RESPONSE_MAGIC: &[u8] = b"N4RRA2\n";
 const TCP_RAFT_VOTE_REQUEST_MAGIC: &[u8] = b"N4RRV1\n";
+const TCP_RAFT_PRE_VOTE_REQUEST_MAGIC: &[u8] = b"N4RPV1\n";
+const TCP_RAFT_LEADER_TRANSFER_REQUEST_MAGIC: &[u8] = b"N4RLT1\n";
 const TCP_RAFT_SNAPSHOT_REQUEST_MAGIC: &[u8] = b"N4RRS1\n";
 const TCP_REPLICATION_RESPONSE_MAGIC: &[u8] = b"N4RRA1\n";
 const TCP_CATCH_UP_REQUEST_MAGIC: &[u8] = b"N4RCU1\n";
@@ -822,9 +824,11 @@ impl TcpShardReplicator {
 mod channel;
 mod tcp_requests;
 mod tcp_responses;
+mod udp;
 
 pub use channel::*;
 pub use tcp_requests::*;
+pub use udp::*;
 
 #[cfg(test)]
 mod tests;

@@ -38,6 +38,33 @@ Verification:
 - `scripts/check-file-lines.sh`
 - `scripts/release-gate.sh`
 - `cargo test --workspace --quiet`
+
+## 2026-08-29 Goal: Production Network Raft And Ops 1-10
+
+Requested scope: set the next proposed items 1 through 10 as a goal and
+implement them in order.
+
+Status:
+
+- In progress.
+
+Planned changes:
+
+1. Commit and push the current completed network/session/restore/optimizer
+   changes to establish a clean baseline.
+2. Connect UDP transport primitives to Raft channel behavior instead of leaving
+   the UDP channel as a pure negotiation placeholder.
+3. Integrate PreVote into the election flow before RequestVote.
+4. Expose leader-transfer through an operator-facing API/command.
+5. Connect snapshot chunk install to the TCP/Raft path with validation.
+6. Harden opaque sessions with per-session CSRF, logout/revoke, and cleanup.
+7. Extend restore drain beyond HTTP query mutation toward native/work queues and
+   transaction/cursor visibility.
+8. Use selectivity estimates in optimizer plan decisions, not only explain JSON.
+9. Define distributed query partial failure, timeout, cancellation, and merge
+   policy.
+10. Add release-gate scripts for session security, restore drain, UDP socket,
+    and snapshot chunk paths.
 - `git diff --check`
 - `cargo fmt --all --check`
 
@@ -748,3 +775,43 @@ Benchmark output:
 - traversal_query: 1 op, 0.044 ms, 22,587.6 ops/sec.
 - reopen_replay: 1 op, 1,647.668 ms, 0.6 ops/sec.
 - total: 10,499 ops, 55,915.745 ms, 187.8 ops/sec.
+
+## 2026-08-29 Goal: Network Raft, Sessions, Restore Drain, Optimizer, Ops 1-10
+
+Requested scope: set the proposed items 1 through 10 as a goal and implement
+them in order.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Move UDP replication from negotiation-only toward a real transport by adding
+   socket send/receive primitives over reliable datagram frames.
+2. Wire Raft PreVote and leader-transfer request types into the replication
+   protocol boundary.
+3. Add snapshot chunk receive/assemble validation for install-snapshot payloads.
+4. Replace browser bearer-token cookies with opaque RocksDB-backed admin session
+   records while keeping bearer headers for API clients.
+5. Add a restore drain guard that rejects new mutating work during destructive
+   restore maintenance.
+6. Formalize system database policy/API so tenant graph backup/restore and
+   system auth/audit metadata remain explicit.
+7. Strengthen optimizer metadata with selectivity-style estimates in plans.
+8. Add parallel scatter-gather groundwork for distributed query shard execution.
+9. Add Prometheus alert rule examples for the exported operational metrics.
+10. Add a protocol compatibility matrix and golden fixture coverage for native,
+    HTTP, replication, and Raft protocol boundaries.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo check --workspace`
+- `cargo test -p neo4r-db raft::tests --quiet`
+- `cargo test -p neo4r-db replication::tests --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `scripts/protocol-matrix.sh`
+- `scripts/check-file-lines.sh`
+- `bash -n scripts/*.sh`
+- `cargo test --workspace --quiet`

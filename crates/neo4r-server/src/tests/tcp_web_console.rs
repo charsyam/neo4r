@@ -128,10 +128,6 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"cleanupTokens\""));
     assert!(index.contains("id=\"backup\""));
     assert!(index.contains("id=\"restoreDryRun\""));
-    assert!(index.contains("id=\"restoreConfirm\""));
-    assert!(index.contains("id=\"restoreApply\""));
-    assert!(index.contains("id=\"maintenanceOn\""));
-    assert!(index.contains("id=\"maintenanceOff\""));
     assert!(index.contains("id=\"raftStatus\""));
     assert!(index.contains("id=\"snapshotNow\""));
     assert!(index.contains("id=\"verifyInvariants\""));
@@ -183,6 +179,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(plan.contains("\"plan\""));
     assert!(plan.contains("\"explain\""));
     assert!(plan.contains("\"estimated_cost\""));
+    assert!(plan.contains("\"selectivity_estimate\""));
 
     let health = web_request(
         TcpBackend::new(db.clone()),
@@ -263,6 +260,21 @@ pub(super) fn web_console_serves_index_and_graph_api() {
             "neo4r_database_shard_committed_index{database=\"default\",shard=\"0\",server=\"0\",role=\"unknown\"}",
         ],
     );
+
+    let system_policy = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/admin/system-policy HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(system_policy.contains("HTTP/1.1 200 OK"));
+    assert!(system_policy.contains("\"system_database\":\"system\""));
+    assert!(system_policy.contains("\"tenant_backup_includes_system_metadata\":false"));
+
+    let distributed_query = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /api/admin/distributed-query HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(distributed_query.contains("HTTP/1.1 200 OK"));
+    assert!(distributed_query.contains("\"parallel\":true"));
 
     let cluster = web_request(
         TcpBackend::new(db.clone()),
@@ -357,6 +369,17 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(maintenance_on.contains("HTTP/1.1 200 OK"));
     assert!(maintenance_on.contains("\"maintenance_mode\":true"));
 
+    let drained_query = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(drained_query.contains("HTTP/1.1 503 Service Unavailable"));
+    assert!(drained_query.contains("draining mutating requests"));
+
     let restore_lock = dir.join("system").join("restore.lock");
     fs::create_dir_all(restore_lock.parent().unwrap()).unwrap();
     fs::write(&restore_lock, b"held").unwrap();
@@ -371,6 +394,18 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(restore_locked.contains("HTTP/1.1 500 Internal Server Error"));
     assert!(restore_locked.contains("restore lock"));
     fs::remove_file(&restore_lock).unwrap();
+
+    let maintenance_off_body = "{\"enabled\":false}";
+    let maintenance_off = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/admin/maintenance-mode HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            maintenance_off_body.len(),
+            maintenance_off_body
+        ),
+    );
+    assert!(maintenance_off.contains("HTTP/1.1 200 OK"));
+    assert!(maintenance_off.contains("\"maintenance_mode\":false"));
 
     let verify_invariants = web_request(
         TcpBackend::new(db.clone())
@@ -440,16 +475,34 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(authorized.contains("\"auth_failures\":6"));
     assert!(authorized.contains("\"auth_rate_limited\":1"));
 
+    let session_body = "{\"token\":\"secret\"}";
+    let session_response = web_request(
+        secure_backend.clone(),
+        &format!(
+            "POST /api/session HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            session_body.len(),
+            session_body
+        ),
+    );
+    assert!(session_response.contains("HTTP/1.1 200 OK"));
+    let session_id = session_response
+        .split("\"session_id\":\"")
+        .nth(1)
+        .and_then(|part| part.split('"').next())
+        .unwrap();
+
     let cookie_authorized = web_request(
         secure_backend.clone(),
-        "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session=secret\r\n\r\n",
+        &format!(
+            "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session={session_id}\r\n\r\n"
+        ),
     );
     assert!(cookie_authorized.contains("HTTP/1.1 200 OK"));
 
     let cookie_post_without_csrf = web_request(
         secure_backend.clone(),
         &format!(
-            "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session=secret\r\ncontent-length: {}\r\n\r\n{}",
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session={session_id}\r\ncontent-length: {}\r\n\r\n{}",
             reader_query_body.len(),
             reader_query_body
         ),

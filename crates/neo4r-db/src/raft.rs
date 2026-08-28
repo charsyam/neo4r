@@ -7,7 +7,10 @@ const RAFT_STATE_MAGIC: &str = "N4RRAFT1";
 
 #[path = "raft/persistent.rs"]
 mod persistent;
+#[path = "raft/snapshot_chunks.rs"]
+mod snapshot_chunks;
 pub use persistent::{RaftPersistentState, RaftPersistentStateStore};
+pub use snapshot_chunks::SnapshotChunkAssembler;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestVoteRequest {

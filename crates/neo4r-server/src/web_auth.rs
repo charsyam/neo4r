@@ -6,9 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) const WEB_AUTH_ROCKS_DIR: &str = "system/web-auth-rocksdb";
 pub(super) const WEB_AUDIT_ROCKS_DIR: &str = "system/web-audit-rocksdb";
+pub(super) const WEB_SESSION_ROCKS_DIR: &str = "system/web-session-rocksdb";
 const WEB_AUTH_USER_PREFIX: &[u8] = b"web/user/";
 const WEB_AUTH_TOKEN_PREFIX: &[u8] = b"web/token/";
 const WEB_AUDIT_PREFIX: &[u8] = b"web/audit/";
+const WEB_SESSION_PREFIX: &[u8] = b"web/session/";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub(super) enum WebRole {
@@ -60,6 +62,11 @@ pub(super) struct WebUserTokenStore {
 
 #[derive(Clone)]
 pub(super) struct WebAuditStore {
+    kv: Arc<Mutex<RocksKvStore>>,
+}
+
+#[derive(Clone)]
+pub(super) struct WebSessionStore {
     kv: Arc<Mutex<RocksKvStore>>,
 }
 
@@ -325,6 +332,75 @@ impl WebUserTokenStore {
     }
 }
 
+impl WebSessionStore {
+    pub(super) fn open(path: PathBuf) -> Result<Self, String> {
+        RocksKvStore::open(path)
+            .map(|kv| Self {
+                kv: Arc::new(Mutex::new(kv)),
+            })
+            .map_err(|err| err.to_string())
+    }
+
+    pub(super) fn create(
+        &self,
+        token: &str,
+        database: &str,
+        role: WebRole,
+        now: u128,
+        ttl_seconds: u128,
+    ) -> Result<String, String> {
+        let seed = format!("{token}:{database}:{now}:{}", unix_millis_now());
+        let session_id = format!(
+            "sid:{}",
+            stable_keyed_digest_hex(b"neo4r-web-session-v1", seed.as_bytes())
+        );
+        let expires_at = now.saturating_add(ttl_seconds.max(1));
+        let record = format!(
+            "session_id={}\ndatabase={}\nrole={}\nexpires_at={}\n",
+            session_id,
+            database,
+            role.as_str(),
+            expires_at
+        );
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web session store lock poisoned".to_string())?;
+        kv.put(&web_session_key(&session_id), record.as_bytes())
+            .map_err(|err| err.to_string())?;
+        Ok(session_id)
+    }
+
+    pub(super) fn role_for_session(
+        &self,
+        session_id: &str,
+        database: &str,
+        now: u128,
+    ) -> Option<WebRole> {
+        let kv = self.kv.lock().ok()?;
+        let bytes = kv.get(&web_session_key(session_id)).ok().flatten()?;
+        let mut stored_database = None;
+        let mut role = None;
+        let mut expires_at = None;
+        for line in String::from_utf8_lossy(&bytes).lines() {
+            if let Some(value) = line.strip_prefix("database=") {
+                stored_database = Some(value.to_string());
+            } else if let Some(value) = line.strip_prefix("role=") {
+                role = parse_web_role(value).ok();
+            } else if let Some(value) = line.strip_prefix("expires_at=") {
+                expires_at = value.parse::<u128>().ok();
+            }
+        }
+        if expires_at? < now {
+            return None;
+        }
+        if stored_database.as_deref()? != "*" && stored_database.as_deref()? != database {
+            return None;
+        }
+        role
+    }
+}
+
 impl WebUserToken {
     pub(super) fn is_active(&self, now_unix_seconds: u128) -> bool {
         !self.revoked && (self.expired_at == 0 || self.expired_at > now_unix_seconds)
@@ -539,6 +615,12 @@ fn web_token_digest_lookup_key(token: &str) -> Vec<u8> {
 fn web_token_digest_key(digest: &str) -> Vec<u8> {
     let mut key = Vec::from(WEB_AUTH_TOKEN_PREFIX);
     key.extend_from_slice(digest.as_bytes());
+    key
+}
+
+fn web_session_key(session_id: &str) -> Vec<u8> {
+    let mut key = Vec::from(WEB_SESSION_PREFIX);
+    key.extend_from_slice(session_id.as_bytes());
     key
 }
 

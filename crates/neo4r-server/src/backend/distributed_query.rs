@@ -7,25 +7,60 @@ pub(crate) fn execute_distributed_query(
     params: &neo4r_query::QueryParams,
 ) -> Result<Vec<QueryRow>, String> {
     let status = db.cluster_status().map_err(|err| err.to_string())?;
-    let mut rows = Vec::new();
+    let (tx, rx) = mpsc::channel();
+    let mut handles = Vec::new();
     for shard in status.shards {
-        if shard.has_local_copy {
-            rows.extend(
-                db.query_shard_with_params(shard.shard_id, query, params.clone())
-                    .map_err(|err| err.to_string())?,
-            );
-        } else {
-            let (_target, address) =
-                select_remote_query_target(query_peers, &shard, read_preference)?;
-            rows.extend(request_remote_query_shard(
-                &address,
-                shard.shard_id,
-                query,
-                params,
-            )?);
-        }
+        let tx = tx.clone();
+        let db = db.clone();
+        let query_peers = query_peers.clone();
+        let query = query.to_string();
+        let params = params.clone();
+        handles.push(thread::spawn(move || {
+            let result = if shard.has_local_copy {
+                db.query_shard_with_params(shard.shard_id, &query, params)
+                    .map_err(|err| err.to_string())
+            } else {
+                select_remote_query_target(&query_peers, &shard, read_preference).and_then(
+                    |(_target, address)| {
+                        request_remote_query_shard(&address, shard.shard_id, &query, &params)
+                    },
+                )
+            };
+            let _ = tx.send((shard.shard_id, result));
+        }));
+    }
+    drop(tx);
+    let mut shard_rows = BTreeMap::new();
+    for (shard_id, result) in rx {
+        shard_rows.insert(shard_id, result?);
+    }
+    for handle in handles {
+        handle
+            .join()
+            .map_err(|_| "distributed query worker panicked".to_string())?;
+    }
+    let mut rows = Vec::new();
+    for (_shard_id, mut part) in shard_rows {
+        rows.append(&mut part);
     }
     Ok(rows)
+}
+
+pub(crate) fn distributed_query_scatter_gather_summary(
+    db: &Neo4rDatabaseHandle,
+) -> Result<String, String> {
+    let status = db.cluster_status().map_err(|err| err.to_string())?;
+    let local = status
+        .shards
+        .iter()
+        .filter(|shard| shard.has_local_copy)
+        .count();
+    Ok(format!(
+        "{{\"shards\":{},\"local_shards\":{},\"remote_shards\":{},\"parallel\":true}}",
+        status.shards.len(),
+        local,
+        status.shards.len().saturating_sub(local)
+    ))
 }
 
 pub(crate) fn build_distributed_query_cursor(

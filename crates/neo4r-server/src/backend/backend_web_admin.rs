@@ -21,6 +21,12 @@ impl TcpBackend {
                 Err(err) => HttpResponse::json_status(503, json_error(&err)),
             };
         }
+        if request.method == "POST" && request.path == "/api/session" {
+            return match self.create_web_session(request, &database_name) {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(401, json_error(&err)),
+            };
+        }
         let Some(role) = self.authorized_role(request, &database_name) else {
             self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
             self.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
@@ -42,6 +48,19 @@ impl TcpBackend {
             }
         }
         let selected_db = || self.database_for_name(&database_name);
+        if request_is_drained_during_restore(request) {
+            match selected_db().and_then(|db| self.restore_maintenance_mode_enabled(&db)) {
+                Ok(true) => {
+                    self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+                    return HttpResponse::json_status(
+                        503,
+                        json_error("restore maintenance mode is draining mutating requests"),
+                    );
+                }
+                Ok(false) => {}
+                Err(err) => return HttpResponse::json_status(500, json_error(&err)),
+            }
+        }
         if matches!(
             request.path.as_str(),
             "/api/query" | "/api/query-plan" | "/api/profile" | "/api/graph"
@@ -73,6 +92,13 @@ impl TcpBackend {
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/") | ("GET", "/index.html") => HttpResponse::html(WEB_INDEX_HTML),
             ("GET", "/api/capabilities") => HttpResponse::json(self.capabilities_json()),
+            ("GET", "/api/admin/system-policy") => HttpResponse::json(self.system_policy_json()),
+            ("GET", "/api/admin/distributed-query") => {
+                match selected_db().and_then(|db| distributed_query_scatter_gather_summary(&db)) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                }
+            }
             ("GET", "/api/graph") => {
                 match selected_db()
                     .and_then(|db| self.graph_json(&db, request.query_value("limit")))
@@ -435,7 +461,24 @@ impl TcpBackend {
             .map_err(|err| err.to_string())
     }
 
+    pub(crate) fn system_policy_json(&self) -> String {
+        format!(
+            "{{\"system_database\":\"system\",\"tenant_database_root\":\"databases\",\"system_metadata\":[\"web_auth\",\"web_audit\",\"web_sessions\"],\"tenant_backup_includes_system_metadata\":false,\"selected_database_header\":\"x-neo4r-database\"}}"
+        )
+    }
+
     pub(crate) fn authorized_role(&self, request: &HttpRequest, database: &str) -> Option<WebRole> {
+        if let Some(session_id) =
+            request_session_token(request).filter(|token| token.starts_with("sid:"))
+        {
+            if let Some(role) = self
+                .web_sessions
+                .as_ref()
+                .and_then(|store| store.role_for_session(&session_id, database, unix_seconds_now()))
+            {
+                return Some(role);
+            }
+        }
         let Some(expected) = self.web_auth_token.as_ref() else {
             if self
                 .web_user_tokens
@@ -449,7 +492,6 @@ impl TcpBackend {
                 .header("authorization")
                 .and_then(|value| value.strip_prefix("Bearer "))
                 .map(str::to_string)
-                .or_else(|| request_session_token(request))
                 .or_else(|| request.query_value("token"))?;
             return self.web_user_tokens.as_ref().and_then(|store| {
                 store.find_role_by_token(&supplied, database, unix_seconds_now())
@@ -459,7 +501,6 @@ impl TcpBackend {
             .header("authorization")
             .and_then(|value| value.strip_prefix("Bearer "))
             .map(str::to_string)
-            .or_else(|| request_session_token(request))
             .or_else(|| request.query_value("token"))?;
         if constant_time_token_eq(&supplied, expected) {
             return Some(web_role_from_token(expected));
@@ -467,6 +508,40 @@ impl TcpBackend {
         self.web_user_tokens
             .as_ref()
             .and_then(|store| store.find_role_by_token(&supplied, database, unix_seconds_now()))
+    }
+
+    fn create_web_session(&self, request: &HttpRequest, database: &str) -> Result<String, String> {
+        let token = extract_json_string_field(&request.body, "token").or_else(|_| {
+            request
+                .header("authorization")
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::to_string)
+                .ok_or_else(|| "missing token".to_string())
+        })?;
+        let role = self
+            .authorize_token_value(&token, database)
+            .ok_or_else(|| "unauthorized".to_string())?;
+        let session_id = self
+            .web_sessions
+            .as_ref()
+            .ok_or_else(|| "web session store is unavailable".to_string())?
+            .create(&token, database, role, unix_seconds_now(), 3600)?;
+        Ok(format!(
+            "{{\"session_id\":\"{}\",\"expires_in\":3600,\"database\":\"{}\"}}",
+            json_escape(&session_id),
+            json_escape(database)
+        ))
+    }
+
+    fn authorize_token_value(&self, token: &str, database: &str) -> Option<WebRole> {
+        if let Some(expected) = self.web_auth_token.as_ref() {
+            if constant_time_token_eq(token, expected) {
+                return Some(web_role_from_token(expected));
+            }
+        }
+        self.web_user_tokens
+            .as_ref()
+            .and_then(|store| store.find_role_by_token(token, database, unix_seconds_now()))
     }
 
     pub(crate) fn web_users_json(&self) -> Result<String, String> {
@@ -748,6 +823,10 @@ fn request_uses_session_cookie(request: &HttpRequest) -> bool {
             .split(';')
             .any(|part| part.trim().starts_with("neo4r.session="))
     })
+}
+
+fn request_is_drained_during_restore(request: &HttpRequest) -> bool {
+    request.method == "POST" && matches!(request.path.as_str(), "/api/query")
 }
 
 fn parse_query_options(request: &HttpRequest) -> Result<QueryOptions, String> {

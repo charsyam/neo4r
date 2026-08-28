@@ -3,6 +3,16 @@
 Requested scope: set items 1 through 10 as a goal and complete them, with item
 1 specifically keeping individual files around the 1000-line range.
 
+Follow-up formalization:
+
+- Converted `neo4r-query::cypher` from text-level `include!` composition to
+  real Rust submodules: `parse`, `binding`, and `execute`.
+- Kept `cypher.rs` as the facade for public AST/plan types, statement
+  classification, semantic validation, plan construction, and `CypherEngine`.
+- Restricted sibling contracts to `pub(super)` instead of crate-public exports.
+- Added `docs/architecture_layers.md` to document the intended dependency
+  order, module policy, current formal boundary, and next formalization targets.
+
 1. Large file module split
    - Split oversized source and test files into smaller feature modules where
      this can be done safely without changing public behavior.

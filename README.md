@@ -228,6 +228,7 @@ contract.
 Additional operator and contributor contracts:
 
 - [Replication boundary](docs/replication_boundary.md)
+- [Architecture layers](docs/architecture_layers.md)
 - [Atomic apply audit](docs/atomic_apply_audit.md)
 - [Fault injection matrix](docs/fault_injection_matrix.md)
 - [API compatibility](docs/api_compatibility.md)

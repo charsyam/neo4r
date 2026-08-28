@@ -1,9 +1,11 @@
-enum Binding {
+use super::*;
+
+pub(super) enum Binding {
     Node(BoundNode),
     Relationship(Relationship),
 }
 
-enum BoundNode {
+pub(super) enum BoundNode {
     Local(Node),
     Boundary(BoundaryNode),
 }
@@ -16,14 +18,14 @@ impl BoundNode {
         }
     }
 
-    fn properties(&self) -> &neo4r_core::Properties {
+    pub(super) fn properties(&self) -> &neo4r_core::Properties {
         match self {
             Self::Local(node) => &node.properties,
             Self::Boundary(node) => &node.properties,
         }
     }
 
-    fn to_query_value(&self) -> QueryValue {
+    pub(super) fn to_query_value(&self) -> QueryValue {
         match self {
             Self::Local(node) => QueryValue::Node(node.clone()),
             Self::Boundary(node) => QueryValue::BoundaryNode(node.clone()),
@@ -31,7 +33,7 @@ impl BoundNode {
     }
 }
 
-fn lookup_bound_node<G: GraphRead + ?Sized>(
+pub(super) fn lookup_bound_node<G: GraphRead + ?Sized>(
     graph: &G,
     node_id: u64,
 ) -> QueryResult<Option<BoundNode>> {
@@ -44,13 +46,13 @@ fn lookup_bound_node<G: GraphRead + ?Sized>(
         .map(BoundNode::Boundary))
 }
 
-fn bound_node_matches(node: &BoundNode, pattern: &NodePattern) -> bool {
+pub(super) fn bound_node_matches(node: &BoundNode, pattern: &NodePattern) -> bool {
     pattern
         .label
         .as_ref()
         .is_none_or(|label| node.labels().iter().any(|node_label| node_label == label))
 }
 
-fn read_error(err: GraphReadError) -> QueryError {
+pub(super) fn read_error(err: GraphReadError) -> QueryError {
     QueryError::Unsupported(format!("graph read failed: {err}"))
 }

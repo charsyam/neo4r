@@ -971,9 +971,15 @@ fn format_value(value: &Value) -> String {
     }
 }
 
-include!("cypher/execute.rs");
-include!("cypher/binding.rs");
-include!("cypher/parse.rs");
+mod binding;
+mod execute;
+mod parse;
+
+use execute::{
+    candidate_node_refs, candidate_node_refs_lazy, execute_physical_query, execute_query,
+    is_vector_knn_for_pattern, CypherGraphNodeCursor, CypherGraphOutgoingCursor, CypherNodeCursor,
+};
+use parse::{find_keyword, parse, starts_with_keyword};
 
 #[cfg(test)]
 mod tests;

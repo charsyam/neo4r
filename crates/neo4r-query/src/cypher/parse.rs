@@ -1,4 +1,6 @@
-fn parse(input: &str, params: &QueryParams) -> QueryResult<Query> {
+use super::*;
+
+pub(super) fn parse(input: &str, params: &QueryParams) -> QueryResult<Query> {
     let input = input.trim();
     let input = strip_keyword(input, "MATCH")?;
     let (before_return, return_part) = split_keyword(input, "RETURN")?;
@@ -598,13 +600,13 @@ fn split_keyword<'a>(input: &'a str, keyword: &str) -> QueryResult<(&'a str, &'a
     Ok((&input[..index], &input[index + keyword.len()..]))
 }
 
-fn find_keyword(input: &str, keyword: &str) -> Option<usize> {
+pub(super) fn find_keyword(input: &str, keyword: &str) -> Option<usize> {
     input
         .to_ascii_uppercase()
         .find(&keyword.to_ascii_uppercase())
 }
 
-fn starts_with_keyword(input: &str, keyword: &str) -> bool {
+pub(super) fn starts_with_keyword(input: &str, keyword: &str) -> bool {
     let input = input.trim_start();
     let upper = input.to_ascii_uppercase();
     let keyword = keyword.to_ascii_uppercase();

@@ -1,5 +1,9 @@
 use super::*;
 
+mod codec;
+
+pub(super) use codec::*;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StorageStatus {
     pub data_dir: PathBuf,
@@ -881,37 +885,4 @@ pub(super) fn decode_rebalance_step(line: &str) -> DatabaseResult<RebalanceStep>
         }),
         _ => Err(StorageError::CorruptStore("invalid rebalance step record".to_string()).into()),
     }
-}
-
-pub(super) fn parse_plan_u64(input: &str, name: &str) -> DatabaseResult<u64> {
-    input
-        .parse::<u64>()
-        .map_err(|_| StorageError::CorruptStore(format!("invalid {name}")).into())
-}
-
-pub(super) fn parse_plan_usize(input: &str, name: &str) -> DatabaseResult<usize> {
-    input
-        .parse::<usize>()
-        .map_err(|_| StorageError::CorruptStore(format!("invalid {name}")).into())
-}
-
-pub(super) fn parse_plan_bool(input: &str, name: &str) -> DatabaseResult<bool> {
-    match input {
-        "0" => Ok(false),
-        "1" => Ok(true),
-        _ => Err(StorageError::CorruptStore(format!("invalid {name}")).into()),
-    }
-}
-
-pub(super) fn sanitize_cluster_text(input: &str) -> String {
-    input
-        .chars()
-        .map(|ch| {
-            if matches!(ch, '\t' | '\n' | '\r') {
-                ' '
-            } else {
-                ch
-            }
-        })
-        .collect()
 }

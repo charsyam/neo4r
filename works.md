@@ -112,8 +112,67 @@ Verification:
 - `bash -n scripts/ci-integration.sh`
 - `timeout 120 scripts/cluster-chaos-smoke.sh`
 
+## Formal Module Boundary Goal 1-8
+
+Requested scope: set items 1 through 8 as a goal and complete them.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Removed remaining text-level `include!` usage from DB/server source trees.
+2. Split DB metadata record codec helpers into `metadata_types/codec.rs` and
+   kept the remaining large DB responsibility files below the 1000-line guard.
+3. Converted DB, server, and protocol test wrappers from `include!` to real
+   Rust `mod` declarations.
+4. Converted server backend files from root text inclusion to explicit
+   root-level backend modules.
+5. Formalized server protocol submodules for execution, parsing helpers,
+   formatting, and row/query payload codec.
+6. Formalized DB replication submodules for TCP request handling and response
+   codec helpers.
+7. Added `scripts/check-architecture.sh` and wired it into `scripts/ci-fast.sh`
+   to reject future `include!` regression and enforce file line limits.
+8. Added `scripts/jepsen-lite-correctness.sh` plus a gated server integration
+   test that can run a multi-process leader write/update/delete correctness
+   scenario and follower restart/catch-up check with `NEO4R_RUN_JEPSEN_LITE=1`.
+
+Verification:
+
+- `cargo fmt --all`
+- `scripts/check-architecture.sh`
+- `git diff --check`
+- `cargo test --workspace --quiet --no-run`
+- `cargo test --workspace --quiet`
+- `timeout 120 scripts/jepsen-lite-correctness.sh`
+
 
 # Archived Work Logs
 
 - [2026-08 part 1](docs/worklog/2026-08-part1.md)
 - [2026-08 part 2](docs/worklog/2026-08-part2.md)
+
+## Replication Channel Abstraction
+
+Requested scope: make DB replication transport pluggable so TCP, UDP, RDMA, or
+other channels can share the same replication boundary.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+- Added `ReplicationChannel`, `ReplicationChannelKind`, and
+  `ReplicationChannelConfig`.
+- Added `TcpReplicationChannel` as the default channel implementation for the
+  current TCP request/response protocol.
+- Changed `TcpShardReplicator` to call through `ReplicationChannel` instead of
+  calling TCP send/request helpers directly.
+- Kept `TcpShardReplicator` and existing TCP public functions for compatibility.
+- Added explicit UDP/RDMA placeholder channels through
+  `UnsupportedReplicationChannel` so unsupported transports fail clearly until
+  real implementations are added.
+- Added unit coverage for the new channel kind/config and placeholder behavior.

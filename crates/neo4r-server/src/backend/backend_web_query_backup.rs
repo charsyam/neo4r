@@ -1,5 +1,6 @@
+use super::*;
 impl TcpBackend {
-    fn graph_json(
+    pub(crate) fn graph_json(
         &self,
         db: &Neo4rDatabaseHandle,
         limit: Option<String>,
@@ -49,7 +50,7 @@ impl TcpBackend {
         ))
     }
 
-    fn query_json(
+    pub(crate) fn query_json(
         &self,
         db: &Neo4rDatabaseHandle,
         query: &str,
@@ -77,7 +78,7 @@ impl TcpBackend {
         ))
     }
 
-    fn query_plan_json(
+    pub(crate) fn query_plan_json(
         &self,
         db: &Neo4rDatabaseHandle,
         query: &str,
@@ -92,7 +93,7 @@ impl TcpBackend {
         ))
     }
 
-    fn profile_json(
+    pub(crate) fn profile_json(
         &self,
         db: &Neo4rDatabaseHandle,
         query: &str,
@@ -108,7 +109,7 @@ impl TcpBackend {
         Ok(management_response_json(&response))
     }
 
-    fn raft_status_json(&self, db: &Neo4rDatabaseHandle) -> String {
+    pub(crate) fn raft_status_json(&self, db: &Neo4rDatabaseHandle) -> String {
         let shards = db.raft_status().unwrap_or_default();
         let shards_json = shards
             .iter()
@@ -133,7 +134,7 @@ impl TcpBackend {
         format!("{{\"raft_shards\":[{shards_json}]}}")
     }
 
-    fn metrics_json(&self, db: &Neo4rDatabaseHandle) -> String {
+    pub(crate) fn metrics_json(&self, db: &Neo4rDatabaseHandle) -> String {
         let statistics = db.statistics_catalog().ok();
         let committed_indexes = db.committed_indexes().unwrap_or_default();
         let applied_indexes = db
@@ -253,7 +254,7 @@ impl TcpBackend {
         )
     }
 
-    fn record_slow_query(&self, query: &str, elapsed: Duration) {
+    pub(crate) fn record_slow_query(&self, query: &str, elapsed: Duration) {
         self.metrics.slow_queries.fetch_add(1, Ordering::Relaxed);
         let unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -270,7 +271,7 @@ impl TcpBackend {
         }
     }
 
-    fn slow_queries_json(&self) -> String {
+    pub(crate) fn slow_queries_json(&self) -> String {
         let entries = self.slow_queries.entries.lock().unwrap();
         format!(
             "{{\"queries\":[{}]}}",
@@ -287,7 +288,11 @@ impl TcpBackend {
         )
     }
 
-    fn backup_to_path(&self, db: &Neo4rDatabaseHandle, path: &str) -> Result<String, String> {
+    pub(crate) fn backup_to_path(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        path: &str,
+    ) -> Result<String, String> {
         let source = db.data_dir().map_err(|err| err.to_string())?;
         let target = PathBuf::from(path);
         copy_dir_all(&source, &target).map_err(|err| err.to_string())?;
@@ -312,7 +317,7 @@ impl TcpBackend {
         ))
     }
 
-    fn restore_from_path(
+    pub(crate) fn restore_from_path(
         &self,
         db: &Neo4rDatabaseHandle,
         path: &str,
@@ -342,5 +347,4 @@ impl TcpBackend {
             stats.checksum
         ))
     }
-
 }

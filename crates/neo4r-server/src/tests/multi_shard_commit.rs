@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_commits_multi_shard_mixed_create_and_set() {
+pub(super) fn native_read_write_transaction_commits_multi_shard_mixed_create_and_set() {
     let dir = temp_dir("neo4r-native-multi-shard-mixed-create-set");
     let routing_table = ShardRoutingTable {
         version: 14,
@@ -138,7 +141,7 @@ fn native_read_write_transaction_commits_multi_shard_mixed_create_and_set() {
 }
 
 #[test]
-fn native_read_write_transaction_commits_multi_shard_filtered_sets() {
+pub(super) fn native_read_write_transaction_commits_multi_shard_filtered_sets() {
     let dir = temp_dir("neo4r-native-multi-shard-tx-filtered-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node_on_shard(
@@ -272,7 +275,7 @@ fn native_read_write_transaction_commits_multi_shard_filtered_sets() {
 }
 
 #[test]
-fn native_read_write_transaction_discards_staged_writes_on_rollback() {
+pub(super) fn native_read_write_transaction_discards_staged_writes_on_rollback() {
     let dir = temp_dir("neo4r-native-read-write-rollback");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -363,7 +366,7 @@ fn native_read_write_transaction_discards_staged_writes_on_rollback() {
 }
 
 #[test]
-fn native_transaction_lists_and_cleans_up_session_transactions() {
+pub(super) fn native_transaction_lists_and_cleans_up_session_transactions() {
     let dir = temp_dir("neo4r-native-tx-list-cleanup");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -433,7 +436,7 @@ fn native_transaction_lists_and_cleans_up_session_transactions() {
 }
 
 #[test]
-fn native_transaction_lists_all_sessions() {
+pub(super) fn native_transaction_lists_all_sessions() {
     let dir = temp_dir("neo4r-native-tx-list-all-sessions");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -574,7 +577,7 @@ fn native_transaction_lists_all_sessions() {
 }
 
 #[test]
-fn native_read_only_transaction_rejects_write_query() {
+pub(super) fn native_read_only_transaction_rejects_write_query() {
     let dir = temp_dir("neo4r-native-read-only-write-reject");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -627,7 +630,7 @@ fn native_read_only_transaction_rejects_write_query() {
 }
 
 #[test]
-fn native_read_write_transaction_rejects_schema_ddl() {
+pub(super) fn native_read_write_transaction_rejects_schema_ddl() {
     let dir = temp_dir("neo4r-native-read-write-schema-ddl-reject");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -716,7 +719,7 @@ fn native_read_write_transaction_rejects_schema_ddl() {
 }
 
 #[test]
-fn replication_listener_accepts_tcp_replicator_batches() {
+pub(super) fn replication_listener_accepts_tcp_replicator_batches() {
     let primary_dir = temp_dir("neo4r-server-repl-primary");
     let replica_dir = temp_dir("neo4r-server-repl-replica");
     let routing_table = ShardRoutingTable {
@@ -772,7 +775,7 @@ fn replication_listener_accepts_tcp_replicator_batches() {
 }
 
 #[test]
-fn replication_listener_accepts_group_commit_entry_batches() {
+pub(super) fn replication_listener_accepts_group_commit_entry_batches() {
     let primary_dir = temp_dir("neo4r-server-repl-batch-primary");
     let replica_dir = temp_dir("neo4r-server-repl-batch-replica");
     let routing_table = ShardRoutingTable {
@@ -832,7 +835,7 @@ fn replication_listener_accepts_group_commit_entry_batches() {
 }
 
 #[test]
-fn raft_transport_appends_then_commits_replicated_entries() {
+pub(super) fn raft_transport_appends_then_commits_replicated_entries() {
     let primary_dir = temp_dir("neo4r-server-raft-primary");
     let replica_dir = temp_dir("neo4r-server-raft-replica");
     let routing_table = ShardRoutingTable {

@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn raft_vote_rpc_persists_vote_on_replica() {
+pub(super) fn raft_vote_rpc_persists_vote_on_replica() {
     let dir = temp_dir("neo4r-server-raft-vote");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -41,7 +44,7 @@ fn raft_vote_rpc_persists_vote_on_replica() {
 }
 
 #[test]
-fn raft_election_round_promotes_candidate_after_peer_vote() {
+pub(super) fn raft_election_round_promotes_candidate_after_peer_vote() {
     let candidate_dir = temp_dir("neo4r-server-raft-election-candidate");
     let voter_dir = temp_dir("neo4r-server-raft-election-voter");
     let routing_table = ShardRoutingTable {
@@ -88,7 +91,7 @@ fn raft_election_round_promotes_candidate_after_peer_vote() {
 }
 
 #[test]
-fn replication_listener_accepts_consecutive_entry_batches() {
+pub(super) fn replication_listener_accepts_consecutive_entry_batches() {
     let primary_dir = temp_dir("neo4r-server-repl-consecutive-primary");
     let replica_dir = temp_dir("neo4r-server-repl-consecutive-replica");
     let routing_table = ShardRoutingTable {
@@ -155,7 +158,7 @@ fn replication_listener_accepts_consecutive_entry_batches() {
 }
 
 #[test]
-fn backend_catch_up_from_primaries_fetches_replica_shard_logs() {
+pub(super) fn backend_catch_up_from_primaries_fetches_replica_shard_logs() {
     let primary_dir = temp_dir("neo4r-server-catch-up-primary");
     let replica_dir = temp_dir("neo4r-server-catch-up-replica");
     let routing_table = ShardRoutingTable {
@@ -231,7 +234,7 @@ fn backend_catch_up_from_primaries_fetches_replica_shard_logs() {
 }
 
 #[test]
-fn backend_catch_up_from_primaries_fetches_batches_idempotently() {
+pub(super) fn backend_catch_up_from_primaries_fetches_batches_idempotently() {
     let primary_dir = temp_dir("neo4r-server-catch-up-batch-primary");
     let replica_dir = temp_dir("neo4r-server-catch-up-batch-replica");
     let routing_table = ShardRoutingTable {
@@ -310,7 +313,7 @@ fn backend_catch_up_from_primaries_fetches_batches_idempotently() {
 }
 
 #[test]
-fn backend_catch_up_from_primary_targets_one_peer() {
+pub(super) fn backend_catch_up_from_primary_targets_one_peer() {
     let primary_dir = temp_dir("neo4r-server-catch-up-one-primary");
     let replica_dir = temp_dir("neo4r-server-catch-up-one-replica");
     let routing_table = ShardRoutingTable {
@@ -378,7 +381,7 @@ fn backend_catch_up_from_primary_targets_one_peer() {
 }
 
 #[test]
-fn backend_catch_up_plan_reports_target_shards() {
+pub(super) fn backend_catch_up_plan_reports_target_shards() {
     let dir = temp_dir("neo4r-server-catch-up-plan");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -414,7 +417,7 @@ fn backend_catch_up_plan_reports_target_shards() {
 }
 
 #[test]
-fn backend_replication_peer_status_reports_roles_and_missing_addresses() {
+pub(super) fn backend_replication_peer_status_reports_roles_and_missing_addresses() {
     let dir = temp_dir("neo4r-server-replication-peer-status");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -453,7 +456,7 @@ fn backend_replication_peer_status_reports_roles_and_missing_addresses() {
 }
 
 #[test]
-fn native_tcp_catches_up_from_primary() {
+pub(super) fn native_tcp_catches_up_from_primary() {
     let primary_dir = temp_dir("neo4r-native-catch-up-one-primary");
     let replica_dir = temp_dir("neo4r-native-catch-up-one-replica");
     let routing_table = ShardRoutingTable {
@@ -562,7 +565,7 @@ fn native_tcp_catches_up_from_primary() {
 }
 
 #[test]
-fn native_tcp_reports_catch_up_plan() {
+pub(super) fn native_tcp_reports_catch_up_plan() {
     let dir = temp_dir("neo4r-native-catch-up-plan");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -627,7 +630,7 @@ fn native_tcp_reports_catch_up_plan() {
 }
 
 #[test]
-fn native_tcp_reports_replication_peer_status() {
+pub(super) fn native_tcp_reports_replication_peer_status() {
     let dir = temp_dir("neo4r-native-replication-peer-status");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -696,7 +699,7 @@ fn native_tcp_reports_replication_peer_status() {
 }
 
 #[test]
-fn backend_catch_up_from_primaries_accepts_batch_limit() {
+pub(super) fn backend_catch_up_from_primaries_accepts_batch_limit() {
     let primary_dir = temp_dir("neo4r-server-catch-up-limited-primary");
     let replica_dir = temp_dir("neo4r-server-catch-up-limited-replica");
     let routing_table = ShardRoutingTable {
@@ -761,7 +764,7 @@ fn backend_catch_up_from_primaries_accepts_batch_limit() {
 }
 
 #[test]
-fn replication_listener_serves_multiple_catch_up_connections_until_shutdown() {
+pub(super) fn replication_listener_serves_multiple_catch_up_connections_until_shutdown() {
     let primary_dir = temp_dir("neo4r-server-repl-listener-until-primary");
     let replica_dir = temp_dir("neo4r-server-repl-listener-until-replica");
     let routing_table = ShardRoutingTable {
@@ -821,7 +824,7 @@ fn replication_listener_serves_multiple_catch_up_connections_until_shutdown() {
 }
 
 #[test]
-fn persistent_backend_catch_up_uses_reloaded_replication_peers() {
+pub(super) fn persistent_backend_catch_up_uses_reloaded_replication_peers() {
     let primary_dir = temp_dir("neo4r-server-persistent-catch-up-primary");
     let replica_dir = temp_dir("neo4r-server-persistent-catch-up-replica");
     let routing_table = ShardRoutingTable {

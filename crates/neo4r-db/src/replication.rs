@@ -8,7 +8,7 @@ use neo4r_storage::{decode_log_entry, encode_log_entry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -25,10 +25,12 @@ const TCP_REPLICATION_OK: u8 = 1;
 const TCP_REPLICATION_ERR: u8 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TcpRaftAppendResponse {
+pub struct RaftAppendChannelResponse {
     pub append: AppendEntriesResponse,
     pub ack_positions: Vec<(ShardId, LogIndex)>,
 }
+
+pub type TcpRaftAppendResponse = RaftAppendChannelResponse;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct RaftPeerProgress {
@@ -131,9 +133,8 @@ pub struct InProcessShardReplicator {
 pub struct TcpShardReplicator {
     routing_table: RwLock<ShardRoutingTable>,
     ack_policy: ReplicationAckPolicy,
-    connect_timeout: Duration,
-    max_attempts: usize,
-    retry_backoff: Duration,
+    channel_config: ReplicationChannelConfig,
+    channel: Arc<dyn ReplicationChannel>,
     raft_transport: bool,
     peers: Mutex<BTreeMap<ServerId, String>>,
     raft_peer_progress: Mutex<BTreeMap<(ServerId, ShardId), RaftPeerProgress>>,
@@ -144,9 +145,8 @@ impl TcpShardReplicator {
         Self {
             routing_table: RwLock::new(routing_table),
             ack_policy: ReplicationAckPolicy::All,
-            connect_timeout: Duration::from_secs(1),
-            max_attempts: 1,
-            retry_backoff: Duration::from_millis(10),
+            channel_config: ReplicationChannelConfig::default(),
+            channel: Arc::new(TcpReplicationChannel),
             raft_transport: false,
             peers: Mutex::new(BTreeMap::new()),
             raft_peer_progress: Mutex::new(BTreeMap::new()),
@@ -159,13 +159,18 @@ impl TcpShardReplicator {
     }
 
     pub fn with_connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.connect_timeout = connect_timeout;
+        self.channel_config.connect_timeout = connect_timeout;
         self
     }
 
     pub fn with_retry(mut self, max_attempts: usize, retry_backoff: Duration) -> Self {
-        self.max_attempts = max_attempts.max(1);
-        self.retry_backoff = retry_backoff;
+        self.channel_config.max_attempts = max_attempts.max(1);
+        self.channel_config.retry_backoff = retry_backoff;
+        self
+    }
+
+    pub fn with_channel(mut self, channel: Arc<dyn ReplicationChannel>) -> Self {
+        self.channel = channel;
         self
     }
 
@@ -205,11 +210,9 @@ impl TcpShardReplicator {
             .clone();
         for (_, address) in peers {
             for (shard_id, leader_commit) in committed_indexes.iter().copied().enumerate() {
-                let _ = send_tcp_raft_append_batch(
+                let _ = self.channel.send_raft_append_batch(
                     &address,
-                    self.connect_timeout,
-                    self.max_attempts,
-                    self.retry_backoff,
+                    &self.channel_config,
                     shard_id as ShardId,
                     leader_commit,
                     &[],
@@ -241,9 +244,9 @@ impl TcpShardReplicator {
                         .into_iter()
                         .filter(|entry| entry.index <= leader_commit)
                         .collect::<Vec<_>>();
-                    let response = send_tcp_raft_append_batch_once(
+                    let response = self.channel.send_raft_append_batch_once(
                         &address,
-                        self.connect_timeout,
+                        &self.channel_config,
                         shard_id,
                         leader_commit,
                         &entries,
@@ -275,9 +278,9 @@ impl TcpShardReplicator {
                                 if response.append.conflict_index.is_some_and(|index| {
                                     index <= snapshot.metadata.last_included_index
                                 }) {
-                                    let installed = request_tcp_install_snapshot(
+                                    let installed = self.channel.install_snapshot(
                                         &address,
-                                        self.connect_timeout,
+                                        &self.channel_config,
                                         snapshot,
                                     )?;
                                     if installed.success {
@@ -400,9 +403,9 @@ impl TcpShardReplicator {
                 Err(err) => return Err(err),
             };
             for (server_id, address) in &peers {
-                let response = request_tcp_raft_vote(
+                let response = self.channel.request_vote(
                     &address,
-                    self.connect_timeout,
+                    &self.channel_config,
                     shard_id,
                     request.clone(),
                 );
@@ -647,19 +650,15 @@ impl ShardReplicator for TcpShardReplicator {
                 .map(|(_, entry)| entry.clone())
                 .collect::<Vec<_>>();
             let append_result = if self.raft_transport {
-                send_tcp_raft_append_batches_by_shard(
+                self.channel.send_raft_append_batches_by_shard(
                     &address,
-                    self.connect_timeout,
-                    self.max_attempts,
-                    self.retry_backoff,
+                    &self.channel_config,
                     &replicated_entries,
                 )
             } else {
-                send_tcp_replication_batch(
+                self.channel.send_replication_batch(
                     &address,
-                    self.connect_timeout,
-                    self.max_attempts,
-                    self.retry_backoff,
+                    &self.channel_config,
                     &replicated_entries,
                 )
             };
@@ -735,11 +734,9 @@ impl TcpShardReplicator {
             else {
                 continue;
             };
-            let _ = send_tcp_raft_append_batch(
+            let _ = self.channel.send_raft_append_batch(
                 &address,
-                self.connect_timeout,
-                self.max_attempts,
-                self.retry_backoff,
+                &self.channel_config,
                 shard_id,
                 leader_commit,
                 &[],
@@ -749,8 +746,12 @@ impl TcpShardReplicator {
     }
 }
 
-include!("replication/tcp_requests.rs");
-include!("replication/tcp_responses.rs");
+mod channel;
+mod tcp_requests;
+mod tcp_responses;
+
+pub use channel::*;
+pub use tcp_requests::*;
 
 #[cfg(test)]
 mod tests;

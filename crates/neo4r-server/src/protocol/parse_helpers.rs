@@ -1,4 +1,7 @@
-fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, String> {
+use super::row_codec::*;
+use super::*;
+
+pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, String> {
     match line {
         "PING" => Ok(BackendRequest::Ping),
         "QUIT" => Ok(BackendRequest::Quit),
@@ -112,7 +115,7 @@ pub fn decode_index_catalog(input: &str) -> Result<IndexCatalog, String> {
     Ok(IndexCatalog { version, indexes })
 }
 
-fn encode_index_definition(index: &IndexDefinition) -> String {
+pub(super) fn encode_index_definition(index: &IndexDefinition) -> String {
     let mut fields = vec![
         hex_encode(index.name.as_bytes()),
         hex_encode(index.label.as_bytes()),
@@ -130,7 +133,7 @@ fn encode_index_definition(index: &IndexDefinition) -> String {
     fields.join(":")
 }
 
-fn decode_index_definition(input: &str) -> Result<IndexDefinition, String> {
+pub(super) fn decode_index_definition(input: &str) -> Result<IndexDefinition, String> {
     let parts = input.split(':').collect::<Vec<_>>();
     if parts.len() != 4 && parts.len() != 6 {
         return Err(
@@ -161,11 +164,11 @@ fn decode_index_definition(input: &str) -> Result<IndexDefinition, String> {
     }
 }
 
-fn decode_hex_string(input: &str, name: &str) -> Result<String, String> {
+pub(super) fn decode_hex_string(input: &str, name: &str) -> Result<String, String> {
     String::from_utf8(hex_decode(input)?).map_err(|_| format!("{name} is not valid UTF-8"))
 }
 
-fn parse_install_routing_table(input: &str) -> Result<ShardRoutingTable, String> {
+pub(super) fn parse_install_routing_table(input: &str) -> Result<ShardRoutingTable, String> {
     let mut parts = input.split('\t');
     let version = parse_u64(parts.next(), "INSTALL_ROUTING_TABLE requires version")?;
     let placements = parts
@@ -180,7 +183,7 @@ fn parse_install_routing_table(input: &str) -> Result<ShardRoutingTable, String>
     })
 }
 
-fn parse_routing_placement(input: &str) -> Result<ShardPlacement, String> {
+pub(super) fn parse_routing_placement(input: &str) -> Result<ShardPlacement, String> {
     let mut parts = input.split(':');
     let shard_id = parts
         .next()
@@ -220,7 +223,7 @@ fn parse_routing_placement(input: &str) -> Result<ShardPlacement, String> {
     Ok(ShardPlacement::new(shard_id, replicas))
 }
 
-fn parse_rebalance_step(input: &str) -> Result<RebalanceStep, String> {
+pub(super) fn parse_rebalance_step(input: &str) -> Result<RebalanceStep, String> {
     let mut parts = input.split('\t');
     match parts.next().unwrap_or("") {
         "ADD_REPLICA" => {

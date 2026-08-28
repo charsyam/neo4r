@@ -1,3 +1,4 @@
+use super::tcp_responses::*;
 use super::*;
 use neo4r_core::{Command, ShardPlacement, ShardReplica};
 use std::fs;
@@ -11,6 +12,32 @@ fn temp_dir(name: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("neo4r-replication-{name}-{nanos}"))
+}
+
+#[test]
+fn tcp_replication_channel_reports_tcp_kind_and_default_config() {
+    let channel = TcpReplicationChannel;
+    let config = ReplicationChannelConfig::default();
+
+    assert_eq!(channel.kind(), ReplicationChannelKind::Tcp);
+    assert_eq!(config.connect_timeout, std::time::Duration::from_secs(1));
+    assert_eq!(config.max_attempts, 1);
+    assert_eq!(config.retry_backoff, std::time::Duration::from_millis(10));
+}
+
+#[test]
+fn unsupported_replication_channels_are_explicit_placeholders() {
+    let udp = UnsupportedReplicationChannel::udp();
+    let rdma = UnsupportedReplicationChannel::rdma();
+
+    assert_eq!(udp.kind(), ReplicationChannelKind::Udp);
+    assert_eq!(rdma.kind(), ReplicationChannelKind::Rdma);
+    let err = udp
+        .send_replication_batch("127.0.0.1:1", &ReplicationChannelConfig::default(), &[])
+        .unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("Udp replication channel is not implemented"));
 }
 
 #[test]

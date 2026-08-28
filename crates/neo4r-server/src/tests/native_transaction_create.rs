@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_commits_staged_create_property_replacement() {
+pub(super) fn native_read_write_transaction_commits_staged_create_property_replacement() {
     let dir = temp_dir("neo4r-native-read-write-tx-create-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -125,7 +128,8 @@ fn native_read_write_transaction_commits_staged_create_property_replacement() {
 }
 
 #[test]
-fn native_read_write_transaction_commits_staged_relationship_create_property_replacement() {
+pub(super) fn native_read_write_transaction_commits_staged_relationship_create_property_replacement(
+) {
     let dir = temp_dir("neo4r-native-read-write-tx-create-rel-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -269,7 +273,7 @@ fn native_read_write_transaction_commits_staged_relationship_create_property_rep
 }
 
 #[test]
-fn native_read_write_transaction_commits_staged_create_then_set() {
+pub(super) fn native_read_write_transaction_commits_staged_create_then_set() {
     let dir = temp_dir("neo4r-native-read-write-tx-create-then-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -410,7 +414,7 @@ fn native_read_write_transaction_commits_staged_create_then_set() {
 }
 
 #[test]
-fn native_read_write_transaction_commits_staged_nodes_and_relationship() {
+pub(super) fn native_read_write_transaction_commits_staged_nodes_and_relationship() {
     let dir = temp_dir("neo4r-native-read-write-tx-create-graph");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -542,7 +546,7 @@ fn native_read_write_transaction_commits_staged_nodes_and_relationship() {
 }
 
 #[test]
-fn native_read_write_transaction_merges_staged_node_on_match() {
+pub(super) fn native_read_write_transaction_merges_staged_node_on_match() {
     let dir = temp_dir("neo4r-native-read-write-tx-merge-node-overlay");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -659,7 +663,7 @@ fn native_read_write_transaction_merges_staged_node_on_match() {
 }
 
 #[test]
-fn native_read_write_transaction_merges_staged_relationship_on_match() {
+pub(super) fn native_read_write_transaction_merges_staged_relationship_on_match() {
     let dir = temp_dir("neo4r-native-read-write-tx-merge-relationship-overlay");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -806,7 +810,7 @@ fn native_read_write_transaction_merges_staged_relationship_on_match() {
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_node_property_updates() {
+pub(super) fn native_read_write_transaction_reads_staged_node_property_updates() {
     let dir = temp_dir("neo4r-native-read-write-tx-read-your-writes");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(

@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_prepared_query_rejects_missing_params_before_execution() {
+pub(super) fn native_prepared_query_rejects_missing_params_before_execution() {
     let dir = temp_dir("neo4r-native-prepared-query-missing-params");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -139,7 +142,7 @@ fn native_prepared_query_rejects_missing_params_before_execution() {
 }
 
 #[test]
-fn native_prepared_query_plan_reports_access_path_and_tx_context() {
+pub(super) fn native_prepared_query_plan_reports_access_path_and_tx_context() {
     let dir = temp_dir("neo4r-native-prepared-query-plan");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher("CREATE INDEX person_name FOR (n:Person) ON (n.name)")
@@ -247,7 +250,7 @@ fn native_prepared_query_plan_reports_access_path_and_tx_context() {
 }
 
 #[test]
-fn native_prepared_query_is_session_scoped() {
+pub(super) fn native_prepared_query_is_session_scoped() {
     let dir = temp_dir("neo4r-native-prepared-query-session-scope");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -344,7 +347,7 @@ fn native_prepared_query_is_session_scoped() {
 }
 
 #[test]
-fn tcp_backend_reports_parse_errors() {
+pub(super) fn tcp_backend_reports_parse_errors() {
     let dir = temp_dir("neo4r-tcp-parse-error");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -373,7 +376,7 @@ fn tcp_backend_reports_parse_errors() {
 }
 
 #[test]
-fn backend_distributed_query_fans_out_to_remote_shards() {
+pub(super) fn backend_distributed_query_fans_out_to_remote_shards() {
     let local_dir = temp_dir("neo4r-distributed-query-local");
     let remote_dir = temp_dir("neo4r-distributed-query-remote");
     let routing_table = ShardRoutingTable {
@@ -485,7 +488,7 @@ fn backend_distributed_query_fans_out_to_remote_shards() {
 }
 
 #[test]
-fn distributed_query_primary_preference_requires_primary_peer() {
+pub(super) fn distributed_query_primary_preference_requires_primary_peer() {
     let local_dir = temp_dir("neo4r-distributed-primary-preference");
     let routing_table = ShardRoutingTable {
         version: 4,
@@ -521,7 +524,7 @@ fn distributed_query_primary_preference_requires_primary_peer() {
 }
 
 #[test]
-fn distributed_query_prefer_replica_uses_replica_peer() {
+pub(super) fn distributed_query_prefer_replica_uses_replica_peer() {
     let local_dir = temp_dir("neo4r-distributed-prefer-replica-local");
     let replica_dir = temp_dir("neo4r-distributed-prefer-replica-remote");
     let routing_table = ShardRoutingTable {
@@ -605,7 +608,7 @@ fn distributed_query_prefer_replica_uses_replica_peer() {
 }
 
 #[test]
-fn native_command_forwards_shard_write_to_remote_primary() {
+pub(super) fn native_command_forwards_shard_write_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-write-local");
     let remote_dir = temp_dir("neo4r-forward-write-remote");
     let routing_table = ShardRoutingTable {
@@ -678,7 +681,7 @@ fn native_command_forwards_shard_write_to_remote_primary() {
 }
 
 #[test]
-fn native_command_forwards_relationship_cud_to_remote_primary() {
+pub(super) fn native_command_forwards_relationship_cud_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-rel-cud-local");
     let remote_dir = temp_dir("neo4r-forward-rel-cud-remote");
     let routing_table = ShardRoutingTable {
@@ -823,7 +826,7 @@ fn native_command_forwards_relationship_cud_to_remote_primary() {
 }
 
 #[test]
-fn native_command_forwards_node_label_cud_to_remote_primary() {
+pub(super) fn native_command_forwards_node_label_cud_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-label-cud-local");
     let remote_dir = temp_dir("neo4r-forward-label-cud-remote");
     let routing_table = ShardRoutingTable {

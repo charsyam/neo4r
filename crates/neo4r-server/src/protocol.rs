@@ -714,10 +714,20 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
     }
 }
 
-include!("protocol/execute.rs");
-include!("protocol/parse_helpers.rs");
-include!("protocol/format.rs");
-include!("protocol/row_codec.rs");
+mod execute;
+mod format;
+mod parse_helpers;
+mod row_codec;
+
+pub use execute::{execute_request, format_response, write_response};
+pub(crate) use format::format_query_plan;
+pub use parse_helpers::decode_index_catalog;
+use parse_helpers::*;
+use row_codec::*;
+pub use row_codec::{
+    decode_query_batch_payload, decode_query_rows, encode_query_batch_payload, encode_query_rows,
+    parse_query_payload,
+};
 
 #[cfg(test)]
 mod tests;

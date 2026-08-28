@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn execute_cypher_sets_multiple_node_properties() {
+pub(super) fn execute_cypher_sets_multiple_node_properties() {
     let dir = temp_dir("facade-cypher-set-multiple");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -37,7 +47,7 @@ fn execute_cypher_sets_multiple_node_properties() {
 }
 
 #[test]
-fn execute_cypher_write_returns_multiple_items() {
+pub(super) fn execute_cypher_write_returns_multiple_items() {
     let dir = temp_dir("facade-cypher-write-return-multiple");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -107,7 +117,7 @@ fn execute_cypher_write_returns_multiple_items() {
 }
 
 #[test]
-fn execute_cypher_sets_node_properties_from_map() {
+pub(super) fn execute_cypher_sets_node_properties_from_map() {
     let dir = temp_dir("facade-cypher-set-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(
@@ -142,7 +152,7 @@ fn execute_cypher_sets_node_properties_from_map() {
 }
 
 #[test]
-fn execute_cypher_accepts_parameterized_property_maps() {
+pub(super) fn execute_cypher_accepts_parameterized_property_maps() {
     let dir = temp_dir("facade-cypher-parameterized-property-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", stale: true})"#)
@@ -272,7 +282,7 @@ fn execute_cypher_accepts_parameterized_property_maps() {
 }
 
 #[test]
-fn execute_cypher_replaces_node_properties_from_map() {
+pub(super) fn execute_cypher_replaces_node_properties_from_map() {
     let dir = temp_dir("facade-cypher-replace-node-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", status: "old", stale: true})"#)
@@ -303,7 +313,7 @@ fn execute_cypher_replaces_node_properties_from_map() {
 }
 
 #[test]
-fn execute_cypher_removes_node_property_and_updates_indexes() {
+pub(super) fn execute_cypher_removes_node_property_and_updates_indexes() {
     let dir = temp_dir("facade-cypher-remove-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.execute_cypher(
@@ -350,7 +360,7 @@ fn execute_cypher_removes_node_property_and_updates_indexes() {
 }
 
 #[test]
-fn execute_cypher_removes_relationship_property() {
+pub(super) fn execute_cypher_removes_relationship_property() {
     let dir = temp_dir("facade-cypher-remove-relationship");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db
@@ -405,7 +415,7 @@ fn execute_cypher_removes_relationship_property() {
 }
 
 #[test]
-fn execute_cypher_merges_relationship_idempotently() {
+pub(super) fn execute_cypher_merges_relationship_idempotently() {
     let dir = temp_dir("facade-cypher-merge-relationship");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -540,7 +550,7 @@ fn execute_cypher_merges_relationship_idempotently() {
 }
 
 #[test]
-fn execute_cypher_merge_relationship_applies_on_create_and_on_match_set() {
+pub(super) fn execute_cypher_merge_relationship_applies_on_create_and_on_match_set() {
     let dir = temp_dir("facade-cypher-merge-relationship-on-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -597,7 +607,7 @@ fn execute_cypher_merge_relationship_applies_on_create_and_on_match_set() {
 }
 
 #[test]
-fn execute_cypher_merge_relationship_replaces_properties_from_on_set_maps() {
+pub(super) fn execute_cypher_merge_relationship_replaces_properties_from_on_set_maps() {
     let dir = temp_dir("facade-cypher-merge-relationship-on-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice"})"#)
@@ -630,7 +640,7 @@ fn execute_cypher_merge_relationship_replaces_properties_from_on_set_maps() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_single_shard_writes() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_single_shard_writes() {
     let dir = temp_dir("facade-cypher-batch-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -688,7 +698,7 @@ fn execute_cypher_mutation_batch_group_commits_single_shard_writes() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_replaces_property_maps() {
+pub(super) fn execute_cypher_mutation_batch_replaces_property_maps() {
     let dir = temp_dir("facade-cypher-batch-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", stale: true, score: 1})"#)
@@ -723,7 +733,7 @@ fn execute_cypher_mutation_batch_replaces_property_maps() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_set_null_removes_property() {
+pub(super) fn execute_cypher_mutation_batch_set_null_removes_property() {
     let dir = temp_dir("facade-cypher-batch-set-null");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", status: "active"})"#)
@@ -757,7 +767,7 @@ fn execute_cypher_mutation_batch_set_null_removes_property() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_single_shard_creates() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_single_shard_creates() {
     let dir = temp_dir("facade-cypher-batch-create");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -834,7 +844,7 @@ fn execute_cypher_mutation_batch_group_commits_single_shard_creates() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_create_property_replacements() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_create_property_replacements() {
     let dir = temp_dir("facade-cypher-batch-create-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(

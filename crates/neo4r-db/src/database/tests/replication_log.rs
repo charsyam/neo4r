@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn local_write_entries_include_origin_and_config_metadata() {
+pub(super) fn local_write_entries_include_origin_and_config_metadata() {
     let dir = temp_dir("facade-local-entry-metadata");
     let config = DatabaseConfig::new(&dir, 1, 2)
         .with_server_id(10)
@@ -19,7 +29,7 @@ fn local_write_entries_include_origin_and_config_metadata() {
 }
 
 #[test]
-fn replicated_entry_is_applied_without_being_local_primary() {
+pub(super) fn replicated_entry_is_applied_without_being_local_primary() {
     let dir = temp_dir("facade-replicated-apply");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -62,7 +72,7 @@ fn replicated_entry_is_applied_without_being_local_primary() {
 }
 
 #[test]
-fn replicated_vector_indexed_write_is_rejected_before_wal_append() {
+pub(super) fn replicated_vector_indexed_write_is_rejected_before_wal_append() {
     let dir = temp_dir("facade-replicated-vector-validation");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -105,7 +115,7 @@ fn replicated_vector_indexed_write_is_rejected_before_wal_append() {
 }
 
 #[test]
-fn replicated_map_property_write_is_rejected_before_wal_append() {
+pub(super) fn replicated_map_property_write_is_rejected_before_wal_append() {
     let dir = temp_dir("facade-replicated-map-property-validation");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -149,7 +159,7 @@ fn replicated_map_property_write_is_rejected_before_wal_append() {
 }
 
 #[test]
-fn replicated_vector_index_validation_uses_batch_overlay() {
+pub(super) fn replicated_vector_index_validation_uses_batch_overlay() {
     let dir = temp_dir("facade-replicated-vector-batch-validation");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -208,7 +218,7 @@ fn replicated_vector_index_validation_uses_batch_overlay() {
 }
 
 #[test]
-fn replicated_duplicate_with_different_payload_is_rejected() {
+pub(super) fn replicated_duplicate_with_different_payload_is_rejected() {
     let dir = temp_dir("facade-replicated-conflict");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -260,7 +270,7 @@ fn replicated_duplicate_with_different_payload_is_rejected() {
 }
 
 #[test]
-fn replicated_entry_rejects_wrong_config_version() {
+pub(super) fn replicated_entry_rejects_wrong_config_version() {
     let dir = temp_dir("facade-replicated-config-conflict");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -298,7 +308,7 @@ fn replicated_entry_rejects_wrong_config_version() {
 }
 
 #[test]
-fn local_write_publishes_log_entry_to_replicator() {
+pub(super) fn local_write_publishes_log_entry_to_replicator() {
     let dir = temp_dir("facade-replicator-publish");
     let replicator = Arc::new(RecordingReplicator::default());
     let mut db = Neo4rDatabase::open_with_replicator(
@@ -320,7 +330,7 @@ fn local_write_publishes_log_entry_to_replicator() {
 }
 
 #[test]
-fn replicated_apply_does_not_publish_entry_again() {
+pub(super) fn replicated_apply_does_not_publish_entry_again() {
     let dir = temp_dir("facade-replicator-no-loop");
     let replicator = Arc::new(RecordingReplicator::default());
     let routing_table = ShardRoutingTable {
@@ -359,7 +369,7 @@ fn replicated_apply_does_not_publish_entry_again() {
 }
 
 #[test]
-fn in_process_replicator_applies_primary_writes_to_replica() {
+pub(super) fn in_process_replicator_applies_primary_writes_to_replica() {
     let primary_dir = temp_dir("facade-inprocess-primary");
     let replica_dir = temp_dir("facade-inprocess-replica");
     let routing_table = ShardRoutingTable {
@@ -408,7 +418,7 @@ fn in_process_replicator_applies_primary_writes_to_replica() {
 }
 
 #[test]
-fn install_routing_table_updates_replicator_targets() {
+pub(super) fn install_routing_table_updates_replicator_targets() {
     let primary_dir = temp_dir("facade-install-routing-primary");
     let replica_dir = temp_dir("facade-install-routing-replica");
     let initial_routing_table = ShardRoutingTable {
@@ -468,7 +478,7 @@ fn install_routing_table_updates_replicator_targets() {
 }
 
 #[test]
-fn raft_routing_install_records_config_change_entry() {
+pub(super) fn raft_routing_install_records_config_change_entry() {
     let dir = temp_dir("facade-raft-config-change");
     let initial_routing_table = ShardRoutingTable {
         version: 3,
@@ -516,7 +526,7 @@ fn raft_routing_install_records_config_change_entry() {
 }
 
 #[test]
-fn raft_snapshot_install_advances_commit_checkpoint_and_recovers() {
+pub(super) fn raft_snapshot_install_advances_commit_checkpoint_and_recovers() {
     let dir = temp_dir("facade-raft-install-snapshot");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -586,7 +596,7 @@ fn raft_snapshot_install_advances_commit_checkpoint_and_recovers() {
 }
 
 #[test]
-fn raft_snapshot_fault_injection_persists_payload_before_metadata() {
+pub(super) fn raft_snapshot_fault_injection_persists_payload_before_metadata() {
     let dir = temp_dir("facade-raft-install-snapshot-fault");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -632,7 +642,7 @@ fn raft_snapshot_fault_injection_persists_payload_before_metadata() {
 }
 
 #[test]
-fn raft_snapshot_fault_injection_after_prune_leaves_missing_payload_apply_observable() {
+pub(super) fn raft_snapshot_fault_injection_after_prune_leaves_missing_payload_apply_observable() {
     let dir = temp_dir("facade-raft-install-snapshot-prune-fault");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -684,7 +694,7 @@ fn raft_snapshot_fault_injection_after_prune_leaves_missing_payload_apply_observ
 }
 
 #[test]
-fn raft_snapshot_now_generates_payload_and_compacts_local_raft_log() {
+pub(super) fn raft_snapshot_now_generates_payload_and_compacts_local_raft_log() {
     let dir = temp_dir("facade-raft-snapshot-now");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -736,7 +746,7 @@ fn raft_snapshot_now_generates_payload_and_compacts_local_raft_log() {
 }
 
 #[test]
-fn restore_snapshot_replaces_shard_state_from_saved_payload() {
+pub(super) fn restore_snapshot_replaces_shard_state_from_saved_payload() {
     let dir = temp_dir("facade-restore-snapshot");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -788,7 +798,7 @@ fn restore_snapshot_replaces_shard_state_from_saved_payload() {
 }
 
 #[test]
-fn pending_restore_manifest_recovers_snapshot_replacement_on_reopen() {
+pub(super) fn pending_restore_manifest_recovers_snapshot_replacement_on_reopen() {
     let dir = temp_dir("facade-pending-restore-recover");
     let routing_table = ShardRoutingTable {
         version: 1,

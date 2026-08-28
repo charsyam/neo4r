@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn vector_index_cache_rebuilds_from_catalog_and_tracks_writes() {
+pub(super) fn vector_index_cache_rebuilds_from_catalog_and_tracks_writes() {
     let dir = temp_dir("facade-vector-index-cache");
     let cache_path = dir.join("indexes").join("vector-cache.bin");
     {
@@ -119,7 +129,7 @@ fn vector_index_cache_rebuilds_from_catalog_and_tracks_writes() {
 }
 
 #[test]
-fn corrupt_vector_index_cache_falls_back_to_rebuild() {
+pub(super) fn corrupt_vector_index_cache_falls_back_to_rebuild() {
     let dir = temp_dir("facade-vector-index-cache-corrupt");
     let cache_path = dir.join("indexes").join("vector-cache.bin");
     {
@@ -155,7 +165,7 @@ fn corrupt_vector_index_cache_falls_back_to_rebuild() {
 }
 
 #[test]
-fn vector_index_rebuild_excludes_removed_properties_and_deleted_nodes() {
+pub(super) fn vector_index_rebuild_excludes_removed_properties_and_deleted_nodes() {
     let dir = temp_dir("facade-vector-index-rebuild-removals");
     {
         let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
@@ -209,7 +219,7 @@ fn vector_index_rebuild_excludes_removed_properties_and_deleted_nodes() {
 }
 
 #[test]
-fn dropped_vector_index_stays_absent_after_reopen() {
+pub(super) fn dropped_vector_index_stays_absent_after_reopen() {
     let dir = temp_dir("facade-vector-index-drop-reopen");
     {
         let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
@@ -258,7 +268,7 @@ fn dropped_vector_index_stays_absent_after_reopen() {
 }
 
 #[test]
-fn stale_vector_index_cache_is_rebuilt_after_catalog_definition_changes() {
+pub(super) fn stale_vector_index_cache_is_rebuilt_after_catalog_definition_changes() {
     let dir = temp_dir("facade-vector-index-cache-stale-definition");
     let cache_path = dir.join("indexes").join("vector-cache.bin");
     let stale_cache;
@@ -325,7 +335,7 @@ fn stale_vector_index_cache_is_rebuilt_after_catalog_definition_changes() {
 }
 
 #[test]
-fn install_index_catalog_rejects_unique_constraint_violated_by_existing_nodes() {
+pub(super) fn install_index_catalog_rejects_unique_constraint_violated_by_existing_nodes() {
     let dir = temp_dir("facade-index-catalog-install-unique-violation");
     let mut db = Neo4rDatabase::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -361,7 +371,7 @@ fn install_index_catalog_rejects_unique_constraint_violated_by_existing_nodes() 
 }
 
 #[test]
-fn install_index_catalog_rejects_vector_definition_invalid_for_existing_nodes() {
+pub(super) fn install_index_catalog_rejects_vector_definition_invalid_for_existing_nodes() {
     let dir = temp_dir("facade-index-catalog-install-vector-violation");
     let mut db = Neo4rDatabase::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -395,7 +405,7 @@ fn install_index_catalog_rejects_vector_definition_invalid_for_existing_nodes() 
 }
 
 #[test]
-fn install_index_catalog_rebuilds_vector_cache_only_after_validation() {
+pub(super) fn install_index_catalog_rebuilds_vector_cache_only_after_validation() {
     let dir = temp_dir("facade-index-catalog-install-vector-cache");
     let cache_path = dir.join("indexes").join("vector-cache.bin");
     {
@@ -438,7 +448,7 @@ fn install_index_catalog_rebuilds_vector_cache_only_after_validation() {
 }
 
 #[test]
-fn execute_cypher_creates_node_with_params() {
+pub(super) fn execute_cypher_creates_node_with_params() {
     let dir = temp_dir("facade-cypher-create");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let mut params = QueryParams::new();
@@ -469,7 +479,7 @@ fn execute_cypher_creates_node_with_params() {
 }
 
 #[test]
-fn execute_cypher_create_node_applies_set_assignments() {
+pub(super) fn execute_cypher_create_node_applies_set_assignments() {
     let dir = temp_dir("facade-cypher-create-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let mut params = QueryParams::new();
@@ -503,7 +513,7 @@ fn execute_cypher_create_node_applies_set_assignments() {
 }
 
 #[test]
-fn execute_cypher_create_node_replaces_properties_from_map() {
+pub(super) fn execute_cypher_create_node_replaces_properties_from_map() {
     let dir = temp_dir("facade-cypher-create-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -533,7 +543,7 @@ fn execute_cypher_create_node_replaces_properties_from_map() {
 }
 
 #[test]
-fn execute_cypher_create_returns_created_properties() {
+pub(super) fn execute_cypher_create_returns_created_properties() {
     let dir = temp_dir("facade-cypher-create-return-property");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let mut params = QueryParams::new();
@@ -575,7 +585,7 @@ fn execute_cypher_create_returns_created_properties() {
 }
 
 #[test]
-fn execute_cypher_create_node_with_match_creates_relationship() {
+pub(super) fn execute_cypher_create_node_with_match_creates_relationship() {
     let dir = temp_dir("facade-cypher-create-with-match-relationship");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (c:Company {name: "Neo4r Labs"})"#)
@@ -610,7 +620,7 @@ RETURN n, r"#,
 }
 
 #[test]
-fn execute_cypher_merges_node_idempotently() {
+pub(super) fn execute_cypher_merges_node_idempotently() {
     let dir = temp_dir("facade-cypher-merge-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let mut params = QueryParams::new();
@@ -655,7 +665,7 @@ fn execute_cypher_merges_node_idempotently() {
 }
 
 #[test]
-fn execute_cypher_merge_node_uses_unique_constraint_key() {
+pub(super) fn execute_cypher_merge_node_uses_unique_constraint_key() {
     let dir = temp_dir("facade-cypher-merge-node-unique");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(
@@ -694,7 +704,7 @@ fn execute_cypher_merge_node_uses_unique_constraint_key() {
 }
 
 #[test]
-fn execute_cypher_merges_anonymous_node_idempotently() {
+pub(super) fn execute_cypher_merges_anonymous_node_idempotently() {
     let dir = temp_dir("facade-cypher-merge-anonymous-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let mut params = QueryParams::new();
@@ -722,7 +732,7 @@ fn execute_cypher_merges_anonymous_node_idempotently() {
 }
 
 #[test]
-fn execute_cypher_merge_node_applies_on_create_and_on_match_set() {
+pub(super) fn execute_cypher_merge_node_applies_on_create_and_on_match_set() {
     let dir = temp_dir("facade-cypher-merge-node-on-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let mut params = QueryParams::new();
@@ -769,7 +779,7 @@ fn execute_cypher_merge_node_applies_on_create_and_on_match_set() {
 }
 
 #[test]
-fn execute_cypher_merge_node_replaces_properties_from_on_set_maps() {
+pub(super) fn execute_cypher_merge_node_replaces_properties_from_on_set_maps() {
     let dir = temp_dir("facade-cypher-merge-node-on-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -805,7 +815,7 @@ fn execute_cypher_merge_node_replaces_properties_from_on_set_maps() {
 }
 
 #[test]
-fn execute_cypher_sets_node_property() {
+pub(super) fn execute_cypher_sets_node_property() {
     let dir = temp_dir("facade-cypher-set");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -845,7 +855,7 @@ fn execute_cypher_sets_node_property() {
 }
 
 #[test]
-fn execute_cypher_set_null_removes_node_property() {
+pub(super) fn execute_cypher_set_null_removes_node_property() {
     let dir = temp_dir("facade-cypher-set-null-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", status: "active", stale: true})"#)

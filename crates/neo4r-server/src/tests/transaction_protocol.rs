@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn prepared_query_routing_hint_reports_read_and_write_routes() {
+pub(super) fn prepared_query_routing_hint_reports_read_and_write_routes() {
     let dir = temp_dir("neo4r-prepared-query-routing-hint");
     let routing_table = ShardRoutingTable {
         version: 7,
@@ -51,7 +54,7 @@ fn prepared_query_routing_hint_reports_read_and_write_routes() {
 }
 
 #[test]
-fn parses_transaction_status_commands() {
+pub(super) fn parses_transaction_status_commands() {
     assert!(matches!(
         parse_transaction_command("TX_STATUS\t7").unwrap(),
         Some(TransactionCommand::Status { tx_id: 7 })
@@ -75,7 +78,7 @@ fn parses_transaction_status_commands() {
 }
 
 #[test]
-fn transaction_store_lists_all_session_transactions() {
+pub(super) fn transaction_store_lists_all_session_transactions() {
     let store = TransactionStore::default();
     let first_tx = store.insert(
         7,
@@ -115,7 +118,7 @@ fn transaction_store_lists_all_session_transactions() {
 }
 
 #[test]
-fn transaction_store_rejects_duplicate_staged_write_conflicts() {
+pub(super) fn transaction_store_rejects_duplicate_staged_write_conflicts() {
     let store = TransactionStore::default();
     let tx_id = store.insert(
         7,
@@ -137,7 +140,7 @@ fn transaction_store_rejects_duplicate_staged_write_conflicts() {
 }
 
 #[test]
-fn native_read_write_transaction_reports_status() {
+pub(super) fn native_read_write_transaction_reports_status() {
     let dir = temp_dir("neo4r-native-tx-status");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -258,7 +261,7 @@ fn native_read_write_transaction_reports_status() {
 }
 
 #[test]
-fn native_transaction_query_reads_stable_snapshot() {
+pub(super) fn native_transaction_query_reads_stable_snapshot() {
     let dir = temp_dir("neo4r-native-tx");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -358,7 +361,7 @@ fn native_transaction_query_reads_stable_snapshot() {
 }
 
 #[test]
-fn native_read_committed_transaction_reads_latest_statement_snapshot() {
+pub(super) fn native_read_committed_transaction_reads_latest_statement_snapshot() {
     let dir = temp_dir("neo4r-native-tx-read-committed");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -470,7 +473,7 @@ fn native_read_committed_transaction_reads_latest_statement_snapshot() {
 }
 
 #[test]
-fn native_transaction_query_plan_reports_access_path() {
+pub(super) fn native_transaction_query_plan_reports_access_path() {
     let dir = temp_dir("neo4r-native-tx-query-plan");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher("CREATE INDEX person_name FOR (n:Person) ON (n.name)")
@@ -553,7 +556,7 @@ fn native_transaction_query_plan_reports_access_path() {
 }
 
 #[test]
-fn native_read_write_transaction_query_plan_reports_staged_overlay() {
+pub(super) fn native_read_write_transaction_query_plan_reports_staged_overlay() {
     let dir = temp_dir("neo4r-native-tx-query-plan-staged");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -663,7 +666,7 @@ fn native_read_write_transaction_query_plan_reports_staged_overlay() {
 }
 
 #[test]
-fn native_read_write_transaction_stages_writes_until_commit() {
+pub(super) fn native_read_write_transaction_stages_writes_until_commit() {
     let dir = temp_dir("neo4r-native-read-write-tx");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -792,7 +795,7 @@ fn native_read_write_transaction_stages_writes_until_commit() {
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_relationship_creates() {
+pub(super) fn native_read_write_transaction_reads_staged_relationship_creates() {
     let dir = temp_dir("neo4r-native-read-write-tx-create-relationship-overlay");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(

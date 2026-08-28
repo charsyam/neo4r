@@ -36,6 +36,8 @@ pub use replication::{
     catch_up_from_tcp_primaries, catch_up_from_tcp_primaries_batched, catch_up_from_tcp_primary,
     catch_up_from_tcp_primary_batched, handle_tcp_replication_stream, request_tcp_install_snapshot,
     request_tcp_raft_append_or_install_snapshot, request_tcp_raft_vote, InProcessShardReplicator,
-    NoopShardReplicator, ReplicationAckPolicy, ReplicationOutcome, ShardReplicator,
-    TcpCatchUpResult, TcpShardReplicator,
+    NoopShardReplicator, RaftAppendChannelResponse, ReplicationAckPolicy, ReplicationChannel,
+    ReplicationChannelConfig, ReplicationChannelKind, ReplicationOutcome, ShardReplicator,
+    TcpCatchUpResult, TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator,
+    UnsupportedReplicationChannel,
 };

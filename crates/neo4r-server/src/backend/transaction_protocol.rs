@@ -1,4 +1,5 @@
-enum TransactionCommand {
+use super::*;
+pub(crate) enum TransactionCommand {
     Begin {
         mode: TransactionMode,
         isolation: ReadIsolation,
@@ -63,7 +64,7 @@ enum TransactionCommand {
     ListAll,
 }
 
-enum PreparedQueryCommand {
+pub(crate) enum PreparedQueryCommand {
     Prepare {
         query: String,
     },
@@ -88,7 +89,9 @@ enum PreparedQueryCommand {
     List,
 }
 
-fn parse_prepared_query_command(payload: &str) -> Result<Option<PreparedQueryCommand>, String> {
+pub(crate) fn parse_prepared_query_command(
+    payload: &str,
+) -> Result<Option<PreparedQueryCommand>, String> {
     let Some((command, rest)) = payload.split_once('\t') else {
         return match payload {
             "LIST_PREPARED" => Ok(Some(PreparedQueryCommand::List)),
@@ -143,7 +146,7 @@ fn parse_prepared_query_command(payload: &str) -> Result<Option<PreparedQueryCom
     }
 }
 
-fn parse_prepared_query_execute_payload(
+pub(crate) fn parse_prepared_query_execute_payload(
     payload: &str,
 ) -> Result<(u64, neo4r_query::QueryParams), String> {
     let Some((prepared_id, params_payload)) = payload.split_once('\t') else {
@@ -155,12 +158,14 @@ fn parse_prepared_query_execute_payload(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TransactionMode {
+pub(crate) enum TransactionMode {
     ReadOnly,
     ReadWrite,
 }
 
-fn parse_transaction_command(payload: &str) -> Result<Option<TransactionCommand>, String> {
+pub(crate) fn parse_transaction_command(
+    payload: &str,
+) -> Result<Option<TransactionCommand>, String> {
     let Some((command, rest)) = payload.split_once('\t') else {
         return match payload {
             "BEGIN_TX" => Ok(Some(TransactionCommand::Begin {
@@ -305,7 +310,9 @@ fn parse_transaction_command(payload: &str) -> Result<Option<TransactionCommand>
     }
 }
 
-fn parse_tx_begin_options(value: &str) -> Result<(TransactionMode, ReadIsolation), String> {
+pub(crate) fn parse_tx_begin_options(
+    value: &str,
+) -> Result<(TransactionMode, ReadIsolation), String> {
     let mut mode = TransactionMode::ReadOnly;
     let mut isolation = ReadIsolation::Snapshot;
     for option in value.split_whitespace() {

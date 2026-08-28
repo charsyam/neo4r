@@ -1,10 +1,12 @@
-struct TcpCatchUpRequest {
-    shard_id: ShardId,
-    start_index: LogIndex,
-    max_entries: Option<usize>,
+use super::*;
+
+pub(super) struct TcpCatchUpRequest {
+    pub(super) shard_id: ShardId,
+    pub(super) start_index: LogIndex,
+    pub(super) max_entries: Option<usize>,
 }
 
-fn request_tcp_catch_up(
+pub(super) fn request_tcp_catch_up(
     address: &str,
     connect_timeout: Duration,
     shard_id: ShardId,
@@ -13,7 +15,7 @@ fn request_tcp_catch_up(
     request_tcp_catch_up_limited(address, connect_timeout, shard_id, start_index, None)
 }
 
-fn request_tcp_catch_up_limited(
+pub(in crate::replication) fn request_tcp_catch_up_limited(
     address: &str,
     connect_timeout: Duration,
     shard_id: ShardId,
@@ -37,7 +39,7 @@ fn request_tcp_catch_up_limited(
     Ok(entries)
 }
 
-fn write_tcp_catch_up_request(
+pub(super) fn write_tcp_catch_up_request(
     writer: &mut impl Write,
     shard_id: ShardId,
     start_index: LogIndex,
@@ -58,7 +60,7 @@ fn write_tcp_catch_up_request(
     Ok(())
 }
 
-fn read_tcp_catch_up_request_after_magic(
+pub(super) fn read_tcp_catch_up_request_after_magic(
     reader: &mut impl Read,
     has_limit: Option<()>,
 ) -> DatabaseResult<TcpCatchUpRequest> {
@@ -79,7 +81,7 @@ fn read_tcp_catch_up_request_after_magic(
     })
 }
 
-fn read_catch_up_entries(
+pub(super) fn read_catch_up_entries(
     db: &Neo4rDatabaseHandle,
     request: &TcpCatchUpRequest,
 ) -> DatabaseResult<Vec<LogEntry>> {
@@ -90,7 +92,7 @@ fn read_catch_up_entries(
     Ok(entries)
 }
 
-fn validate_tcp_catch_up_entries(
+pub(super) fn validate_tcp_catch_up_entries(
     shard_id: ShardId,
     start_index: LogIndex,
     max_entries: Option<usize>,
@@ -122,7 +124,7 @@ fn validate_tcp_catch_up_entries(
     Ok(())
 }
 
-fn write_tcp_catch_up_response(
+pub(super) fn write_tcp_catch_up_response(
     writer: &mut impl Write,
     result: &DatabaseResult<Vec<LogEntry>>,
 ) -> DatabaseResult<()> {
@@ -158,7 +160,7 @@ fn write_tcp_catch_up_response(
     }
 }
 
-fn read_tcp_catch_up_response(reader: &mut impl Read) -> DatabaseResult<Vec<LogEntry>> {
+pub(super) fn read_tcp_catch_up_response(reader: &mut impl Read) -> DatabaseResult<Vec<LogEntry>> {
     read_magic(reader, TCP_CATCH_UP_RESPONSE_MAGIC, "catch-up response")?;
     let mut status = [0; 1];
     reader
@@ -192,7 +194,7 @@ fn read_tcp_catch_up_response(reader: &mut impl Read) -> DatabaseResult<Vec<LogE
     }
 }
 
-fn write_tcp_replication_response(
+pub(super) fn write_tcp_replication_response(
     writer: &mut impl Write,
     result: &DatabaseResult<Vec<(ShardId, LogIndex)>>,
 ) -> DatabaseResult<()> {
@@ -223,7 +225,7 @@ fn write_tcp_replication_response(
     }
 }
 
-fn read_tcp_replication_response(
+pub(super) fn read_tcp_replication_response(
     reader: &mut impl Read,
 ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
     read_magic(
@@ -251,7 +253,7 @@ fn read_tcp_replication_response(
     }
 }
 
-fn write_tcp_raft_append_response(
+pub(super) fn write_tcp_raft_append_response(
     writer: &mut impl Write,
     result: &DatabaseResult<TcpRaftAppendResponse>,
 ) -> DatabaseResult<()> {
@@ -282,7 +284,9 @@ fn write_tcp_raft_append_response(
     }
 }
 
-fn read_tcp_raft_append_response(reader: &mut impl Read) -> DatabaseResult<TcpRaftAppendResponse> {
+pub(super) fn read_tcp_raft_append_response(
+    reader: &mut impl Read,
+) -> DatabaseResult<TcpRaftAppendResponse> {
     read_magic(
         reader,
         TCP_RAFT_APPEND_RESPONSE_MAGIC,
@@ -308,7 +312,7 @@ fn read_tcp_raft_append_response(reader: &mut impl Read) -> DatabaseResult<TcpRa
     }
 }
 
-fn encode_tcp_raft_append_response(response: &TcpRaftAppendResponse) -> Vec<u8> {
+pub(super) fn encode_tcp_raft_append_response(response: &TcpRaftAppendResponse) -> Vec<u8> {
     let mut payload = Vec::new();
     payload.extend_from_slice(&response.append.term.to_be_bytes());
     payload.push(u8::from(response.append.success));
@@ -321,7 +325,9 @@ fn encode_tcp_raft_append_response(response: &TcpRaftAppendResponse) -> Vec<u8> 
     payload
 }
 
-fn decode_tcp_raft_append_response(payload: &[u8]) -> DatabaseResult<TcpRaftAppendResponse> {
+pub(super) fn decode_tcp_raft_append_response(
+    payload: &[u8],
+) -> DatabaseResult<TcpRaftAppendResponse> {
     if payload.len() < 31 {
         return Err(DatabaseError::Replication(
             "invalid raft append response payload".to_string(),
@@ -356,7 +362,7 @@ fn decode_tcp_raft_append_response(payload: &[u8]) -> DatabaseResult<TcpRaftAppe
     })
 }
 
-fn encode_optional_u64(payload: &mut Vec<u8>, value: Option<u64>) {
+pub(super) fn encode_optional_u64(payload: &mut Vec<u8>, value: Option<u64>) {
     match value {
         Some(value) => {
             payload.push(1);
@@ -369,7 +375,10 @@ fn encode_optional_u64(payload: &mut Vec<u8>, value: Option<u64>) {
     }
 }
 
-fn decode_optional_u64(payload: &[u8], offset: usize) -> DatabaseResult<(Option<u64>, usize)> {
+pub(super) fn decode_optional_u64(
+    payload: &[u8],
+    offset: usize,
+) -> DatabaseResult<(Option<u64>, usize)> {
     if payload.len() < offset + 9 {
         return Err(DatabaseError::Replication(
             "truncated optional u64 in raft append response".to_string(),
@@ -380,7 +389,7 @@ fn decode_optional_u64(payload: &[u8], offset: usize) -> DatabaseResult<(Option<
     Ok((present.then_some(value), offset + 9))
 }
 
-fn write_tcp_raft_vote_response(
+pub(super) fn write_tcp_raft_vote_response(
     writer: &mut impl Write,
     result: &DatabaseResult<RequestVoteResponse>,
 ) -> DatabaseResult<()> {
@@ -413,7 +422,9 @@ fn write_tcp_raft_vote_response(
     }
 }
 
-fn read_tcp_raft_vote_response(reader: &mut impl Read) -> DatabaseResult<RequestVoteResponse> {
+pub(super) fn read_tcp_raft_vote_response(
+    reader: &mut impl Read,
+) -> DatabaseResult<RequestVoteResponse> {
     read_magic(reader, TCP_REPLICATION_RESPONSE_MAGIC, "raft vote response")?;
     let mut status = [0; 1];
     reader
@@ -445,7 +456,7 @@ fn read_tcp_raft_vote_response(reader: &mut impl Read) -> DatabaseResult<Request
     }
 }
 
-fn write_tcp_install_snapshot_response(
+pub(super) fn write_tcp_install_snapshot_response(
     writer: &mut impl Write,
     result: &DatabaseResult<InstallSnapshotResponse>,
 ) -> DatabaseResult<()> {
@@ -481,7 +492,7 @@ fn write_tcp_install_snapshot_response(
     }
 }
 
-fn read_tcp_install_snapshot_response(
+pub(super) fn read_tcp_install_snapshot_response(
     reader: &mut impl Read,
 ) -> DatabaseResult<InstallSnapshotResponse> {
     read_magic(
@@ -520,14 +531,14 @@ fn read_tcp_install_snapshot_response(
     }
 }
 
-fn replication_ack_positions(entries: &[LogEntry]) -> Vec<(ShardId, LogIndex)> {
+pub(super) fn replication_ack_positions(entries: &[LogEntry]) -> Vec<(ShardId, LogIndex)> {
     entries
         .iter()
         .map(|entry| (entry.shard_id, entry.index))
         .collect()
 }
 
-fn encode_replication_ack_positions(positions: &[(ShardId, LogIndex)]) -> Vec<u8> {
+pub(super) fn encode_replication_ack_positions(positions: &[(ShardId, LogIndex)]) -> Vec<u8> {
     let mut payload = Vec::with_capacity(4 + positions.len() * 16);
     payload.extend_from_slice(&(positions.len() as u32).to_be_bytes());
     for (shard_id, index) in positions {
@@ -537,7 +548,9 @@ fn encode_replication_ack_positions(positions: &[(ShardId, LogIndex)]) -> Vec<u8
     payload
 }
 
-fn decode_replication_ack_positions(payload: &[u8]) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+pub(super) fn decode_replication_ack_positions(
+    payload: &[u8],
+) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
     if payload.is_empty() {
         return Ok(Vec::new());
     }
@@ -563,7 +576,11 @@ fn decode_replication_ack_positions(payload: &[u8]) -> DatabaseResult<Vec<(Shard
     Ok(positions)
 }
 
-fn read_magic(reader: &mut impl Read, expected: &[u8], context: &str) -> DatabaseResult<()> {
+pub(super) fn read_magic(
+    reader: &mut impl Read,
+    expected: &[u8],
+    context: &str,
+) -> DatabaseResult<()> {
     let magic = read_magic_bytes(reader)?;
     if magic == expected {
         Ok(())
@@ -574,7 +591,7 @@ fn read_magic(reader: &mut impl Read, expected: &[u8], context: &str) -> Databas
     }
 }
 
-fn read_magic_bytes(reader: &mut impl Read) -> DatabaseResult<Vec<u8>> {
+pub(super) fn read_magic_bytes(reader: &mut impl Read) -> DatabaseResult<Vec<u8>> {
     let mut magic = vec![0; TCP_REPLICATION_REQUEST_MAGIC.len()];
     reader
         .read_exact(&mut magic)
@@ -582,19 +599,19 @@ fn read_magic_bytes(reader: &mut impl Read) -> DatabaseResult<Vec<u8>> {
     Ok(magic)
 }
 
-fn write_u32(writer: &mut impl Write, value: u32) -> DatabaseResult<()> {
+pub(super) fn write_u32(writer: &mut impl Write, value: u32) -> DatabaseResult<()> {
     writer
         .write_all(&value.to_be_bytes())
         .map_err(|err| DatabaseError::Replication(format!("write u32: {err}")))
 }
 
-fn write_u64(writer: &mut impl Write, value: u64) -> DatabaseResult<()> {
+pub(super) fn write_u64(writer: &mut impl Write, value: u64) -> DatabaseResult<()> {
     writer
         .write_all(&value.to_be_bytes())
         .map_err(|err| DatabaseError::Replication(format!("write u64: {err}")))
 }
 
-fn read_u64(reader: &mut impl Read) -> DatabaseResult<u64> {
+pub(super) fn read_u64(reader: &mut impl Read) -> DatabaseResult<u64> {
     let mut bytes = [0; 8];
     reader
         .read_exact(&mut bytes)
@@ -602,7 +619,7 @@ fn read_u64(reader: &mut impl Read) -> DatabaseResult<u64> {
     Ok(u64::from_be_bytes(bytes))
 }
 
-fn read_u32(reader: &mut impl Read) -> DatabaseResult<u32> {
+pub(super) fn read_u32(reader: &mut impl Read) -> DatabaseResult<u32> {
     let mut bytes = [0; 4];
     reader
         .read_exact(&mut bytes)

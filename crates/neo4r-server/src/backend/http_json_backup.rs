@@ -1,16 +1,17 @@
-#[path = "http_json_backup/json.rs"]
-mod http_json_backup_json;
+use super::*;
 #[path = "http_json_backup/backup.rs"]
 mod http_json_backup_backup;
-use http_json_backup_backup::*;
-use http_json_backup_json::*;
+#[path = "http_json_backup/json.rs"]
+mod http_json_backup_json;
+pub(crate) use http_json_backup_backup::*;
+pub(crate) use http_json_backup_json::*;
 
-struct HttpRequest {
-    method: String,
-    path: String,
-    query: HashMap<String, String>,
-    headers: HashMap<String, String>,
-    body: String,
+pub(crate) struct HttpRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) query: HashMap<String, String>,
+    pub(crate) headers: HashMap<String, String>,
+    pub(crate) body: String,
 }
 
 impl HttpRequest {
@@ -25,11 +26,11 @@ impl HttpRequest {
     }
 }
 
-struct HttpResponse {
-    status: u16,
-    reason: &'static str,
-    content_type: &'static str,
-    body: String,
+pub(crate) struct HttpResponse {
+    pub(crate) status: u16,
+    pub(crate) reason: &'static str,
+    pub(crate) content_type: &'static str,
+    pub(crate) body: String,
 }
 
 impl HttpResponse {

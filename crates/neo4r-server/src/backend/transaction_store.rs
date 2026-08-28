@@ -1,16 +1,17 @@
+use super::*;
 #[derive(Clone, Default)]
-struct TransactionStore {
-    next_id: Arc<AtomicU64>,
-    next_session_id: Arc<AtomicU64>,
-    transactions: Arc<Mutex<HashMap<u64, TransactionState>>>,
+pub(crate) struct TransactionStore {
+    pub(crate) next_id: Arc<AtomicU64>,
+    pub(crate) next_session_id: Arc<AtomicU64>,
+    pub(crate) transactions: Arc<Mutex<HashMap<u64, TransactionState>>>,
 }
 
 impl TransactionStore {
-    fn next_session_id(&self) -> u64 {
+    pub(crate) fn next_session_id(&self) -> u64 {
         self.next_session_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    fn insert(&self, session_id: u64, tx: NativeTransaction) -> u64 {
+    pub(crate) fn insert(&self, session_id: u64, tx: NativeTransaction) -> u64 {
         let tx_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         self.transactions.lock().unwrap().insert(
             tx_id,
@@ -22,7 +23,7 @@ impl TransactionStore {
         tx_id
     }
 
-    fn query_cursor(
+    pub(crate) fn query_cursor(
         &self,
         db: &Neo4rDatabaseHandle,
         session_id: u64,
@@ -72,7 +73,7 @@ impl TransactionStore {
         }
     }
 
-    fn distributed_query_cursor(
+    pub(crate) fn distributed_query_cursor(
         &self,
         db: &Neo4rDatabaseHandle,
         query_peers: &QueryPeerStore,
@@ -144,7 +145,11 @@ impl TransactionStore {
         }
     }
 
-    fn plan_context(&self, session_id: u64, tx_id: u64) -> Result<TransactionPlanContext, String> {
+    pub(crate) fn plan_context(
+        &self,
+        session_id: u64,
+        tx_id: u64,
+    ) -> Result<TransactionPlanContext, String> {
         let transactions = self
             .transactions
             .lock()
@@ -160,7 +165,7 @@ impl TransactionStore {
         })
     }
 
-    fn stage_write(
+    pub(crate) fn stage_write(
         &self,
         session_id: u64,
         tx_id: u64,
@@ -203,7 +208,7 @@ impl TransactionStore {
         }
     }
 
-    fn close(&self, session_id: u64, tx_id: u64) -> Result<NativeTransaction, String> {
+    pub(crate) fn close(&self, session_id: u64, tx_id: u64) -> Result<NativeTransaction, String> {
         let mut transactions = self
             .transactions
             .lock()
@@ -215,7 +220,7 @@ impl TransactionStore {
         Ok(transactions.remove(&tx_id).unwrap().transaction)
     }
 
-    fn close_any(&self, tx_id: u64) -> Result<TransactionInfo, String> {
+    pub(crate) fn close_any(&self, tx_id: u64) -> Result<TransactionInfo, String> {
         let mut transactions = self
             .transactions
             .lock()
@@ -232,7 +237,11 @@ impl TransactionStore {
         })
     }
 
-    fn staged_writes(&self, session_id: u64, tx_id: u64) -> Result<Vec<StagedWrite>, String> {
+    pub(crate) fn staged_writes(
+        &self,
+        session_id: u64,
+        tx_id: u64,
+    ) -> Result<Vec<StagedWrite>, String> {
         let transactions = self
             .transactions
             .lock()
@@ -247,7 +256,7 @@ impl TransactionStore {
         }
     }
 
-    fn close_session(&self, session_id: u64) -> Result<usize, String> {
+    pub(crate) fn close_session(&self, session_id: u64) -> Result<usize, String> {
         let mut transactions = self
             .transactions
             .lock()
@@ -257,7 +266,7 @@ impl TransactionStore {
         Ok(before - transactions.len())
     }
 
-    fn list(&self, session_id: u64) -> Result<Vec<TransactionInfo>, String> {
+    pub(crate) fn list(&self, session_id: u64) -> Result<Vec<TransactionInfo>, String> {
         let transactions = self
             .transactions
             .lock()
@@ -277,7 +286,7 @@ impl TransactionStore {
         Ok(infos)
     }
 
-    fn list_all(&self) -> Result<Vec<TransactionInfo>, String> {
+    pub(crate) fn list_all(&self) -> Result<Vec<TransactionInfo>, String> {
         let transactions = self
             .transactions
             .lock()
@@ -296,7 +305,7 @@ impl TransactionStore {
         Ok(infos)
     }
 
-    fn status(&self, session_id: u64, tx_id: u64) -> Result<TransactionInfo, String> {
+    pub(crate) fn status(&self, session_id: u64, tx_id: u64) -> Result<TransactionInfo, String> {
         let transactions = self
             .transactions
             .lock()
@@ -315,20 +324,20 @@ impl TransactionStore {
     }
 }
 
-struct TransactionState {
+pub(crate) struct TransactionState {
     session_id: u64,
     transaction: NativeTransaction,
 }
 
 #[derive(Clone, Default)]
-struct PreparedTransactionStore {
+pub(crate) struct PreparedTransactionStore {
     next_id: Arc<AtomicU64>,
     prepared: Arc<Mutex<HashMap<u64, PreparedWriteBatch>>>,
     path: Option<Arc<PathBuf>>,
 }
 
 impl PreparedTransactionStore {
-    fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+    pub(crate) fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -342,7 +351,7 @@ impl PreparedTransactionStore {
         })
     }
 
-    fn prepare(
+    pub(crate) fn prepare(
         &self,
         shard_id: u64,
         writes: Vec<(String, neo4r_query::QueryParams)>,
@@ -360,7 +369,7 @@ impl PreparedTransactionStore {
         Ok(prepared_id)
     }
 
-    fn take(&self, prepared_id: u64) -> Result<PreparedWriteBatch, String> {
+    pub(crate) fn take(&self, prepared_id: u64) -> Result<PreparedWriteBatch, String> {
         let mut prepared = self
             .prepared
             .lock()
@@ -375,7 +384,7 @@ impl PreparedTransactionStore {
         Ok(prepared_batch)
     }
 
-    fn status(&self, prepared_id: u64) -> Result<PreparedTransactionInfo, String> {
+    pub(crate) fn status(&self, prepared_id: u64) -> Result<PreparedTransactionInfo, String> {
         let prepared = self
             .prepared
             .lock()
@@ -390,7 +399,7 @@ impl PreparedTransactionStore {
         })
     }
 
-    fn list(&self) -> Result<Vec<PreparedTransactionInfo>, String> {
+    pub(crate) fn list(&self) -> Result<Vec<PreparedTransactionInfo>, String> {
         let prepared = self
             .prepared
             .lock()
@@ -407,7 +416,7 @@ impl PreparedTransactionStore {
         Ok(infos)
     }
 
-    fn save(&self, prepared: &HashMap<u64, PreparedWriteBatch>) -> Result<(), String> {
+    pub(crate) fn save(&self, prepared: &HashMap<u64, PreparedWriteBatch>) -> Result<(), String> {
         let Some(path) = &self.path else {
             return Ok(());
         };
@@ -416,12 +425,14 @@ impl PreparedTransactionStore {
 }
 
 #[derive(Clone, Debug)]
-struct PreparedWriteBatch {
-    shard_id: u64,
-    writes: Vec<(String, neo4r_query::QueryParams)>,
+pub(crate) struct PreparedWriteBatch {
+    pub(crate) shard_id: u64,
+    pub(crate) writes: Vec<(String, neo4r_query::QueryParams)>,
 }
 
-fn load_prepared_transactions(path: &Path) -> io::Result<HashMap<u64, PreparedWriteBatch>> {
+pub(crate) fn load_prepared_transactions(
+    path: &Path,
+) -> io::Result<HashMap<u64, PreparedWriteBatch>> {
     let file = match File::open(path) {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
@@ -447,7 +458,7 @@ fn load_prepared_transactions(path: &Path) -> io::Result<HashMap<u64, PreparedWr
     Ok(prepared)
 }
 
-fn save_prepared_transactions(
+pub(crate) fn save_prepared_transactions(
     path: &Path,
     prepared: &HashMap<u64, PreparedWriteBatch>,
 ) -> Result<(), String> {
@@ -487,7 +498,10 @@ fn save_prepared_transactions(
     Ok(())
 }
 
-fn encode_prepared_transaction_record(prepared_id: u64, batch: &PreparedWriteBatch) -> String {
+pub(crate) fn encode_prepared_transaction_record(
+    prepared_id: u64,
+    batch: &PreparedWriteBatch,
+) -> String {
     format!(
         "{prepared_id}\t{}\t{}",
         batch.shard_id,
@@ -495,7 +509,9 @@ fn encode_prepared_transaction_record(prepared_id: u64, batch: &PreparedWriteBat
     )
 }
 
-fn decode_prepared_transaction_record(line: &str) -> io::Result<(u64, PreparedWriteBatch)> {
+pub(crate) fn decode_prepared_transaction_record(
+    line: &str,
+) -> io::Result<(u64, PreparedWriteBatch)> {
     let mut parts = line.splitn(3, '\t');
     let prepared_id = parts
         .next()
@@ -515,7 +531,7 @@ fn decode_prepared_transaction_record(line: &str) -> io::Result<(u64, PreparedWr
 }
 
 impl TransactionState {
-    fn ensure_session(&self, session_id: u64, tx_id: u64) -> Result<(), String> {
+    pub(crate) fn ensure_session(&self, session_id: u64, tx_id: u64) -> Result<(), String> {
         if self.session_id == session_id {
             Ok(())
         } else {

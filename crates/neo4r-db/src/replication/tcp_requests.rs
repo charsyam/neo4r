@@ -1,4 +1,7 @@
-fn preflight_tcp_ack_capacity(
+use super::tcp_responses::*;
+use super::*;
+
+pub(super) fn preflight_tcp_ack_capacity(
     peers: &BTreeMap<ServerId, String>,
     batches: &BTreeMap<ServerId, Vec<(usize, LogEntry)>>,
     required_acks: &[usize],
@@ -337,13 +340,13 @@ pub fn catch_up_from_tcp_primaries_batched(
     Ok(results)
 }
 
-fn catch_up_end_index(start_index: LogIndex, fetched_entries: usize) -> LogIndex {
+pub(super) fn catch_up_end_index(start_index: LogIndex, fetched_entries: usize) -> LogIndex {
     start_index
         .saturating_add(fetched_entries as u64)
         .saturating_sub(1)
 }
 
-fn replica_targets(
+pub(super) fn replica_targets(
     routing_table: &ShardRoutingTable,
     entry: &LogEntry,
 ) -> DatabaseResult<Vec<ServerId>> {
@@ -363,7 +366,10 @@ fn replica_targets(
         .collect())
 }
 
-fn voter_count(routing_table: &ShardRoutingTable, entry: &LogEntry) -> DatabaseResult<usize> {
+pub(super) fn voter_count(
+    routing_table: &ShardRoutingTable,
+    entry: &LogEntry,
+) -> DatabaseResult<usize> {
     let placement = routing_table.placement(entry.shard_id).ok_or_else(|| {
         DatabaseError::Replication(format!(
             "missing routing placement for shard {}",
@@ -373,7 +379,7 @@ fn voter_count(routing_table: &ShardRoutingTable, entry: &LogEntry) -> DatabaseR
     Ok(placement.replicas.len())
 }
 
-fn send_tcp_replication_batch(
+pub(super) fn send_tcp_replication_batch(
     address: &str,
     connect_timeout: Duration,
     max_attempts: usize,
@@ -395,7 +401,7 @@ fn send_tcp_replication_batch(
     }))
 }
 
-fn send_tcp_raft_append_batch(
+pub(super) fn send_tcp_raft_append_batch(
     address: &str,
     connect_timeout: Duration,
     max_attempts: usize,
@@ -437,7 +443,7 @@ fn send_tcp_raft_append_batch(
     }))
 }
 
-fn send_tcp_raft_append_batches_by_shard(
+pub(super) fn send_tcp_raft_append_batches_by_shard(
     address: &str,
     connect_timeout: Duration,
     max_attempts: usize,
@@ -467,7 +473,7 @@ fn send_tcp_raft_append_batches_by_shard(
     Ok(positions)
 }
 
-fn send_tcp_raft_append_batch_once(
+pub(super) fn send_tcp_raft_append_batch_once(
     address: &str,
     connect_timeout: Duration,
     shard_id: ShardId,
@@ -489,7 +495,7 @@ fn send_tcp_raft_append_batch_once(
     read_tcp_raft_append_response(&mut stream)
 }
 
-fn write_tcp_raft_append_request(
+pub(super) fn write_tcp_raft_append_request(
     writer: &mut impl Write,
     shard_id: ShardId,
     leader_commit: LogIndex,
@@ -511,7 +517,7 @@ fn write_tcp_raft_append_request(
     Ok(())
 }
 
-fn write_tcp_raft_vote_request(
+pub(super) fn write_tcp_raft_vote_request(
     writer: &mut impl Write,
     shard_id: ShardId,
     request: &RequestVoteRequest,
@@ -526,7 +532,7 @@ fn write_tcp_raft_vote_request(
     write_u64(writer, request.last_log_term)
 }
 
-fn write_tcp_install_snapshot_request(
+pub(super) fn write_tcp_install_snapshot_request(
     writer: &mut impl Write,
     request: &InstallSnapshotRequest,
 ) -> DatabaseResult<()> {
@@ -546,7 +552,7 @@ fn write_tcp_install_snapshot_request(
         .map_err(|err| DatabaseError::Replication(format!("write snapshot payload: {err}")))
 }
 
-fn read_tcp_install_snapshot_request_after_magic(
+pub(super) fn read_tcp_install_snapshot_request_after_magic(
     reader: &mut impl Read,
 ) -> DatabaseResult<InstallSnapshotRequest> {
     let term = read_u64(reader)?;
@@ -571,7 +577,7 @@ fn read_tcp_install_snapshot_request_after_magic(
     })
 }
 
-fn read_tcp_raft_vote_request_after_magic(
+pub(super) fn read_tcp_raft_vote_request_after_magic(
     reader: &mut impl Read,
 ) -> DatabaseResult<RequestVoteRequest> {
     Ok(RequestVoteRequest {
@@ -582,7 +588,7 @@ fn read_tcp_raft_vote_request_after_magic(
     })
 }
 
-fn send_tcp_replication_batch_once(
+pub(super) fn send_tcp_replication_batch_once(
     address: &str,
     connect_timeout: Duration,
     entries: &[LogEntry],
@@ -602,7 +608,7 @@ fn send_tcp_replication_batch_once(
     read_tcp_replication_response(&mut stream)
 }
 
-fn write_tcp_replication_request(
+pub(super) fn write_tcp_replication_request(
     writer: &mut impl Write,
     entries: &[LogEntry],
 ) -> DatabaseResult<()> {
@@ -620,7 +626,7 @@ fn write_tcp_replication_request(
     Ok(())
 }
 
-fn read_tcp_replication_request_after_magic(
+pub(super) fn read_tcp_replication_request_after_magic(
     reader: &mut impl Read,
 ) -> DatabaseResult<Vec<LogEntry>> {
     let count = read_u32(reader)? as usize;

@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_set_null_removes_property() {
+pub(super) fn native_read_write_transaction_set_null_removes_property() {
     let dir = temp_dir("neo4r-native-read-write-tx-set-null");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", status: "active"})"#)
@@ -124,7 +127,7 @@ fn native_read_write_transaction_set_null_removes_property() {
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_node_property_replacement() {
+pub(super) fn native_read_write_transaction_reads_staged_node_property_replacement() {
     let dir = temp_dir("neo4r-native-read-write-tx-read-your-replacement");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -272,7 +275,7 @@ fn native_read_write_transaction_reads_staged_node_property_replacement() {
 }
 
 #[test]
-fn native_read_write_transaction_accepts_parameterized_property_map_replacement() {
+pub(super) fn native_read_write_transaction_accepts_parameterized_property_map_replacement() {
     let dir = temp_dir("neo4r-native-read-write-tx-parameterized-map-replacement");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -418,7 +421,7 @@ fn native_read_write_transaction_accepts_parameterized_property_map_replacement(
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_relationship_property_updates() {
+pub(super) fn native_read_write_transaction_reads_staged_relationship_property_updates() {
     let dir = temp_dir("neo4r-native-read-write-tx-read-your-relationship-writes");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let alice = db
@@ -553,7 +556,7 @@ fn native_read_write_transaction_reads_staged_relationship_property_updates() {
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_relationship_property_replacement() {
+pub(super) fn native_read_write_transaction_reads_staged_relationship_property_replacement() {
     let dir = temp_dir("neo4r-native-read-write-tx-read-your-relationship-replacement");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let alice = db
@@ -711,7 +714,7 @@ fn native_read_write_transaction_reads_staged_relationship_property_replacement(
 }
 
 #[test]
-fn native_read_write_transaction_reads_staged_deletes() {
+pub(super) fn native_read_write_transaction_reads_staged_deletes() {
     let dir = temp_dir("neo4r-native-read-write-tx-read-your-deletes");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let alice = db
@@ -843,7 +846,7 @@ fn native_read_write_transaction_reads_staged_deletes() {
 }
 
 #[test]
-fn native_read_write_transaction_group_commits_batchable_sets() {
+pub(super) fn native_read_write_transaction_group_commits_batchable_sets() {
     let dir = temp_dir("neo4r-native-read-write-tx-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(

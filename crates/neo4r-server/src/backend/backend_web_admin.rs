@@ -1,5 +1,6 @@
+use super::*;
 impl TcpBackend {
-    fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
+    pub(crate) fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
         self.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
         let database_name = match self.request_database_name(request) {
             Ok(database_name) => database_name,
@@ -278,7 +279,7 @@ impl TcpBackend {
         }
     }
 
-    fn request_database_name(&self, request: &HttpRequest) -> Result<String, String> {
+    pub(crate) fn request_database_name(&self, request: &HttpRequest) -> Result<String, String> {
         if let Some(query) = extract_optional_json_string_field(&request.body, "query")? {
             if let Some(database) = database_from_use_clause(&query)? {
                 return Ok(database);
@@ -299,7 +300,7 @@ impl TcpBackend {
         Ok(database)
     }
 
-    fn database_for_name(&self, database: &str) -> Result<Neo4rDatabaseHandle, String> {
+    pub(crate) fn database_for_name(&self, database: &str) -> Result<Neo4rDatabaseHandle, String> {
         validate_database_name(database)?;
         if database == DEFAULT_DATABASE {
             return Ok(self.db.clone());
@@ -311,7 +312,7 @@ impl TcpBackend {
             .map_err(|err| err.to_string())
     }
 
-    fn authorized_role(&self, request: &HttpRequest, database: &str) -> Option<WebRole> {
+    pub(crate) fn authorized_role(&self, request: &HttpRequest, database: &str) -> Option<WebRole> {
         let Some(expected) = self.web_auth_token.as_ref() else {
             if self
                 .web_user_tokens
@@ -343,7 +344,7 @@ impl TcpBackend {
             .and_then(|store| store.find_role_by_token(&supplied, database, unix_seconds_now()))
     }
 
-    fn web_users_json(&self) -> Result<String, String> {
+    pub(crate) fn web_users_json(&self) -> Result<String, String> {
         let users = self
             .web_user_tokens
             .as_ref()
@@ -370,7 +371,7 @@ impl TcpBackend {
         Ok(format!("{{\"users\":[{users}]}}"))
     }
 
-    fn add_web_user(&self, body: &str) -> Result<String, String> {
+    pub(crate) fn add_web_user(&self, body: &str) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         let role = extract_json_string_field(body, "role")?;
         let token = extract_json_string_field(body, "token")?;
@@ -429,7 +430,7 @@ impl TcpBackend {
         self.web_users_json()
     }
 
-    fn web_audit_json(&self) -> Result<String, String> {
+    pub(crate) fn web_audit_json(&self) -> Result<String, String> {
         let events = self
             .web_audit
             .as_ref()
@@ -451,13 +452,13 @@ impl TcpBackend {
         Ok(format!("{{\"events\":[{events}]}}"))
     }
 
-    fn audit_admin(&self, action: &str, target: &str, detail: &str) {
+    pub(crate) fn audit_admin(&self, action: &str, target: &str, detail: &str) {
         if let Some(audit) = &self.web_audit {
             let _ = audit.append(action, target, detail);
         }
     }
 
-    fn databases_json(&self) -> Result<String, String> {
+    pub(crate) fn databases_json(&self) -> Result<String, String> {
         let databases = self
             .tenant_databases
             .as_ref()
@@ -485,7 +486,7 @@ impl TcpBackend {
         Ok(format!("{{\"databases\":[{databases}]}}"))
     }
 
-    fn create_database_json(&self, body: &str) -> Result<String, String> {
+    pub(crate) fn create_database_json(&self, body: &str) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         validate_database_name(&name)?;
         self.tenant_databases
@@ -497,7 +498,7 @@ impl TcpBackend {
         self.databases_json()
     }
 
-    fn delete_database_json(&self, body: &str) -> Result<String, String> {
+    pub(crate) fn delete_database_json(&self, body: &str) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         self.tenant_databases
             .as_ref()
@@ -522,7 +523,11 @@ impl TcpBackend {
         ))
     }
 
-    fn set_database_disabled_json(&self, body: &str, disabled: bool) -> Result<String, String> {
+    pub(crate) fn set_database_disabled_json(
+        &self,
+        body: &str,
+        disabled: bool,
+    ) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         let manager = self
             .tenant_databases
@@ -546,7 +551,7 @@ impl TcpBackend {
         self.databases_json()
     }
 
-    fn delete_web_user(&self, body: &str) -> Result<String, String> {
+    pub(crate) fn delete_web_user(&self, body: &str) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         self.web_user_tokens
             .as_ref()
@@ -556,7 +561,7 @@ impl TcpBackend {
         self.web_users_json()
     }
 
-    fn revoke_web_token(&self, body: &str) -> Result<String, String> {
+    pub(crate) fn revoke_web_token(&self, body: &str) -> Result<String, String> {
         let name = extract_json_string_field(body, "name")?;
         let token_id = extract_json_string_field(body, "token_id")?;
         self.web_user_tokens
@@ -567,7 +572,7 @@ impl TcpBackend {
         self.web_users_json()
     }
 
-    fn cleanup_expired_web_tokens(&self) -> Result<String, String> {
+    pub(crate) fn cleanup_expired_web_tokens(&self) -> Result<String, String> {
         let removed = self
             .web_user_tokens
             .as_ref()
@@ -580,5 +585,4 @@ impl TcpBackend {
         );
         Ok(format!("{{\"removed\":{removed}}}"))
     }
-
 }

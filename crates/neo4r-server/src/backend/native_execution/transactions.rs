@@ -1,5 +1,7 @@
+use super::*;
+
 impl NativeExecutionContext {
-    fn execute_transaction_command(
+    pub(crate) fn execute_transaction_command(
         &self,
         session_id: u64,
         command: TransactionCommand,
@@ -235,7 +237,7 @@ impl NativeExecutionContext {
         }
     }
 
-    fn ensure_local_primary_shard(&self, shard_id: u64) -> Result<(), String> {
+    pub(crate) fn ensure_local_primary_shard(&self, shard_id: u64) -> Result<(), String> {
         let status = self.db.cluster_status().map_err(|err| err.to_string())?;
         let shard = status
             .shards
@@ -249,11 +251,11 @@ impl NativeExecutionContext {
         }
     }
 
-    fn prepared_query_routing_hint(&self, query: &str) -> Result<String, String> {
+    pub(crate) fn prepared_query_routing_hint(&self, query: &str) -> Result<String, String> {
         prepared_query_routing_hint(&self.db, query)
     }
 
-    fn prepared_query_routing_hint_with_params(
+    pub(crate) fn prepared_query_routing_hint_with_params(
         &self,
         query: &str,
         params: &neo4r_query::QueryParams,
@@ -261,7 +263,7 @@ impl NativeExecutionContext {
         prepared_query_routing_hint_with_params(&self.db, query, params)
     }
 
-    fn writes_by_target_shard(
+    pub(crate) fn writes_by_target_shard(
         &self,
         staged_writes: &[StagedWrite],
     ) -> Result<BTreeMap<u64, Vec<(String, neo4r_query::QueryParams)>>, String> {
@@ -302,7 +304,7 @@ impl NativeExecutionContext {
         Ok(transaction_writes)
     }
 
-    fn try_execute_staged_writes_as_local_batch(
+    pub(crate) fn try_execute_staged_writes_as_local_batch(
         &self,
         tx_id: u64,
         transaction_writes: &BTreeMap<u64, Vec<(String, neo4r_query::QueryParams)>>,
@@ -431,7 +433,7 @@ impl NativeExecutionContext {
         Ok(true)
     }
 
-    fn prepare_commit_mixed_batches(
+    pub(crate) fn prepare_commit_mixed_batches(
         &self,
         tx_id: u64,
         local_participants: Vec<(u64, Vec<(String, neo4r_query::QueryParams)>)>,
@@ -553,7 +555,7 @@ impl NativeExecutionContext {
         Ok(())
     }
 
-    fn commit_local_prepared_batch(&self, prepared_id: u64) -> Result<(), String> {
+    pub(crate) fn commit_local_prepared_batch(&self, prepared_id: u64) -> Result<(), String> {
         let prepared = self.prepared_transactions.take(prepared_id)?;
         self.db
             .execute_staged_cypher_transaction_on_shard(prepared.shard_id, prepared.writes)
@@ -561,7 +563,7 @@ impl NativeExecutionContext {
             .map_err(|err| err.to_string())
     }
 
-    fn abort_local_prepared_batches(&self, prepared_ids: Vec<(u64, u64)>) {
+    pub(crate) fn abort_local_prepared_batches(&self, prepared_ids: Vec<(u64, u64)>) {
         for (_, prepared_id) in prepared_ids {
             let _ = self.prepared_transactions.take(prepared_id);
         }

@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use super::*;
 use neo4r_core::{
     Command, HybridTimestamp, LogEntry, ShardPlacement, ShardReplica, ShardRoutingTable, Value,
@@ -17,18 +19,34 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::protocol::{decode_query_rows, parse_request, BackendResponse};
 
-include!("tests/tcp_web_console.rs");
-include!("tests/native_prepared_query.rs");
-include!("tests/native_catalog_commands.rs");
-include!("tests/distributed_query.rs");
-include!("tests/worker_cancellation.rs");
-include!("tests/transaction_protocol.rs");
-include!("tests/native_transaction_create.rs");
-include!("tests/native_transaction_properties.rs");
-include!("tests/native_transaction_group_commit.rs");
-include!("tests/native_transaction_remote.rs");
-include!("tests/prepared_transaction_store.rs");
-include!("tests/multi_shard_prepare.rs");
-include!("tests/multi_shard_commit.rs");
-include!("tests/raft_replication_rpc.rs");
-include!("tests/replication_quorum.rs");
+mod distributed_query;
+mod multi_shard_commit;
+mod multi_shard_prepare;
+mod native_catalog_commands;
+mod native_prepared_query;
+mod native_transaction_create;
+mod native_transaction_group_commit;
+mod native_transaction_properties;
+mod native_transaction_remote;
+mod prepared_transaction_store;
+mod raft_replication_rpc;
+mod replication_quorum;
+mod tcp_web_console;
+mod transaction_protocol;
+mod worker_cancellation;
+
+use distributed_query::*;
+use multi_shard_commit::*;
+use multi_shard_prepare::*;
+use native_catalog_commands::*;
+use native_prepared_query::*;
+use native_transaction_create::*;
+use native_transaction_group_commit::*;
+use native_transaction_properties::*;
+use native_transaction_remote::*;
+use prepared_transaction_store::*;
+use raft_replication_rpc::*;
+use replication_quorum::*;
+use tcp_web_console::*;
+use transaction_protocol::*;
+use worker_cancellation::*;

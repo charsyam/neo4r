@@ -1,4 +1,4 @@
-const WEB_INDEX_HTML: &str = r#"<!doctype html>
+pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">

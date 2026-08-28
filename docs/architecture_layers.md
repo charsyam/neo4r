@@ -44,26 +44,40 @@ authentication UI/API, worker pools, and remote cluster calls.
 
 ## Current Formal Boundary
 
-`neo4r-query::cypher` is the first formalized boundary:
+The main database, query, server backend, protocol, and replication seams now
+use Rust module boundaries instead of text-level composition:
 
-- `cypher.rs`: public facade, query AST/plan types, statement classification,
-  semantic validation, plan construction, and `CypherEngine`.
-- `cypher/parse.rs`: parser implementation and parser-local helpers.
-- `cypher/binding.rs`: execution binding model for nodes and relationships.
-- `cypher/execute.rs`: physical execution, cursors, projection, aggregation,
-  ordering, distinct, and predicate evaluation.
-- `cypher/tests.rs`: behavior tests through the facade.
+- `neo4r-query::cypher`: facade plus `parse`, `binding`, and `execute`
+  submodules.
+- `neo4r-db::database`: public DB facade plus focused DB, cluster, schema,
+  Cypher write, and helper submodules.
+- `neo4r-db::replication`: replication facade plus TCP request and response
+  codec modules.
+- `neo4r-server::protocol`: request model facade plus execute, parse helper,
+  format, and row codec modules.
+- `neo4r-server` backend: root facade plus feature modules for HTTP admin,
+  web query/backup, native execution, worker pools, transaction handling,
+  distributed query, remote transactions, replication admin, and web assets.
+- DB/server/protocol tests: behavior-named real Rust modules with shared test
+  fixtures imported through the parent test module.
 
 The facade imports only the sibling functions and types it needs. Sibling module
-contracts are `pub(super)`, not crate-public.
+contracts are kept at `pub(super)` or `pub(crate)` depending on whether the
+consumer is a direct sibling or another backend submodule.
+
+## Guardrails
+
+- `scripts/check-architecture.sh` rejects `include!` in the DB and server source
+  trees.
+- `scripts/check-file-lines.sh` keeps Rust, Python, shell, and markdown files
+  under the configured line limit.
+- `scripts/ci-fast.sh` runs the architecture guard before fast crate tests.
 
 ## Next Formalization Targets
 
-1. Split `db_index_validation.rs`, `db_open_write.rs`, `metadata_types.rs`, and
-   `db_maintenance_plan.rs` into narrower formal submodules.
-2. Move `server/src/lib.rs` backend `include!` files into a real backend module
-   tree.
-3. Move `server/src/protocol.rs` parser/executor/codec include splits into
-   formal protocol submodules.
-4. Replace behavior-named test `include!` wrappers with real `mod` tests once
-   shared fixtures are factored out.
+1. Move backend modules from root-level `#[path]` modules into a nested
+   `server::backend` facade once public re-exports are fully explicit.
+2. Continue splitting the remaining 800-1000 line DB files by store, planning,
+   metadata persistence, and validation responsibilities before they grow.
+3. Extract shared test fixtures into dedicated `support` modules so test modules
+   no longer need broad parent imports.

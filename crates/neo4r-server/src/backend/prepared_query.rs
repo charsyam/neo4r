@@ -1,4 +1,5 @@
-enum NativeTransaction {
+use super::*;
+pub(crate) enum NativeTransaction {
     ReadOnly(Neo4rReadTransaction),
     ReadWrite {
         isolation: ReadIsolation,
@@ -8,21 +9,21 @@ enum NativeTransaction {
 }
 
 impl NativeTransaction {
-    fn mode(&self) -> TransactionMode {
+    pub(crate) fn mode(&self) -> TransactionMode {
         match self {
             Self::ReadOnly(_) => TransactionMode::ReadOnly,
             Self::ReadWrite { .. } => TransactionMode::ReadWrite,
         }
     }
 
-    fn staged_write_count(&self) -> usize {
+    pub(crate) fn staged_write_count(&self) -> usize {
         match self {
             Self::ReadOnly(_) => 0,
             Self::ReadWrite { staged_writes, .. } => staged_writes.len(),
         }
     }
 
-    fn isolation(&self) -> ReadIsolation {
+    pub(crate) fn isolation(&self) -> ReadIsolation {
         match self {
             Self::ReadOnly(tx) => tx.options().isolation,
             Self::ReadWrite { isolation, .. } => *isolation,
@@ -30,28 +31,28 @@ impl NativeTransaction {
     }
 }
 
-struct TransactionInfo {
-    session_id: u64,
-    tx_id: u64,
-    mode: TransactionMode,
-    isolation: ReadIsolation,
-    staged_writes: usize,
+pub(crate) struct TransactionInfo {
+    pub(crate) session_id: u64,
+    pub(crate) tx_id: u64,
+    pub(crate) mode: TransactionMode,
+    pub(crate) isolation: ReadIsolation,
+    pub(crate) staged_writes: usize,
 }
 
 #[derive(Debug)]
-struct PreparedTransactionInfo {
-    prepared_id: u64,
-    shard_id: u64,
-    write_count: usize,
+pub(crate) struct PreparedTransactionInfo {
+    pub(crate) prepared_id: u64,
+    pub(crate) shard_id: u64,
+    pub(crate) write_count: usize,
 }
 
-struct TransactionPlanContext {
-    mode: TransactionMode,
-    isolation: ReadIsolation,
-    staged_writes: usize,
+pub(crate) struct TransactionPlanContext {
+    pub(crate) mode: TransactionMode,
+    pub(crate) isolation: ReadIsolation,
+    pub(crate) staged_writes: usize,
 }
 
-fn format_transaction_plan_context(context: &TransactionPlanContext) -> String {
+pub(crate) fn format_transaction_plan_context(context: &TransactionPlanContext) -> String {
     let staged_overlay = if context.staged_writes == 0 {
         "none"
     } else {
@@ -66,7 +67,7 @@ fn format_transaction_plan_context(context: &TransactionPlanContext) -> String {
     )
 }
 
-fn format_tx_list(infos: Vec<TransactionInfo>) -> String {
+pub(crate) fn format_tx_list(infos: Vec<TransactionInfo>) -> String {
     let entries = infos
         .iter()
         .map(|info| {
@@ -83,7 +84,7 @@ fn format_tx_list(infos: Vec<TransactionInfo>) -> String {
     format!("OK\tTX_LIST\t{}\t{entries}", infos.len())
 }
 
-fn format_tx_status(info: TransactionInfo) -> String {
+pub(crate) fn format_tx_status(info: TransactionInfo) -> String {
     format!(
         "OK\tTX_STATUS\t{}\t{}\t{}\t{}",
         info.tx_id,
@@ -93,7 +94,7 @@ fn format_tx_status(info: TransactionInfo) -> String {
     )
 }
 
-fn format_tx_list_all(infos: Vec<TransactionInfo>) -> String {
+pub(crate) fn format_tx_list_all(infos: Vec<TransactionInfo>) -> String {
     let entries = infos
         .iter()
         .map(|info| {
@@ -111,14 +112,14 @@ fn format_tx_list_all(infos: Vec<TransactionInfo>) -> String {
     format!("OK\tTX_LIST_ALL\t{}\t{entries}", infos.len())
 }
 
-fn format_prepared_tx_status(info: PreparedTransactionInfo) -> String {
+pub(crate) fn format_prepared_tx_status(info: PreparedTransactionInfo) -> String {
     format!(
         "OK\tTX_PREPARED_STATUS\t{}\t{}\t{}",
         info.prepared_id, info.shard_id, info.write_count
     )
 }
 
-fn format_prepared_tx_list(infos: Vec<PreparedTransactionInfo>) -> String {
+pub(crate) fn format_prepared_tx_list(infos: Vec<PreparedTransactionInfo>) -> String {
     let entries = infos
         .iter()
         .map(|info| {
@@ -132,7 +133,7 @@ fn format_prepared_tx_list(infos: Vec<PreparedTransactionInfo>) -> String {
     format!("OK\tTX_PREPARED_LIST\t{}\t{entries}", infos.len())
 }
 
-fn format_transaction_decisions(decisions: &[TransactionDecisionRecord]) -> String {
+pub(crate) fn format_transaction_decisions(decisions: &[TransactionDecisionRecord]) -> String {
     let entries = decisions
         .iter()
         .map(|decision| {
@@ -158,21 +159,21 @@ fn format_transaction_decisions(decisions: &[TransactionDecisionRecord]) -> Stri
     format!("count={} entries={entries}", decisions.len())
 }
 
-fn format_transaction_decision(decision: &TransactionDecision) -> &'static str {
+pub(crate) fn format_transaction_decision(decision: &TransactionDecision) -> &'static str {
     match decision {
         TransactionDecision::Commit => "commit",
         TransactionDecision::Abort => "abort",
     }
 }
 
-fn format_transaction_mode(mode: TransactionMode) -> &'static str {
+pub(crate) fn format_transaction_mode(mode: TransactionMode) -> &'static str {
     match mode {
         TransactionMode::ReadOnly => "READ_ONLY",
         TransactionMode::ReadWrite => "READ_WRITE",
     }
 }
 
-fn format_read_isolation(isolation: ReadIsolation) -> &'static str {
+pub(crate) fn format_read_isolation(isolation: ReadIsolation) -> &'static str {
     match isolation {
         ReadIsolation::ReadCommitted => "READ_COMMITTED",
         ReadIsolation::Snapshot => "SNAPSHOT",
@@ -180,12 +181,12 @@ fn format_read_isolation(isolation: ReadIsolation) -> &'static str {
 }
 
 #[derive(Clone)]
-struct StagedWrite {
-    query: String,
-    params: neo4r_query::QueryParams,
+pub(crate) struct StagedWrite {
+    pub(crate) query: String,
+    pub(crate) params: neo4r_query::QueryParams,
 }
 
-fn write_conflict_key(query: &str, params: &neo4r_query::QueryParams) -> Option<String> {
+pub(crate) fn write_conflict_key(query: &str, params: &neo4r_query::QueryParams) -> Option<String> {
     let normalized = query
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -212,7 +213,7 @@ fn write_conflict_key(query: &str, params: &neo4r_query::QueryParams) -> Option<
     ))
 }
 
-fn write_conflict_param_signature(params: &neo4r_query::QueryParams) -> String {
+pub(crate) fn write_conflict_param_signature(params: &neo4r_query::QueryParams) -> String {
     let mut entries = params
         .iter()
         .map(|(key, value)| format!("{key}={value:?}"))
@@ -222,13 +223,13 @@ fn write_conflict_param_signature(params: &neo4r_query::QueryParams) -> String {
 }
 
 #[derive(Clone, Default)]
-struct PreparedQueryStore {
+pub(crate) struct PreparedQueryStore {
     next_id: Arc<AtomicU64>,
     queries: Arc<Mutex<HashMap<u64, PreparedQueryState>>>,
 }
 
 impl PreparedQueryStore {
-    fn prepare(&self, session_id: u64, query: String) -> u64 {
+    pub(crate) fn prepare(&self, session_id: u64, query: String) -> u64 {
         let prepared_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         self.queries
             .lock()
@@ -237,7 +238,7 @@ impl PreparedQueryStore {
         prepared_id
     }
 
-    fn get(&self, session_id: u64, prepared_id: u64) -> Result<String, String> {
+    pub(crate) fn get(&self, session_id: u64, prepared_id: u64) -> Result<String, String> {
         let queries = self
             .queries
             .lock()
@@ -249,7 +250,7 @@ impl PreparedQueryStore {
         Ok(query.query.clone())
     }
 
-    fn close(&self, session_id: u64, prepared_id: u64) -> Result<(), String> {
+    pub(crate) fn close(&self, session_id: u64, prepared_id: u64) -> Result<(), String> {
         let mut queries = self
             .queries
             .lock()
@@ -262,7 +263,7 @@ impl PreparedQueryStore {
         Ok(())
     }
 
-    fn list(&self, session_id: u64) -> Result<Vec<PreparedQueryInfo>, String> {
+    pub(crate) fn list(&self, session_id: u64) -> Result<Vec<PreparedQueryInfo>, String> {
         let queries = self
             .queries
             .lock()
@@ -279,7 +280,7 @@ impl PreparedQueryStore {
         Ok(infos)
     }
 
-    fn close_session(&self, session_id: u64) -> Result<usize, String> {
+    pub(crate) fn close_session(&self, session_id: u64) -> Result<usize, String> {
         let mut queries = self
             .queries
             .lock()
@@ -290,17 +291,17 @@ impl PreparedQueryStore {
     }
 }
 
-struct PreparedQueryState {
+pub(crate) struct PreparedQueryState {
     session_id: u64,
     query: String,
 }
 
-struct PreparedQueryInfo {
+pub(crate) struct PreparedQueryInfo {
     prepared_id: u64,
     query: String,
 }
 
-fn ensure_prepared_query_owner(
+pub(crate) fn ensure_prepared_query_owner(
     query: &PreparedQueryState,
     session_id: u64,
     prepared_id: u64,
@@ -314,7 +315,7 @@ fn ensure_prepared_query_owner(
     }
 }
 
-fn format_prepared_query_list(infos: Vec<PreparedQueryInfo>) -> String {
+pub(crate) fn format_prepared_query_list(infos: Vec<PreparedQueryInfo>) -> String {
     let count = infos.len();
     let entries = infos
         .into_iter()
@@ -324,11 +325,11 @@ fn format_prepared_query_list(infos: Vec<PreparedQueryInfo>) -> String {
     format!("OK\tPREPARED_QUERY_LIST\t{count}\t{entries}")
 }
 
-fn format_prepared_query_route(prepared_id: u64, routing: String) -> String {
+pub(crate) fn format_prepared_query_route(prepared_id: u64, routing: String) -> String {
     format!("OK\tPREPARED_QUERY_ROUTE\t{prepared_id}\t{routing}")
 }
 
-fn format_tx_prepared_query_route(
+pub(crate) fn format_tx_prepared_query_route(
     tx_id: u64,
     prepared_id: u64,
     routing: String,
@@ -340,7 +341,7 @@ fn format_tx_prepared_query_route(
     )
 }
 
-fn format_prepared_query_describe(
+pub(crate) fn format_prepared_query_describe(
     prepared_id: u64,
     query: &str,
     routing: String,
@@ -354,7 +355,7 @@ fn format_prepared_query_describe(
     )
 }
 
-fn format_prepared_query_kind(query: &str) -> &'static str {
+pub(crate) fn format_prepared_query_kind(query: &str) -> &'static str {
     if is_schema_cypher(query) {
         "SCHEMA"
     } else if is_write_cypher(query) {
@@ -364,7 +365,10 @@ fn format_prepared_query_kind(query: &str) -> &'static str {
     }
 }
 
-fn prepared_query_routing_hint(db: &Neo4rDatabaseHandle, query: &str) -> Result<String, String> {
+pub(crate) fn prepared_query_routing_hint(
+    db: &Neo4rDatabaseHandle,
+    query: &str,
+) -> Result<String, String> {
     if is_schema_cypher(query) {
         return Ok("SCHEMA".to_string());
     }
@@ -375,7 +379,7 @@ fn prepared_query_routing_hint(db: &Neo4rDatabaseHandle, query: &str) -> Result<
     Ok(format_read_routing_hint(route))
 }
 
-fn prepared_query_routing_hint_with_params(
+pub(crate) fn prepared_query_routing_hint_with_params(
     db: &Neo4rDatabaseHandle,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -399,7 +403,10 @@ fn prepared_query_routing_hint_with_params(
     Ok("WRITE_TARGET_DYNAMIC".to_string())
 }
 
-fn prepared_write_routing_hint(db: &Neo4rDatabaseHandle, query: &str) -> Result<String, String> {
+pub(crate) fn prepared_write_routing_hint(
+    db: &Neo4rDatabaseHandle,
+    query: &str,
+) -> Result<String, String> {
     let params = describe_query_parameters(query);
     if is_create_node_cypher(query) || is_merge_node_cypher(query) {
         if !params.is_empty() {
@@ -417,7 +424,7 @@ fn prepared_write_routing_hint(db: &Neo4rDatabaseHandle, query: &str) -> Result<
     Ok("WRITE_TARGET_DYNAMIC".to_string())
 }
 
-fn format_read_routing_hint(route: neo4r_db::QueryRoute) -> String {
+pub(crate) fn format_read_routing_hint(route: neo4r_db::QueryRoute) -> String {
     match route {
         neo4r_db::QueryRoute::LocalOnly => "READ_LOCAL".to_string(),
         neo4r_db::QueryRoute::RequiresRemoteShards(shards) => {
@@ -431,7 +438,7 @@ fn format_read_routing_hint(route: neo4r_db::QueryRoute) -> String {
     }
 }
 
-fn describe_query_parameters(query: &str) -> Vec<String> {
+pub(crate) fn describe_query_parameters(query: &str) -> Vec<String> {
     let mut params = BTreeSet::new();
     let mut chars = query.char_indices().peekable();
     let mut quote: Option<char> = None;
@@ -475,7 +482,7 @@ fn describe_query_parameters(query: &str) -> Vec<String> {
     params.into_iter().collect()
 }
 
-fn validate_prepared_query_params(
+pub(crate) fn validate_prepared_query_params(
     prepared_id: u64,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -494,10 +501,10 @@ fn validate_prepared_query_params(
     }
 }
 
-fn is_query_parameter_start(ch: char) -> bool {
+pub(crate) fn is_query_parameter_start(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphabetic()
 }
 
-fn is_query_parameter_continue(ch: char) -> bool {
+pub(crate) fn is_query_parameter_continue(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
 }

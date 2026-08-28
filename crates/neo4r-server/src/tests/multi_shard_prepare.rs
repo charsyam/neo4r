@@ -1,5 +1,9 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_replacements() {
+pub(super) fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_replacements(
+) {
     let local_dir = temp_dir("neo4r-native-multi-remote-replace-tx-local");
     let remote0_dir = temp_dir("neo4r-native-multi-remote-replace-tx-remote0");
     let remote1_dir = temp_dir("neo4r-native-multi-remote-replace-tx-remote1");
@@ -181,8 +185,8 @@ fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_rep
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_remote_multi_shard_parameterized_map_replacements()
-{
+pub(super) fn native_read_write_transaction_prepare_commits_remote_multi_shard_parameterized_map_replacements(
+) {
     let local_dir = temp_dir("neo4r-native-multi-remote-param-map-replace-tx-local");
     let remote0_dir = temp_dir("neo4r-native-multi-remote-param-map-replace-tx-remote0");
     let remote1_dir = temp_dir("neo4r-native-multi-remote-param-map-replace-tx-remote1");
@@ -366,7 +370,8 @@ fn native_read_write_transaction_prepare_commits_remote_multi_shard_parameterize
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_map_merges() {
+pub(super) fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_map_merges()
+{
     let local_dir = temp_dir("neo4r-native-multi-remote-map-merge-tx-local");
     let remote0_dir = temp_dir("neo4r-native-multi-remote-map-merge-tx-remote0");
     let remote1_dir = temp_dir("neo4r-native-multi-remote-map-merge-tx-remote1");
@@ -548,7 +553,7 @@ fn native_read_write_transaction_prepare_commits_remote_multi_shard_property_map
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_mixed_local_remote_sets() {
+pub(super) fn native_read_write_transaction_prepare_commits_mixed_local_remote_sets() {
     let local_dir = temp_dir("neo4r-native-mixed-tx-local");
     let remote_dir = temp_dir("neo4r-native-mixed-tx-remote");
     let routing_table = ShardRoutingTable {
@@ -704,7 +709,7 @@ fn native_read_write_transaction_prepare_commits_mixed_local_remote_sets() {
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_mixed_local_remote_merge_nodes() {
+pub(super) fn native_read_write_transaction_prepare_commits_mixed_local_remote_merge_nodes() {
     let local_dir = temp_dir("neo4r-native-mixed-merge-tx-local");
     let remote_dir = temp_dir("neo4r-native-mixed-merge-tx-remote");
     let routing_table = ShardRoutingTable {

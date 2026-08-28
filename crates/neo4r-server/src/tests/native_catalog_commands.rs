@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_command_forwards_index_catalog_writes_to_metadata_primary() {
+pub(super) fn native_command_forwards_index_catalog_writes_to_metadata_primary() {
     let local_dir = temp_dir("neo4r-forward-index-local");
     let remote_dir = temp_dir("neo4r-forward-index-remote");
     let routing_table = ShardRoutingTable {
@@ -67,7 +70,7 @@ fn native_command_forwards_index_catalog_writes_to_metadata_primary() {
 }
 
 #[test]
-fn native_command_syncs_index_catalog_from_peer() {
+pub(super) fn native_command_syncs_index_catalog_from_peer() {
     let local_dir = temp_dir("neo4r-sync-index-local");
     let remote_dir = temp_dir("neo4r-sync-index-remote");
     let routing_table = ShardRoutingTable {
@@ -234,7 +237,7 @@ fn native_command_syncs_index_catalog_from_peer() {
 }
 
 #[test]
-fn native_command_rebuilds_vector_indexes() {
+pub(super) fn native_command_rebuilds_vector_indexes() {
     let dir = temp_dir("neo4r-native-rebuild-vector-indexes");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -363,7 +366,7 @@ fn native_command_rebuilds_vector_indexes() {
 }
 
 #[test]
-fn native_vector_index_status_survives_reopen() {
+pub(super) fn native_vector_index_status_survives_reopen() {
     let dir = temp_dir("neo4r-native-vector-status-reopen");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_vector_index("doc_embedding", "Document", "embedding", 2, "cosine")
@@ -470,7 +473,7 @@ fn native_vector_index_status_survives_reopen() {
 }
 
 #[test]
-fn native_query_forwards_create_node_to_remote_primary() {
+pub(super) fn native_query_forwards_create_node_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-cypher-write-local");
     let remote_dir = temp_dir("neo4r-forward-cypher-write-remote");
     let routing_table = ShardRoutingTable {
@@ -556,7 +559,7 @@ fn native_query_forwards_create_node_to_remote_primary() {
 }
 
 #[test]
-fn native_query_routes_create_node_by_stable_hash_across_shards() {
+pub(super) fn native_query_routes_create_node_by_stable_hash_across_shards() {
     let local_dir = temp_dir("neo4r-create-hash-route-local");
     let remote_dir = temp_dir("neo4r-create-hash-route-remote");
     let routing_table = ShardRoutingTable {
@@ -712,7 +715,7 @@ fn native_query_routes_create_node_by_stable_hash_across_shards() {
 }
 
 #[test]
-fn native_query_routes_merge_node_to_single_owner_shard() {
+pub(super) fn native_query_routes_merge_node_to_single_owner_shard() {
     let local_dir = temp_dir("neo4r-merge-hash-route-local");
     let remote_dir = temp_dir("neo4r-merge-hash-route-remote");
     let routing_table = ShardRoutingTable {
@@ -846,7 +849,7 @@ fn native_query_routes_merge_node_to_single_owner_shard() {
 }
 
 #[test]
-fn native_query_forwards_set_node_to_remote_primary() {
+pub(super) fn native_query_forwards_set_node_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-cypher-set-local");
     let remote_dir = temp_dir("neo4r-forward-cypher-set-remote");
     let routing_table = ShardRoutingTable {

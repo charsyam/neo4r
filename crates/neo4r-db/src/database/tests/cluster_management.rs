@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn cluster_rebalance_execution_advances_and_persists_status() {
+pub(super) fn cluster_rebalance_execution_advances_and_persists_status() {
     let dir = temp_dir("facade-rebalance-execution");
     {
         let db =
@@ -46,7 +56,7 @@ fn cluster_rebalance_execution_advances_and_persists_status() {
 }
 
 #[test]
-fn cluster_metadata_authority_guards_metadata_mutations() {
+pub(super) fn cluster_metadata_authority_guards_metadata_mutations() {
     let dir = temp_dir("facade-metadata-authority");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
 
@@ -59,7 +69,7 @@ fn cluster_metadata_authority_guards_metadata_mutations() {
 }
 
 #[test]
-fn cluster_rebalance_policy_limits_replica_additions() {
+pub(super) fn cluster_rebalance_policy_limits_replica_additions() {
     let dir = temp_dir("facade-rebalance-policy");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 1).with_server_id(1)).unwrap();
     db.set_rebalance_policy(RebalancePolicy {
@@ -82,7 +92,7 @@ fn cluster_rebalance_policy_limits_replica_additions() {
 }
 
 #[test]
-fn performance_profile_statistics_storage_and_read_cache_are_reported() {
+pub(super) fn performance_profile_statistics_storage_and_read_cache_are_reported() {
     let dir = temp_dir("facade-performance-observability");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     let alice = db
@@ -133,7 +143,7 @@ fn performance_profile_statistics_storage_and_read_cache_are_reported() {
 }
 
 #[test]
-fn engine_hardening_persists_statistics_and_metadata_log_across_reopen() {
+pub(super) fn engine_hardening_persists_statistics_and_metadata_log_across_reopen() {
     let dir = temp_dir("facade-engine-hardening-recovery");
     {
         let db =
@@ -173,7 +183,7 @@ fn engine_hardening_persists_statistics_and_metadata_log_across_reopen() {
 }
 
 #[test]
-fn cluster_join_request_negotiates_before_joining() {
+pub(super) fn cluster_join_request_negotiates_before_joining() {
     let dir = temp_dir("facade-cluster-join-negotiation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 1).with_server_id(1)).unwrap();
 
@@ -207,7 +217,7 @@ fn cluster_join_request_negotiates_before_joining() {
 }
 
 #[test]
-fn cluster_membership_decommission_plans_primary_transfer_and_replica_removal() {
+pub(super) fn cluster_membership_decommission_plans_primary_transfer_and_replica_removal() {
     let dir = temp_dir("facade-cluster-decommission");
     let table = ShardRoutingTable {
         version: 3,
@@ -254,18 +264,18 @@ fn cluster_membership_decommission_plans_primary_transfer_and_replica_removal() 
     let _ = fs::remove_dir_all(dir);
 }
 
-fn open_test_db(dir: &Path) -> Neo4rDatabase {
+pub(super) fn open_test_db(dir: &Path) -> Neo4rDatabase {
     Neo4rDatabase::open(DatabaseConfig::new(dir, 1, 2).with_log_entries_per_segment(2)).unwrap()
 }
 
-fn properties(entries: &[(&str, Value)]) -> Properties {
+pub(super) fn properties(entries: &[(&str, Value)]) -> Properties {
     entries
         .iter()
         .map(|(key, value)| ((*key).to_string(), value.clone()))
         .collect()
 }
 
-fn snapshot_payload(
+pub(super) fn snapshot_payload(
     dir: &Path,
     shard_id: ShardId,
     last_included_term: Term,
@@ -289,7 +299,7 @@ fn snapshot_payload(
     store.load_payload().unwrap().unwrap()
 }
 
-fn temp_dir(prefix: &str) -> PathBuf {
+pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -301,12 +311,12 @@ fn temp_dir(prefix: &str) -> PathBuf {
 }
 
 #[derive(Default)]
-struct RecordingReplicator {
+pub(super) struct RecordingReplicator {
     entries: Mutex<Vec<LogEntry>>,
 }
 
 impl RecordingReplicator {
-    fn entries(&self) -> Vec<LogEntry> {
+    pub(super) fn entries(&self) -> Vec<LogEntry> {
         self.entries.lock().unwrap().clone()
     }
 }

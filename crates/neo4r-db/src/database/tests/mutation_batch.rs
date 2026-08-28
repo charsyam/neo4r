@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn execute_cypher_mutation_batch_group_commits_merge_node() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_merge_node() {
     let dir = temp_dir("facade-cypher-batch-merge-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -36,7 +46,7 @@ fn execute_cypher_mutation_batch_group_commits_merge_node() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_merge_node_replacement_maps() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_merge_node_replacement_maps() {
     let dir = temp_dir("facade-cypher-batch-merge-node-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -73,7 +83,7 @@ fn execute_cypher_mutation_batch_group_commits_merge_node_replacement_maps() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_merge_relationship() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_merge_relationship() {
     let dir = temp_dir("facade-cypher-batch-merge-relationship");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -123,7 +133,7 @@ fn execute_cypher_mutation_batch_group_commits_merge_relationship() {
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_merge_relationship_replacement_maps() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_merge_relationship_replacement_maps() {
     let dir = temp_dir("facade-cypher-batch-merge-relationship-replace-map");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -169,7 +179,7 @@ fn execute_cypher_mutation_batch_group_commits_merge_relationship_replacement_ma
 }
 
 #[test]
-fn execute_cypher_mutation_batch_group_commits_multiple_local_shards() {
+pub(super) fn execute_cypher_mutation_batch_group_commits_multiple_local_shards() {
     let dir = temp_dir("facade-cypher-batch-multi-shard");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node_on_shard(
@@ -207,7 +217,7 @@ fn execute_cypher_mutation_batch_group_commits_multiple_local_shards() {
 }
 
 #[test]
-fn execute_cypher_deletes_node() {
+pub(super) fn execute_cypher_deletes_node() {
     let dir = temp_dir("facade-cypher-delete");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -240,7 +250,7 @@ fn execute_cypher_deletes_node() {
 }
 
 #[test]
-fn execute_cypher_deletes_node_with_parameterized_matcher() {
+pub(super) fn execute_cypher_deletes_node_with_parameterized_matcher() {
     let dir = temp_dir("facade-cypher-delete-param");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -276,7 +286,7 @@ fn execute_cypher_deletes_node_with_parameterized_matcher() {
 }
 
 #[test]
-fn execute_cypher_detach_deletes_node_and_relationships() {
+pub(super) fn execute_cypher_detach_deletes_node_and_relationships() {
     let dir = temp_dir("facade-cypher-detach-delete");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db
@@ -321,7 +331,7 @@ fn execute_cypher_detach_deletes_node_and_relationships() {
 }
 
 #[test]
-fn execute_cypher_detach_deletes_node_with_parameterized_where() {
+pub(super) fn execute_cypher_detach_deletes_node_with_parameterized_where() {
     let dir = temp_dir("facade-cypher-detach-delete-param");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db
@@ -363,7 +373,7 @@ fn execute_cypher_detach_deletes_node_with_parameterized_where() {
 }
 
 #[test]
-fn execute_cypher_creates_sets_and_deletes_relationships() {
+pub(super) fn execute_cypher_creates_sets_and_deletes_relationships() {
     let dir = temp_dir("facade-cypher-relationship-cud");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -519,7 +529,7 @@ fn execute_cypher_creates_sets_and_deletes_relationships() {
 }
 
 #[test]
-fn execute_cypher_creates_and_merges_relationships_from_comma_match() {
+pub(super) fn execute_cypher_creates_and_merges_relationships_from_comma_match() {
     let dir = temp_dir("facade-cypher-comma-match-relationship-write");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -571,7 +581,7 @@ fn execute_cypher_creates_and_merges_relationships_from_comma_match() {
 }
 
 #[test]
-fn execute_cypher_relationship_cud_matches_parameterized_pattern_properties() {
+pub(super) fn execute_cypher_relationship_cud_matches_parameterized_pattern_properties() {
     let dir = temp_dir("facade-cypher-relationship-cud-params");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db
@@ -670,7 +680,7 @@ fn execute_cypher_relationship_cud_matches_parameterized_pattern_properties() {
 }
 
 #[test]
-fn execute_cypher_relationship_cud_matches_parameterized_where_predicates() {
+pub(super) fn execute_cypher_relationship_cud_matches_parameterized_where_predicates() {
     let dir = temp_dir("facade-cypher-relationship-cud-where-params");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db
@@ -755,7 +765,7 @@ fn execute_cypher_relationship_cud_matches_parameterized_where_predicates() {
 }
 
 #[test]
-fn query_cursor_with_params_owns_snapshot_view() {
+pub(super) fn query_cursor_with_params_owns_snapshot_view() {
     let dir = temp_dir("facade-cursor-params");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -793,7 +803,7 @@ fn query_cursor_with_params_owns_snapshot_view() {
 }
 
 #[test]
-fn full_scan_query_cursor_reads_snapshot_by_id() {
+pub(super) fn full_scan_query_cursor_reads_snapshot_by_id() {
     let dir = temp_dir("facade-full-scan-cursor");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(vec!["Person".to_string()], Properties::new())
@@ -818,7 +828,7 @@ fn full_scan_query_cursor_reads_snapshot_by_id() {
 }
 
 #[test]
-fn traversal_query_cursor_reads_snapshot_by_page() {
+pub(super) fn traversal_query_cursor_reads_snapshot_by_page() {
     let dir = temp_dir("facade-traversal-cursor");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let alice = db

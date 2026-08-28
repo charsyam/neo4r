@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_prepared_commits_remote_merge_relationship() {
+pub(super) fn native_read_write_transaction_prepared_commits_remote_merge_relationship() {
     let local_dir = temp_dir("neo4r-native-tx-merge-rel-forward-local");
     let remote_dir = temp_dir("neo4r-native-tx-merge-rel-forward-remote");
     let routing_table = ShardRoutingTable {
@@ -164,7 +167,7 @@ fn native_read_write_transaction_prepared_commits_remote_merge_relationship() {
 }
 
 #[test]
-fn native_read_write_transaction_batch_forwards_sets_to_remote_primary() {
+pub(super) fn native_read_write_transaction_batch_forwards_sets_to_remote_primary() {
     let local_dir = temp_dir("neo4r-native-tx-batch-forward-local");
     let remote_dir = temp_dir("neo4r-native-tx-batch-forward-remote");
     let routing_table = ShardRoutingTable {
@@ -330,7 +333,7 @@ fn native_read_write_transaction_batch_forwards_sets_to_remote_primary() {
 }
 
 #[test]
-fn native_read_write_transaction_prepared_commits_remote_detach_delete() {
+pub(super) fn native_read_write_transaction_prepared_commits_remote_detach_delete() {
     let local_dir = temp_dir("neo4r-native-tx-remote-detach-delete-local");
     let remote_dir = temp_dir("neo4r-native-tx-remote-detach-delete-remote");
     let routing_table = ShardRoutingTable {
@@ -499,7 +502,7 @@ fn native_read_write_transaction_prepared_commits_remote_detach_delete() {
 }
 
 #[test]
-fn backend_recovers_commit_decision_for_remote_prepared_participant() {
+pub(super) fn backend_recovers_commit_decision_for_remote_prepared_participant() {
     let local_dir = temp_dir("neo4r-tx-decision-recovery-local");
     let remote_dir = temp_dir("neo4r-tx-decision-recovery-remote");
     let local_db =
@@ -589,7 +592,7 @@ fn backend_recovers_commit_decision_for_remote_prepared_participant() {
 }
 
 #[test]
-fn native_command_recovers_remote_transaction_decisions_on_demand() {
+pub(super) fn native_command_recovers_remote_transaction_decisions_on_demand() {
     let local_dir = temp_dir("neo4r-tx-decision-command-recovery-local");
     let remote_dir = temp_dir("neo4r-tx-decision-command-recovery-remote");
     let local_db =
@@ -680,7 +683,7 @@ fn native_command_recovers_remote_transaction_decisions_on_demand() {
 }
 
 #[test]
-fn persistent_backend_recovers_commit_decision_for_local_prepared_participant() {
+pub(super) fn persistent_backend_recovers_commit_decision_for_local_prepared_participant() {
     let dir = temp_dir("neo4r-local-tx-decision-recovery");
     let config = DatabaseConfig::new(&dir, 1, 1).with_server_id(1);
     let db = Neo4rDatabaseHandle::open(config.clone()).unwrap();
@@ -744,7 +747,7 @@ fn persistent_backend_recovers_commit_decision_for_local_prepared_participant() 
 }
 
 #[test]
-fn native_command_recovers_local_transaction_decisions_on_demand() {
+pub(super) fn native_command_recovers_local_transaction_decisions_on_demand() {
     let dir = temp_dir("neo4r-local-tx-decision-command-recovery");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     db.create_node(
@@ -795,7 +798,7 @@ fn native_command_recovers_local_transaction_decisions_on_demand() {
 }
 
 #[test]
-fn native_command_lists_durable_transaction_decisions() {
+pub(super) fn native_command_lists_durable_transaction_decisions() {
     let dir = temp_dir("neo4r-tx-decision-command-list");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -848,7 +851,7 @@ fn native_command_lists_durable_transaction_decisions() {
 }
 
 #[test]
-fn native_tcp_lists_and_recovers_durable_transaction_decisions() {
+pub(super) fn native_tcp_lists_and_recovers_durable_transaction_decisions() {
     let dir = temp_dir("neo4r-native-tx-decision-list-recover");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     db.create_node(

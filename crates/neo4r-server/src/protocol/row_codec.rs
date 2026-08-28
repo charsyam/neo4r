@@ -1,3 +1,5 @@
+use super::*;
+
 pub fn encode_query_rows(rows: &[QueryRow]) -> String {
     neo4r_protocol::encode_query_rows(rows)
 }
@@ -6,7 +8,7 @@ pub fn decode_query_rows(input: &str) -> Result<Vec<QueryRow>, String> {
     neo4r_protocol::decode_query_rows(input)
 }
 
-fn decode_value(input: &str) -> Result<Value, String> {
+pub(super) fn decode_value(input: &str) -> Result<Value, String> {
     if input == "n" {
         return Ok(Value::Null);
     }
@@ -53,7 +55,7 @@ fn decode_value(input: &str) -> Result<Value, String> {
     }
 }
 
-fn decode_properties(input: &str) -> Result<Properties, String> {
+pub(super) fn decode_properties(input: &str) -> Result<Properties, String> {
     let mut properties = Properties::new();
     if input.is_empty() {
         return Ok(properties);
@@ -69,13 +71,13 @@ fn decode_properties(input: &str) -> Result<Properties, String> {
     Ok(properties)
 }
 
-fn parse_u64_token(input: &str, name: &str) -> Result<u64, String> {
+pub(super) fn parse_u64_token(input: &str, name: &str) -> Result<u64, String> {
     input
         .parse::<u64>()
         .map_err(|_| format!("{name} must be an unsigned integer"))
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
+pub(super) fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -85,7 +87,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     output
 }
 
-fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
+pub(super) fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
     if !input.len().is_multiple_of(2) {
         return Err(format!("hex string has odd length: {input}"));
     }
@@ -98,7 +100,7 @@ fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn hex_nibble(byte: u8) -> Result<u8, String> {
+pub(super) fn hex_nibble(byte: u8) -> Result<u8, String> {
     match byte {
         b'0'..=b'9' => Ok(byte - b'0'),
         b'a'..=b'f' => Ok(byte - b'a' + 10),
@@ -107,7 +109,7 @@ fn hex_nibble(byte: u8) -> Result<u8, String> {
     }
 }
 
-fn split_once_tab(line: &str) -> Option<(&str, &str)> {
+pub(super) fn split_once_tab(line: &str) -> Option<(&str, &str)> {
     line.split_once('\t')
 }
 
@@ -123,7 +125,7 @@ pub fn decode_query_batch_payload(payload: &str) -> Result<Vec<(String, QueryPar
     neo4r_protocol::decode_query_batch_payload(payload)
 }
 
-fn parse_labels(value: &str) -> Result<Vec<String>, String> {
+pub(super) fn parse_labels(value: &str) -> Result<Vec<String>, String> {
     let labels = value
         .split(',')
         .filter(|label| !label.is_empty())
@@ -132,7 +134,9 @@ fn parse_labels(value: &str) -> Result<Vec<String>, String> {
     Ok(labels)
 }
 
-fn parse_properties<'a>(parts: impl Iterator<Item = &'a str>) -> Result<Properties, String> {
+pub(super) fn parse_properties<'a>(
+    parts: impl Iterator<Item = &'a str>,
+) -> Result<Properties, String> {
     let mut properties = Properties::new();
     for part in parts {
         let (key, value) = part
@@ -143,7 +147,7 @@ fn parse_properties<'a>(parts: impl Iterator<Item = &'a str>) -> Result<Properti
     Ok(properties)
 }
 
-fn parse_value(value: &str) -> Result<Value, String> {
+pub(super) fn parse_value(value: &str) -> Result<Value, String> {
     let (kind, raw) = value
         .split_once(':')
         .ok_or_else(|| format!("value must use a typed prefix like s:value or i:1: {value}"))?;
@@ -177,7 +181,7 @@ fn parse_value(value: &str) -> Result<Value, String> {
     }
 }
 
-fn parse_vector_value(raw: &str) -> Result<Value, String> {
+pub(super) fn parse_vector_value(raw: &str) -> Result<Value, String> {
     if raw.is_empty() {
         return Err("vector value must contain at least one float".to_string());
     }
@@ -190,7 +194,7 @@ fn parse_vector_value(raw: &str) -> Result<Value, String> {
         .map(Value::Vector)
 }
 
-fn parse_u64(value: Option<&str>, missing: &str) -> Result<u64, String> {
+pub(super) fn parse_u64(value: Option<&str>, missing: &str) -> Result<u64, String> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| missing.to_string())?
@@ -198,7 +202,7 @@ fn parse_u64(value: Option<&str>, missing: &str) -> Result<u64, String> {
         .map_err(|_| missing.to_string())
 }
 
-fn parse_usize(value: Option<&str>, missing: &str) -> Result<usize, String> {
+pub(super) fn parse_usize(value: Option<&str>, missing: &str) -> Result<usize, String> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| missing.to_string())?
@@ -206,7 +210,7 @@ fn parse_usize(value: Option<&str>, missing: &str) -> Result<usize, String> {
         .map_err(|_| missing.to_string())
 }
 
-fn parse_optional_if_not_exists<'a>(
+pub(super) fn parse_optional_if_not_exists<'a>(
     value: Option<&'a str>,
     mut remaining: impl Iterator<Item = &'a str>,
     command: &str,
@@ -227,7 +231,7 @@ fn parse_optional_if_not_exists<'a>(
     Ok(true)
 }
 
-fn parse_optional_if_exists<'a>(
+pub(super) fn parse_optional_if_exists<'a>(
     value: Option<&'a str>,
     mut remaining: impl Iterator<Item = &'a str>,
     command: &str,
@@ -246,35 +250,35 @@ fn parse_optional_if_exists<'a>(
     Ok(true)
 }
 
-fn parse_single_id(value: &str, missing: &str) -> Result<u64, String> {
+pub(super) fn parse_single_id(value: &str, missing: &str) -> Result<u64, String> {
     if value.contains('\t') {
         return Err(format!("{missing}; got extra fields"));
     }
     parse_u64(Some(value), missing)
 }
 
-fn parse_single_key(value: &str, missing: &str) -> Result<String, String> {
+pub(super) fn parse_single_key(value: &str, missing: &str) -> Result<String, String> {
     if value.contains('\t') {
         return Err(format!("{missing}; got extra fields"));
     }
     parse_key(Some(value), missing)
 }
 
-fn parse_key(value: Option<&str>, missing: &str) -> Result<String, String> {
+pub(super) fn parse_key(value: Option<&str>, missing: &str) -> Result<String, String> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| missing.to_string())
         .and_then(validate_token)
 }
 
-fn parse_address(value: Option<&str>, missing: &str) -> Result<String, String> {
+pub(super) fn parse_address(value: Option<&str>, missing: &str) -> Result<String, String> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| missing.to_string())
         .and_then(validate_token)
 }
 
-fn validate_token(value: &str) -> Result<String, String> {
+pub(super) fn validate_token(value: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("empty token".to_string());
     }
@@ -284,6 +288,6 @@ fn validate_token(value: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
-fn escape_response(value: &str) -> String {
+pub(super) fn escape_response(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\t', "\\t")
 }

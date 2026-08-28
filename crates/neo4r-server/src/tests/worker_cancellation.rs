@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn pending_request_store_tracks_queued_cancellation_by_session() {
+pub(super) fn pending_request_store_tracks_queued_cancellation_by_session() {
     let store = PendingRequestStore::default();
 
     store.register(10, 1).unwrap();
@@ -16,7 +19,7 @@ fn pending_request_store_tracks_queued_cancellation_by_session() {
 }
 
 #[test]
-fn native_worker_pool_reports_full_queue_without_blocking_session() {
+pub(super) fn native_worker_pool_reports_full_queue_without_blocking_session() {
     let (job_tx, _job_rx) = mpsc::sync_channel::<NativeJob>(1);
     let pending_requests = PendingRequestStore::default();
     let pool = NativeWorkerPool {
@@ -51,7 +54,7 @@ fn native_worker_pool_reports_full_queue_without_blocking_session() {
 }
 
 #[test]
-fn native_cancel_reports_missed_request_when_not_pending() {
+pub(super) fn native_cancel_reports_missed_request_when_not_pending() {
     let dir = temp_dir("neo4r-native-cancel-missed");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -93,7 +96,7 @@ fn native_cancel_reports_missed_request_when_not_pending() {
 }
 
 #[test]
-fn native_query_uses_cursor_and_fetch_pages() {
+pub(super) fn native_query_uses_cursor_and_fetch_pages() {
     let dir = temp_dir("neo4r-native-cursor");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(vec!["Person".to_string()], Default::default())
@@ -180,7 +183,7 @@ fn native_query_uses_cursor_and_fetch_pages() {
 }
 
 #[test]
-fn native_query_can_execute_cypher_write() {
+pub(super) fn native_query_can_execute_cypher_write() {
     let dir = temp_dir("neo4r-native-cypher-write");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -233,7 +236,7 @@ fn native_query_can_execute_cypher_write() {
 }
 
 #[test]
-fn native_query_forwards_index_cypher_to_metadata_primary() {
+pub(super) fn native_query_forwards_index_cypher_to_metadata_primary() {
     let local_dir = temp_dir("neo4r-native-index-cypher-local");
     let remote_dir = temp_dir("neo4r-native-index-cypher-remote");
     let routing_table = ShardRoutingTable {
@@ -306,7 +309,7 @@ fn native_query_forwards_index_cypher_to_metadata_primary() {
 }
 
 #[test]
-fn native_query_can_execute_constraint_cypher_write() {
+pub(super) fn native_query_can_execute_constraint_cypher_write() {
     let dir = temp_dir("neo4r-native-constraint-cypher-write");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -359,7 +362,7 @@ fn native_query_can_execute_constraint_cypher_write() {
 }
 
 #[test]
-fn native_query_can_execute_relationship_cypher_write() {
+pub(super) fn native_query_can_execute_relationship_cypher_write() {
     let dir = temp_dir("neo4r-native-cypher-relationship-write");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -417,7 +420,7 @@ fn native_query_can_execute_relationship_cypher_write() {
 }
 
 #[test]
-fn native_query_can_show_indexes() {
+pub(super) fn native_query_can_show_indexes() {
     let dir = temp_dir("neo4r-native-show-indexes");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher("CREATE INDEX person_name FOR (n:Person) ON (n.name)")
@@ -602,7 +605,7 @@ fn native_query_can_show_indexes() {
 }
 
 #[test]
-fn native_command_can_install_routing_table_and_read_cluster_status() {
+pub(super) fn native_command_can_install_routing_table_and_read_cluster_status() {
     let dir = temp_dir("neo4r-native-install-routing");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2).with_server_id(10)).unwrap();
     let backend = TcpBackend::with_config(
@@ -653,7 +656,7 @@ fn native_command_can_install_routing_table_and_read_cluster_status() {
 }
 
 #[test]
-fn native_command_reports_structured_management_statuses() {
+pub(super) fn native_command_reports_structured_management_statuses() {
     let dir = temp_dir("neo4r-native-management-status");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     let backend = TcpBackend::with_config(
@@ -724,7 +727,7 @@ fn native_command_reports_structured_management_statuses() {
 }
 
 #[test]
-fn parses_transaction_query_plan_command() {
+pub(super) fn parses_transaction_query_plan_command() {
     let command = parse_transaction_command("TX_QUERY_PLAN\t7\tMATCH (n:Person) RETURN n").unwrap();
 
     let Some(TransactionCommand::QueryPlan {
@@ -741,7 +744,7 @@ fn parses_transaction_query_plan_command() {
 }
 
 #[test]
-fn parses_prepared_query_commands() {
+pub(super) fn parses_prepared_query_commands() {
     let Some(PreparedQueryCommand::Prepare { query }) =
         parse_prepared_query_command("PREPARE_QUERY\tMATCH (n:Person) RETURN n").unwrap()
     else {
@@ -837,7 +840,7 @@ fn parses_prepared_query_commands() {
 }
 
 #[test]
-fn describes_query_parameters_without_string_literals() {
+pub(super) fn describes_query_parameters_without_string_literals() {
     assert_eq!(
         describe_query_parameters(
             r#"MATCH (n:Person {name: $name}) WHERE n.note = "$ignored" AND n.age >= $age SET n += $props RETURN $name"#
@@ -847,7 +850,7 @@ fn describes_query_parameters_without_string_literals() {
 }
 
 #[test]
-fn describes_prepared_query_kind_and_parameters() {
+pub(super) fn describes_prepared_query_kind_and_parameters() {
     assert_eq!(
         format_prepared_query_describe(
             7,

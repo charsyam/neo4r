@@ -1,4 +1,5 @@
-fn execute_distributed_query(
+use super::*;
+pub(crate) fn execute_distributed_query(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     read_preference: QueryReadPreference,
@@ -27,7 +28,7 @@ fn execute_distributed_query(
     Ok(rows)
 }
 
-fn build_distributed_query_cursor(
+pub(crate) fn build_distributed_query_cursor(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     read_preference: QueryReadPreference,
@@ -44,7 +45,7 @@ fn build_distributed_query_cursor(
     )
 }
 
-fn build_distributed_query_cursor_with_options(
+pub(crate) fn build_distributed_query_cursor_with_options(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     read_preference: QueryReadPreference,
@@ -74,7 +75,7 @@ fn build_distributed_query_cursor_with_options(
     Ok(Box::new(DistributedQueryCursor::new(cursors)))
 }
 
-fn build_distributed_query_cursor_with_local_staged_writes(
+pub(crate) fn build_distributed_query_cursor_with_local_staged_writes(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     read_preference: QueryReadPreference,
@@ -112,7 +113,7 @@ fn build_distributed_query_cursor_with_local_staged_writes(
     Ok(Box::new(DistributedQueryCursor::new(cursors)))
 }
 
-fn build_distributed_read_tx_cursor(
+pub(crate) fn build_distributed_read_tx_cursor(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     read_preference: QueryReadPreference,
@@ -142,7 +143,7 @@ fn build_distributed_read_tx_cursor(
     Ok(Box::new(DistributedQueryCursor::new(cursors)))
 }
 
-fn select_remote_query_target(
+pub(crate) fn select_remote_query_target(
     query_peers: &QueryPeerStore,
     shard: &neo4r_db::ShardStatus,
     read_preference: QueryReadPreference,
@@ -175,13 +176,13 @@ fn select_remote_query_target(
     ))
 }
 
-struct DistributedQueryCursor {
+pub(crate) struct DistributedQueryCursor {
     cursors: Vec<Box<dyn QueryCursor>>,
     current: usize,
 }
 
 impl DistributedQueryCursor {
-    fn new(cursors: Vec<Box<dyn QueryCursor>>) -> Self {
+    pub(crate) fn new(cursors: Vec<Box<dyn QueryCursor>>) -> Self {
         Self {
             cursors,
             current: 0,
@@ -215,7 +216,7 @@ impl QueryCursor for DistributedQueryCursor {
     }
 }
 
-struct RemoteShardQueryCursor {
+pub(crate) struct RemoteShardQueryCursor {
     stream: TcpStream,
     cursor_id: u64,
     buffered_rows: Vec<QueryRow>,
@@ -225,7 +226,7 @@ struct RemoteShardQueryCursor {
 }
 
 impl RemoteShardQueryCursor {
-    fn open(
+    pub(crate) fn open(
         address: &str,
         shard_id: u64,
         query: &str,
@@ -238,7 +239,7 @@ impl RemoteShardQueryCursor {
         )
     }
 
-    fn open_with_staged_writes(
+    pub(crate) fn open_with_staged_writes(
         address: &str,
         shard_id: u64,
         query: &str,
@@ -252,7 +253,11 @@ impl RemoteShardQueryCursor {
         )
     }
 
-    fn open_with_payload(address: &str, payload: String, operation: &str) -> Result<Self, String> {
+    pub(crate) fn open_with_payload(
+        address: &str,
+        payload: String,
+        operation: &str,
+    ) -> Result<Self, String> {
         let mut stream = TcpStream::connect(address)
             .map_err(|err| format!("connect query peer {address}: {err}"))?;
         write_frame(
@@ -281,7 +286,7 @@ impl RemoteShardQueryCursor {
         })
     }
 
-    fn fetch_remote(&mut self, page_size: usize) -> Result<(), String> {
+    pub(crate) fn fetch_remote(&mut self, page_size: usize) -> Result<(), String> {
         if !self.remote_has_more {
             return Ok(());
         }
@@ -338,19 +343,19 @@ impl QueryCursor for RemoteShardQueryCursor {
     }
 }
 
-struct ResultStart {
-    cursor_id: u64,
-    total_rows: Option<usize>,
-    rows: Vec<QueryRow>,
-    has_more: bool,
+pub(crate) struct ResultStart {
+    pub(crate) cursor_id: u64,
+    pub(crate) total_rows: Option<usize>,
+    pub(crate) rows: Vec<QueryRow>,
+    pub(crate) has_more: bool,
 }
 
-struct RemoteResultPage {
-    rows: Vec<QueryRow>,
-    has_more: bool,
+pub(crate) struct RemoteResultPage {
+    pub(crate) rows: Vec<QueryRow>,
+    pub(crate) has_more: bool,
 }
 
-fn parse_result_start_response(payload: &str) -> Result<ResultStart, String> {
+pub(crate) fn parse_result_start_response(payload: &str) -> Result<ResultStart, String> {
     let parts = payload.splitn(7, '\t').collect::<Vec<_>>();
     if parts.len() != 7 || parts[0] != "OK" || parts[1] != "RESULT_START" {
         return Err(format!(
@@ -383,7 +388,7 @@ fn parse_result_start_response(payload: &str) -> Result<ResultStart, String> {
     })
 }
 
-fn parse_result_page_response(payload: &str) -> Result<RemoteResultPage, String> {
+pub(crate) fn parse_result_page_response(payload: &str) -> Result<RemoteResultPage, String> {
     let parts = payload.splitn(6, '\t').collect::<Vec<_>>();
     if parts.len() != 6 || parts[0] != "OK" || parts[1] != "RESULT_PAGE" {
         return Err(format!(
@@ -406,7 +411,7 @@ fn parse_result_page_response(payload: &str) -> Result<RemoteResultPage, String>
     })
 }
 
-fn parse_bool_token(input: &str, name: &str) -> Result<bool, String> {
+pub(crate) fn parse_bool_token(input: &str, name: &str) -> Result<bool, String> {
     match input {
         "true" => Ok(true),
         "false" => Ok(false),
@@ -414,7 +419,7 @@ fn parse_bool_token(input: &str, name: &str) -> Result<bool, String> {
     }
 }
 
-fn request_remote_query_shard(
+pub(crate) fn request_remote_query_shard(
     address: &str,
     shard_id: u64,
     query: &str,
@@ -432,13 +437,13 @@ fn request_remote_query_shard(
     Ok(rows)
 }
 
-fn request_remote_command(address: &str, payload: &str) -> Result<String, String> {
+pub(crate) fn request_remote_command(address: &str, payload: &str) -> Result<String, String> {
     let mut stream = TcpStream::connect(address)
         .map_err(|err| format!("connect write peer {address}: {err}"))?;
     request_command_on_stream(&mut stream, 1, payload)
 }
 
-fn request_command_on_stream(
+pub(crate) fn request_command_on_stream(
     stream: &mut TcpStream,
     request_id: u64,
     payload: &str,

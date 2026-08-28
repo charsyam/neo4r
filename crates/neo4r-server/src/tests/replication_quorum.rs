@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn backend_register_replication_peer_updates_write_replicator() {
+pub(super) fn backend_register_replication_peer_updates_write_replicator() {
     let primary_dir = temp_dir("neo4r-server-register-repl-primary");
     let replica_dir = temp_dir("neo4r-server-register-repl-replica");
     let routing_table = ShardRoutingTable {
@@ -82,7 +85,7 @@ fn backend_register_replication_peer_updates_write_replicator() {
 }
 
 #[test]
-fn replication_shard_status_reports_unknown_and_numeric_lag() {
+pub(super) fn replication_shard_status_reports_unknown_and_numeric_lag() {
     let status = format_replication_shard_status(&neo4r_db::ShardStatus {
         shard_id: 0,
         primary_server_id: Some(1),
@@ -99,7 +102,7 @@ fn replication_shard_status_reports_unknown_and_numeric_lag() {
 }
 
 #[test]
-fn backend_replication_quorum_succeeds_with_one_missing_replica_peer() {
+pub(super) fn backend_replication_quorum_succeeds_with_one_missing_replica_peer() {
     let primary_dir = temp_dir("neo4r-server-repl-quorum-primary");
     let replica_dir = temp_dir("neo4r-server-repl-quorum-replica");
     let routing_table = ShardRoutingTable {
@@ -171,7 +174,7 @@ fn backend_replication_quorum_succeeds_with_one_missing_replica_peer() {
 }
 
 #[test]
-fn backend_replication_all_fails_with_one_missing_replica_peer() {
+pub(super) fn backend_replication_all_fails_with_one_missing_replica_peer() {
     let primary_dir = temp_dir("neo4r-server-repl-all-fail-primary");
     let replica_dir = temp_dir("neo4r-server-repl-all-fail-replica");
     let routing_table = ShardRoutingTable {
@@ -231,7 +234,7 @@ fn backend_replication_all_fails_with_one_missing_replica_peer() {
 }
 
 #[test]
-fn backend_replication_async_allows_missing_replica_peer() {
+pub(super) fn backend_replication_async_allows_missing_replica_peer() {
     let primary_dir = temp_dir("neo4r-server-repl-async-primary");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -274,7 +277,7 @@ fn backend_replication_async_allows_missing_replica_peer() {
 }
 
 #[test]
-fn persistent_backend_reloads_query_and_replication_peers() {
+pub(super) fn persistent_backend_reloads_query_and_replication_peers() {
     let dir = temp_dir("neo4r-server-persistent-peers");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend =
@@ -303,7 +306,7 @@ fn persistent_backend_reloads_query_and_replication_peers() {
 }
 
 #[test]
-fn persistent_backend_replication_peer_status_uses_reloaded_peers() {
+pub(super) fn persistent_backend_replication_peer_status_uses_reloaded_peers() {
     let dir = temp_dir("neo4r-server-persistent-peer-status");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -346,7 +349,7 @@ fn persistent_backend_replication_peer_status_uses_reloaded_peers() {
 }
 
 #[test]
-fn persistent_backend_catch_up_plan_uses_reloaded_replication_peers() {
+pub(super) fn persistent_backend_catch_up_plan_uses_reloaded_replication_peers() {
     let dir = temp_dir("neo4r-server-persistent-catch-up-plan");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -385,7 +388,7 @@ fn persistent_backend_catch_up_plan_uses_reloaded_replication_peers() {
 }
 
 #[test]
-fn persistent_backend_reloads_replication_peer_into_new_replicator() {
+pub(super) fn persistent_backend_reloads_replication_peer_into_new_replicator() {
     let primary_dir = temp_dir("neo4r-server-persistent-repl-primary");
     let replica_dir = temp_dir("neo4r-server-persistent-repl-replica");
     let routing_table = ShardRoutingTable {
@@ -461,7 +464,7 @@ fn persistent_backend_reloads_replication_peer_into_new_replicator() {
 }
 
 #[test]
-fn persistent_backends_catch_up_then_live_replicate_with_reloaded_peers() {
+pub(super) fn persistent_backends_catch_up_then_live_replicate_with_reloaded_peers() {
     let primary_dir = temp_dir("neo4r-server-persistent-catchup-live-primary");
     let replica_dir = temp_dir("neo4r-server-persistent-catchup-live-replica");
     let routing_table = ShardRoutingTable {
@@ -588,17 +591,17 @@ fn persistent_backends_catch_up_then_live_replicate_with_reloaded_peers() {
     let _ = fs::remove_dir_all(replica_dir);
 }
 
-fn assert_response(reader: &mut BufReader<TcpStream>, expected: &str) {
+pub(super) fn assert_response(reader: &mut BufReader<TcpStream>, expected: &str) {
     assert_eq!(read_line(reader), expected);
 }
 
-fn read_line(reader: &mut BufReader<TcpStream>) -> String {
+pub(super) fn read_line(reader: &mut BufReader<TcpStream>) -> String {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     line
 }
 
-fn assert_native_response(
+pub(super) fn assert_native_response(
     stream: &mut TcpStream,
     message_type: NativeMessageType,
     request_id: u64,
@@ -608,7 +611,7 @@ fn assert_native_response(
     assert_eq!(payload, expected_payload);
 }
 
-fn read_native_payload(
+pub(super) fn read_native_payload(
     stream: &mut TcpStream,
     message_type: NativeMessageType,
     request_id: u64,
@@ -620,7 +623,7 @@ fn read_native_payload(
     payload
 }
 
-fn test_map_param(entries: &[(&str, Value)]) -> String {
+pub(super) fn test_map_param(entries: &[(&str, Value)]) -> String {
     let mut entries = entries
         .iter()
         .map(|(key, value)| (key.to_string(), test_encoded_value(value)))
@@ -634,7 +637,7 @@ fn test_map_param(entries: &[(&str, Value)]) -> String {
     test_hex_encode(encoded.as_bytes())
 }
 
-fn web_request(backend: TcpBackend, request: &str) -> String {
+pub(super) fn web_request(backend: TcpBackend, request: &str) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let server = thread::spawn(move || backend.serve_web_listener_once(listener).unwrap());
@@ -647,7 +650,7 @@ fn web_request(backend: TcpBackend, request: &str) -> String {
     response
 }
 
-fn first_backup_payload_file(path: &Path) -> Option<PathBuf> {
+pub(super) fn first_backup_payload_file(path: &Path) -> Option<PathBuf> {
     if path.is_file() {
         return (path.file_name()?.to_string_lossy() != BACKUP_MANIFEST_FILE).then(|| path.into());
     }
@@ -661,7 +664,7 @@ fn first_backup_payload_file(path: &Path) -> Option<PathBuf> {
     None
 }
 
-fn test_encoded_value(value: &Value) -> String {
+pub(super) fn test_encoded_value(value: &Value) -> String {
     match value {
         Value::Null => "n".to_string(),
         Value::Bool(value) => format!("b:{}", u8::from(*value)),
@@ -686,7 +689,7 @@ fn test_encoded_value(value: &Value) -> String {
     }
 }
 
-fn test_hex_encode(bytes: &[u8]) -> String {
+pub(super) fn test_hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -696,7 +699,7 @@ fn test_hex_encode(bytes: &[u8]) -> String {
     output
 }
 
-fn temp_dir(prefix: &str) -> std::path::PathBuf {
+pub(super) fn temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

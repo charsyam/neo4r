@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn tcp_catch_up_is_idempotent_before_live_replication_continues() {
+pub(super) fn tcp_catch_up_is_idempotent_before_live_replication_continues() {
     let primary_dir = temp_dir("facade-tcp-catchup-live-primary");
     let replica_dir = temp_dir("facade-tcp-catchup-live-replica");
     let routing_table = ShardRoutingTable {
@@ -126,7 +136,7 @@ fn tcp_catch_up_is_idempotent_before_live_replication_continues() {
 }
 
 #[test]
-fn in_process_replicator_batches_group_commit_to_replica() {
+pub(super) fn in_process_replicator_batches_group_commit_to_replica() {
     let primary_dir = temp_dir("facade-inprocess-batch-primary");
     let replica_dir = temp_dir("facade-inprocess-batch-replica");
     let write_count = 8;
@@ -192,7 +202,7 @@ fn in_process_replicator_batches_group_commit_to_replica() {
 }
 
 #[test]
-fn in_process_replicator_reports_missing_replica_peer() {
+pub(super) fn in_process_replicator_reports_missing_replica_peer() {
     let dir = temp_dir("facade-inprocess-missing-peer");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -221,7 +231,7 @@ fn in_process_replicator_reports_missing_replica_peer() {
 }
 
 #[test]
-fn uncommitted_wal_entry_is_not_replayed_after_reopen() {
+pub(super) fn uncommitted_wal_entry_is_not_replayed_after_reopen() {
     let dir = temp_dir("facade-uncommitted-replay");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -266,7 +276,7 @@ fn uncommitted_wal_entry_is_not_replayed_after_reopen() {
 }
 
 #[test]
-fn committed_config_change_replays_routing_metadata_after_reopen() {
+pub(super) fn committed_config_change_replays_routing_metadata_after_reopen() {
     let dir = temp_dir("facade-config-change-replay");
     let initial_routing_table = ShardRoutingTable {
         version: 3,
@@ -318,7 +328,7 @@ fn committed_config_change_replays_routing_metadata_after_reopen() {
 }
 
 #[test]
-fn quorum_replication_succeeds_when_majority_acks() {
+pub(super) fn quorum_replication_succeeds_when_majority_acks() {
     let primary_dir = temp_dir("facade-quorum-primary");
     let replica_dir = temp_dir("facade-quorum-replica");
     let routing_table = ShardRoutingTable {
@@ -371,7 +381,7 @@ fn quorum_replication_succeeds_when_majority_acks() {
 }
 
 #[test]
-fn async_replication_allows_missing_replica_peer() {
+pub(super) fn async_replication_allows_missing_replica_peer() {
     let dir = temp_dir("facade-async-missing-peer");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -403,7 +413,7 @@ fn async_replication_allows_missing_replica_peer() {
 }
 
 #[test]
-fn local_write_rejects_non_primary_shard() {
+pub(super) fn local_write_rejects_non_primary_shard() {
     let dir = temp_dir("facade-non-primary-write");
     let routing_table = ShardRoutingTable {
         version: 3,
@@ -436,7 +446,7 @@ fn local_write_rejects_non_primary_shard() {
 }
 
 #[test]
-fn create_node_on_shard_allocates_id_owned_by_requested_shard() {
+pub(super) fn create_node_on_shard_allocates_id_owned_by_requested_shard() {
     let dir = temp_dir("facade-create-node-on-shard");
     let routing_table = ShardRoutingTable {
         version: 2,
@@ -472,7 +482,7 @@ fn create_node_on_shard_allocates_id_owned_by_requested_shard() {
 }
 
 #[test]
-fn execute_create_node_cypher_on_shard_returns_created_node() {
+pub(super) fn execute_create_node_cypher_on_shard_returns_created_node() {
     let dir = temp_dir("facade-create-node-cypher-on-shard");
     let routing_table = ShardRoutingTable {
         version: 2,
@@ -511,7 +521,7 @@ fn execute_create_node_cypher_on_shard_returns_created_node() {
 }
 
 #[test]
-fn routing_metadata_persists_across_reopen() {
+pub(super) fn routing_metadata_persists_across_reopen() {
     let dir = temp_dir("facade-routing-persistence");
     let routing_table = ShardRoutingTable {
         version: 5,
@@ -544,7 +554,7 @@ fn routing_metadata_persists_across_reopen() {
 }
 
 #[test]
-fn query_route_reports_remote_shards() {
+pub(super) fn query_route_reports_remote_shards() {
     let dir = temp_dir("facade-query-route");
     let routing_table = ShardRoutingTable {
         version: 5,
@@ -585,7 +595,7 @@ fn query_route_reports_remote_shards() {
 }
 
 #[test]
-fn query_plan_reports_read_access_path() {
+pub(super) fn query_plan_reports_read_access_path() {
     let dir = temp_dir("facade-query-access-plan");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher("CREATE INDEX person_name FOR (n:Person) ON (n.name)")
@@ -682,7 +692,7 @@ fn query_plan_reports_read_access_path() {
 }
 
 #[test]
-fn cluster_status_reports_shard_positions_and_roles() {
+pub(super) fn cluster_status_reports_shard_positions_and_roles() {
     let dir = temp_dir("facade-cluster-status");
     let routing_table = ShardRoutingTable {
         version: 7,
@@ -733,7 +743,7 @@ fn cluster_status_reports_shard_positions_and_roles() {
 }
 
 #[test]
-fn query_with_strong_consistency_reads_committed_snapshot() {
+pub(super) fn query_with_strong_consistency_reads_committed_snapshot() {
     let dir = temp_dir("facade-read-consistency");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
 
@@ -757,7 +767,7 @@ fn query_with_strong_consistency_reads_committed_snapshot() {
 }
 
 #[test]
-fn cluster_membership_registers_nodes_and_plans_rebalance() {
+pub(super) fn cluster_membership_registers_nodes_and_plans_rebalance() {
     let dir = temp_dir("facade-cluster-membership");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 1).with_server_id(1)).unwrap();
 
@@ -816,7 +826,7 @@ fn cluster_membership_registers_nodes_and_plans_rebalance() {
 }
 
 #[test]
-fn cluster_rebalance_plan_id_survives_reopen() {
+pub(super) fn cluster_rebalance_plan_id_survives_reopen() {
     let dir = temp_dir("facade-rebalance-plan-store");
     {
         let db =
@@ -837,7 +847,7 @@ fn cluster_rebalance_plan_id_survives_reopen() {
 }
 
 #[test]
-fn cluster_rebalance_rejects_stale_caught_up_assignment() {
+pub(super) fn cluster_rebalance_rejects_stale_caught_up_assignment() {
     let dir = temp_dir("facade-rebalance-stale-caught-up");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
     db.create_node_on_shard(

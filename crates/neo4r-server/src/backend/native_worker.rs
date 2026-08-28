@@ -1,11 +1,12 @@
+use super::*;
 #[derive(Clone, Default)]
-struct CursorStore {
+pub(crate) struct CursorStore {
     next_id: Arc<AtomicU64>,
     cursors: Arc<Mutex<HashMap<u64, CursorState>>>,
 }
 
 impl CursorStore {
-    fn insert(&self, session_id: u64, cursor: Box<dyn QueryCursor>) -> u64 {
+    pub(crate) fn insert(&self, session_id: u64, cursor: Box<dyn QueryCursor>) -> u64 {
         let cursor_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         self.cursors
             .lock()
@@ -14,7 +15,7 @@ impl CursorStore {
         cursor_id
     }
 
-    fn fetch(
+    pub(crate) fn fetch(
         &self,
         session_id: u64,
         cursor_id: u64,
@@ -37,7 +38,7 @@ impl CursorStore {
         Ok(ResultPage { rows, has_more })
     }
 
-    fn close(&self, session_id: u64, cursor_id: u64) -> Result<(), String> {
+    pub(crate) fn close(&self, session_id: u64, cursor_id: u64) -> Result<(), String> {
         let mut cursors = self
             .cursors
             .lock()
@@ -50,7 +51,7 @@ impl CursorStore {
         Ok(())
     }
 
-    fn close_session(&self, session_id: u64) -> Result<usize, String> {
+    pub(crate) fn close_session(&self, session_id: u64) -> Result<usize, String> {
         let mut cursors = self
             .cursors
             .lock()
@@ -61,12 +62,12 @@ impl CursorStore {
     }
 }
 
-struct CursorState {
+pub(crate) struct CursorState {
     session_id: u64,
     cursor: Box<dyn QueryCursor>,
 }
 
-fn ensure_cursor_owner(
+pub(crate) fn ensure_cursor_owner(
     cursor: &CursorState,
     session_id: u64,
     cursor_id: u64,
@@ -79,18 +80,18 @@ fn ensure_cursor_owner(
 }
 
 #[derive(Clone, Default)]
-struct PendingRequestStore {
+pub(crate) struct PendingRequestStore {
     state: Arc<Mutex<PendingRequestState>>,
 }
 
 #[derive(Default)]
-struct PendingRequestState {
+pub(crate) struct PendingRequestState {
     pending: BTreeSet<(u64, u64)>,
     cancelled: BTreeSet<(u64, u64)>,
 }
 
 impl PendingRequestStore {
-    fn register(&self, session_id: u64, request_id: u64) -> Result<(), String> {
+    pub(crate) fn register(&self, session_id: u64, request_id: u64) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
@@ -100,7 +101,7 @@ impl PendingRequestStore {
         Ok(())
     }
 
-    fn cancel(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
+    pub(crate) fn cancel(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
         let mut state = self
             .state
             .lock()
@@ -113,7 +114,7 @@ impl PendingRequestStore {
         }
     }
 
-    fn take_cancelled(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
+    pub(crate) fn take_cancelled(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
         let mut state = self
             .state
             .lock()
@@ -122,7 +123,7 @@ impl PendingRequestStore {
         Ok(state.cancelled.remove(&(session_id, request_id)))
     }
 
-    fn start(&self, session_id: u64, request_id: u64) -> Result<(), String> {
+    pub(crate) fn start(&self, session_id: u64, request_id: u64) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
@@ -132,7 +133,7 @@ impl PendingRequestStore {
         Ok(())
     }
 
-    fn close_session(&self, session_id: u64) -> Result<(), String> {
+    pub(crate) fn close_session(&self, session_id: u64) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
@@ -148,17 +149,17 @@ impl PendingRequestStore {
 }
 
 #[derive(Debug)]
-struct ResultPage {
-    rows: Vec<QueryRow>,
-    has_more: bool,
+pub(crate) struct ResultPage {
+    pub(crate) rows: Vec<QueryRow>,
+    pub(crate) has_more: bool,
 }
 
-struct FetchRequest {
-    cursor_id: u64,
-    page_size: usize,
+pub(crate) struct FetchRequest {
+    pub(crate) cursor_id: u64,
+    pub(crate) page_size: usize,
 }
 
-fn parse_fetch_payload(payload: &str) -> Result<FetchRequest, String> {
+pub(crate) fn parse_fetch_payload(payload: &str) -> Result<FetchRequest, String> {
     let mut parts = payload.split('\t');
     let cursor_id = parse_cursor_id(
         parts
@@ -186,14 +187,14 @@ fn parse_fetch_payload(payload: &str) -> Result<FetchRequest, String> {
     })
 }
 
-fn parse_cursor_id(payload: &str) -> Result<u64, String> {
+pub(crate) fn parse_cursor_id(payload: &str) -> Result<u64, String> {
     payload
         .trim()
         .parse::<u64>()
         .map_err(|_| "cursor id must be an unsigned integer".to_string())
 }
 
-fn parse_cancel_payload(payload: &str) -> Result<u64, String> {
+pub(crate) fn parse_cancel_payload(payload: &str) -> Result<u64, String> {
     let mut parts = payload.trim().split('\t');
     let request_id = parts
         .next()
@@ -207,7 +208,11 @@ fn parse_cancel_payload(payload: &str) -> Result<u64, String> {
     Ok(request_id)
 }
 
-fn format_result_start(cursor_id: u64, total_rows: Option<usize>, page: ResultPage) -> String {
+pub(crate) fn format_result_start(
+    cursor_id: u64,
+    total_rows: Option<usize>,
+    page: ResultPage,
+) -> String {
     let total_rows = total_rows
         .map(|total_rows| total_rows.to_string())
         .unwrap_or_else(|| "UNKNOWN".to_string());
@@ -219,7 +224,7 @@ fn format_result_start(cursor_id: u64, total_rows: Option<usize>, page: ResultPa
     )
 }
 
-fn format_result_page(cursor_id: u64, page: ResultPage) -> String {
+pub(crate) fn format_result_page(cursor_id: u64, page: ResultPage) -> String {
     format!(
         "OK\tRESULT_PAGE\t{cursor_id}\t{}\t{}\t{}",
         page.rows.len(),
@@ -228,11 +233,11 @@ fn format_result_page(cursor_id: u64, page: ResultPage) -> String {
     )
 }
 
-fn format_rows(rows: &[QueryRow]) -> String {
+pub(crate) fn format_rows(rows: &[QueryRow]) -> String {
     encode_query_rows(rows)
 }
 
-fn native_response_frame(request_id: u64, response: BackendResponse) -> NativeFrame {
+pub(crate) fn native_response_frame(request_id: u64, response: BackendResponse) -> NativeFrame {
     let message_type = if matches!(response, BackendResponse::Err(_)) {
         NativeMessageType::Error
     } else {
@@ -245,7 +250,7 @@ fn native_response_frame(request_id: u64, response: BackendResponse) -> NativeFr
     )
 }
 
-fn escape_payload(value: &str) -> String {
+pub(crate) fn escape_payload(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('\t', "\\t")
@@ -255,14 +260,18 @@ fn escape_payload(value: &str) -> String {
 }
 
 #[derive(Clone)]
-struct NativeWorkerPool {
-    jobs: Arc<Mutex<Option<SyncSender<NativeJob>>>>,
-    joins: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
-    pending_requests: PendingRequestStore,
+pub(crate) struct NativeWorkerPool {
+    pub(crate) jobs: Arc<Mutex<Option<SyncSender<NativeJob>>>>,
+    pub(crate) joins: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
+    pub(crate) pending_requests: PendingRequestStore,
 }
 
 impl NativeWorkerPool {
-    fn new(context: NativeExecutionContext, worker_count: usize, queue_capacity: usize) -> Self {
+    pub(crate) fn new(
+        context: NativeExecutionContext,
+        worker_count: usize,
+        queue_capacity: usize,
+    ) -> Self {
         let worker_count = worker_count.max(1);
         let queue_capacity = queue_capacity.max(1);
         let pending_requests = context.pending_requests.clone();
@@ -283,7 +292,7 @@ impl NativeWorkerPool {
         }
     }
 
-    fn submit(
+    pub(crate) fn submit(
         &self,
         session_id: u64,
         frame: NativeFrame,
@@ -348,13 +357,16 @@ impl Drop for NativeWorkerPool {
     }
 }
 
-struct NativeJob {
+pub(crate) struct NativeJob {
     session_id: u64,
     frame: NativeFrame,
     response: mpsc::Sender<NativeFrame>,
 }
 
-fn native_worker_loop(context: NativeExecutionContext, jobs: Arc<Mutex<Receiver<NativeJob>>>) {
+pub(crate) fn native_worker_loop(
+    context: NativeExecutionContext,
+    jobs: Arc<Mutex<Receiver<NativeJob>>>,
+) {
     loop {
         let job = {
             let jobs = match jobs.lock() {
@@ -387,7 +399,10 @@ fn native_worker_loop(context: NativeExecutionContext, jobs: Arc<Mutex<Receiver<
     }
 }
 
-fn write_native_responses(stream: TcpStream, responses: Receiver<NativeFrame>) -> io::Result<()> {
+pub(crate) fn write_native_responses(
+    stream: TcpStream,
+    responses: Receiver<NativeFrame>,
+) -> io::Result<()> {
     let mut writer = BufWriter::new(stream);
     for frame in responses {
         write_frame(&mut writer, &frame)?;
@@ -395,7 +410,7 @@ fn write_native_responses(stream: TcpStream, responses: Receiver<NativeFrame>) -
     Ok(())
 }
 
-fn send_native_response(
+pub(crate) fn send_native_response(
     response_tx: &mpsc::Sender<NativeFrame>,
     frame: NativeFrame,
 ) -> io::Result<()> {

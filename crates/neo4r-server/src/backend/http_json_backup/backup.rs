@@ -73,7 +73,11 @@ pub(crate) fn verify_backup_manifest(path: &Path, stats: &BackupManifestStats) -
     Ok(())
 }
 
-pub(crate) fn verify_manifest_u64(fields: &HashMap<&str, &str>, key: &str, actual: u64) -> io::Result<()> {
+pub(crate) fn verify_manifest_u64(
+    fields: &HashMap<&str, &str>,
+    key: &str,
+    actual: u64,
+) -> io::Result<()> {
     let expected = fields
         .get(key)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("missing {key}")))?;

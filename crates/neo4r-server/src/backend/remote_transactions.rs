@@ -1,4 +1,5 @@
-fn request_remote_prepare_commit_batch(
+use super::*;
+pub(crate) fn request_remote_prepare_commit_batch(
     db: &Neo4rDatabaseHandle,
     tx_id: u64,
     address: &str,
@@ -33,7 +34,10 @@ fn request_remote_prepare_commit_batch(
     Ok(())
 }
 
-fn request_remote_commit_prepared(address: &str, prepared_id: u64) -> Result<(), String> {
+pub(crate) fn request_remote_commit_prepared(
+    address: &str,
+    prepared_id: u64,
+) -> Result<(), String> {
     match request_remote_command(address, &format!("TX_COMMIT_PREPARED\t{prepared_id}")) {
         Ok(_) => Ok(()),
         Err(err) if err.contains("unknown prepared transaction") => Ok(()),
@@ -41,7 +45,7 @@ fn request_remote_commit_prepared(address: &str, prepared_id: u64) -> Result<(),
     }
 }
 
-fn request_remote_abort_prepared(address: &str, prepared_id: u64) -> Result<(), String> {
+pub(crate) fn request_remote_abort_prepared(address: &str, prepared_id: u64) -> Result<(), String> {
     match request_remote_command(address, &format!("TX_ABORT_PREPARED\t{prepared_id}")) {
         Ok(_) => Ok(()),
         Err(err) if err.contains("unknown prepared transaction") => Ok(()),
@@ -49,7 +53,7 @@ fn request_remote_abort_prepared(address: &str, prepared_id: u64) -> Result<(), 
     }
 }
 
-fn recover_transaction_decisions(
+pub(crate) fn recover_transaction_decisions(
     db: &Neo4rDatabaseHandle,
     prepared_transactions: &PreparedTransactionStore,
 ) -> Result<usize, String> {
@@ -72,7 +76,7 @@ fn recover_transaction_decisions(
     Ok(decisions.len())
 }
 
-fn list_transaction_decisions(
+pub(crate) fn list_transaction_decisions(
     db: &Neo4rDatabaseHandle,
 ) -> Result<Vec<TransactionDecisionRecord>, String> {
     let data_dir = db.data_dir().map_err(|err| err.to_string())?;
@@ -81,7 +85,7 @@ fn list_transaction_decisions(
         .map_err(|err| err.to_string())
 }
 
-fn apply_transaction_decision(
+pub(crate) fn apply_transaction_decision(
     db: &Neo4rDatabaseHandle,
     prepared_transactions: &PreparedTransactionStore,
     decision: &TransactionDecisionRecord,
@@ -101,7 +105,7 @@ fn apply_transaction_decision(
     Ok(())
 }
 
-fn commit_decision_participant(
+pub(crate) fn commit_decision_participant(
     db: &Neo4rDatabaseHandle,
     prepared_transactions: &PreparedTransactionStore,
     participant: &TransactionParticipantRecord,
@@ -125,7 +129,7 @@ fn commit_decision_participant(
     }
 }
 
-fn abort_decision_participant(
+pub(crate) fn abort_decision_participant(
     prepared_transactions: &PreparedTransactionStore,
     participant: &TransactionParticipantRecord,
 ) -> Result<(), String> {
@@ -142,7 +146,7 @@ fn abort_decision_participant(
     }
 }
 
-fn request_remote_prepare_commit_batches(
+pub(crate) fn request_remote_prepare_commit_batches(
     db: &Neo4rDatabaseHandle,
     tx_id: u64,
     participants: Vec<(String, u64, Vec<(String, neo4r_query::QueryParams)>)>,
@@ -209,7 +213,7 @@ fn request_remote_prepare_commit_batches(
     Ok(())
 }
 
-fn abort_prepared_participants(participants: Vec<RemotePreparedParticipant>) {
+pub(crate) fn abort_prepared_participants(participants: Vec<RemotePreparedParticipant>) {
     for mut participant in participants {
         let _ = request_command_on_stream(
             &mut participant.stream,
@@ -219,14 +223,14 @@ fn abort_prepared_participants(participants: Vec<RemotePreparedParticipant>) {
     }
 }
 
-struct RemotePreparedParticipant {
-    stream: TcpStream,
-    address: String,
-    shard_id: u64,
-    prepared_id: u64,
+pub(crate) struct RemotePreparedParticipant {
+    pub(crate) stream: TcpStream,
+    pub(crate) address: String,
+    pub(crate) shard_id: u64,
+    pub(crate) prepared_id: u64,
 }
 
-fn record_commit_decision(
+pub(crate) fn record_commit_decision(
     db: &Neo4rDatabaseHandle,
     tx_id: u64,
     participants: Vec<TransactionParticipantRecord>,
@@ -234,7 +238,7 @@ fn record_commit_decision(
     record_transaction_decision(db, tx_id, TransactionDecision::Commit, participants)
 }
 
-fn record_abort_decision(
+pub(crate) fn record_abort_decision(
     db: &Neo4rDatabaseHandle,
     tx_id: u64,
     participants: Vec<TransactionParticipantRecord>,
@@ -242,7 +246,7 @@ fn record_abort_decision(
     record_transaction_decision(db, tx_id, TransactionDecision::Abort, participants)
 }
 
-fn record_transaction_decision(
+pub(crate) fn record_transaction_decision(
     db: &Neo4rDatabaseHandle,
     tx_id: u64,
     decision: TransactionDecision,
@@ -263,14 +267,17 @@ fn record_transaction_decision(
         .map_err(|err| err.to_string())
 }
 
-fn clear_transaction_decision(db: &Neo4rDatabaseHandle, tx_id: u64) -> Result<(), String> {
+pub(crate) fn clear_transaction_decision(
+    db: &Neo4rDatabaseHandle,
+    tx_id: u64,
+) -> Result<(), String> {
     let data_dir = db.data_dir().map_err(|err| err.to_string())?;
     TransactionDecisionStore::open(data_dir)
         .and_then(|store| store.remove_tx_ids(&BTreeSet::from([tx_id])).map(|_| ()))
         .map_err(|err| err.to_string())
 }
 
-fn decision_participant_records(
+pub(crate) fn decision_participant_records(
     prepared_locals: &[(u64, u64)],
     prepared_remotes: &[RemotePreparedParticipant],
 ) -> Vec<TransactionParticipantRecord> {
@@ -285,7 +292,7 @@ fn decision_participant_records(
         .collect()
 }
 
-fn remote_decision_participant_records(
+pub(crate) fn remote_decision_participant_records(
     prepared_remotes: &[RemotePreparedParticipant],
 ) -> Vec<TransactionParticipantRecord> {
     prepared_remotes
@@ -298,7 +305,7 @@ fn remote_decision_participant_records(
         .collect()
 }
 
-fn parse_ok_rows_response(payload: &str) -> Result<Vec<QueryRow>, String> {
+pub(crate) fn parse_ok_rows_response(payload: &str) -> Result<Vec<QueryRow>, String> {
     if payload.starts_with("OK\tROWS\t") {
         let parts = payload.splitn(4, '\t').collect::<Vec<_>>();
         if parts.len() != 4 {
@@ -315,7 +322,7 @@ fn parse_ok_rows_response(payload: &str) -> Result<Vec<QueryRow>, String> {
     Ok(start.rows)
 }
 
-fn parse_tx_prepared_response(payload: &str) -> Result<u64, String> {
+pub(crate) fn parse_tx_prepared_response(payload: &str) -> Result<u64, String> {
     let parts = payload.split('\t').collect::<Vec<_>>();
     if parts.len() >= 3 && parts[0] == "OK" && parts[1] == "TX_PREPARED" {
         parse_cursor_id(parts[2])
@@ -326,7 +333,9 @@ fn parse_tx_prepared_response(payload: &str) -> Result<u64, String> {
     }
 }
 
-fn parse_ok_index_catalog_response(payload: &str) -> Result<neo4r_db::IndexCatalog, String> {
+pub(crate) fn parse_ok_index_catalog_response(
+    payload: &str,
+) -> Result<neo4r_db::IndexCatalog, String> {
     let parts = payload.splitn(3, '\t').collect::<Vec<_>>();
     if parts.len() != 3 || parts[0] != "OK" || parts[1] != "INDEX_CATALOG" {
         return Err(format!(
@@ -336,7 +345,7 @@ fn parse_ok_index_catalog_response(payload: &str) -> Result<neo4r_db::IndexCatal
     decode_index_catalog(parts[2])
 }
 
-fn select_create_node_write_shard<'a>(
+pub(crate) fn select_create_node_write_shard<'a>(
     status: &'a neo4r_db::ClusterStatus,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -352,7 +361,7 @@ fn select_create_node_write_shard<'a>(
         .ok_or_else(|| "cluster status has no shards".to_string())
 }
 
-fn select_merge_node_write_shard<'a>(
+pub(crate) fn select_merge_node_write_shard<'a>(
     status: &'a neo4r_db::ClusterStatus,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -368,7 +377,7 @@ fn select_merge_node_write_shard<'a>(
         .ok_or_else(|| "cluster status has no shards".to_string())
 }
 
-fn stable_create_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u64 {
+pub(crate) fn stable_create_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u64 {
     let routing_key = match create_node_routing_key(query, params) {
         Ok(Some(key)) => key,
         Ok(None) | Err(_) => {
@@ -378,7 +387,7 @@ fn stable_create_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u6
     stable_create_node_routing_key_hash(&routing_key)
 }
 
-fn stable_merge_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u64 {
+pub(crate) fn stable_merge_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u64 {
     let routing_key = match merge_node_routing_key(query, params) {
         Ok(Some(key)) => key,
         Ok(None) | Err(_) => {
@@ -388,11 +397,11 @@ fn stable_merge_node_hash(query: &str, params: &neo4r_query::QueryParams) -> u64
     stable_create_node_routing_key_hash(&routing_key)
 }
 
-fn stable_create_node_routing_key_hash(routing_key: &CreateNodeRoutingKey) -> u64 {
+pub(crate) fn stable_create_node_routing_key_hash(routing_key: &CreateNodeRoutingKey) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
-    fn update(mut hash: u64, bytes: &[u8]) -> u64 {
+    pub(crate) fn update(mut hash: u64, bytes: &[u8]) -> u64 {
         for byte in bytes {
             hash ^= u64::from(*byte);
             hash = hash.wrapping_mul(FNV_PRIME);
@@ -423,11 +432,14 @@ fn stable_create_node_routing_key_hash(routing_key: &CreateNodeRoutingKey) -> u6
     hash
 }
 
-fn stable_create_node_fallback_hash(query: &str, params: &neo4r_query::QueryParams) -> u64 {
+pub(crate) fn stable_create_node_fallback_hash(
+    query: &str,
+    params: &neo4r_query::QueryParams,
+) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
-    fn update(mut hash: u64, bytes: &[u8]) -> u64 {
+    pub(crate) fn update(mut hash: u64, bytes: &[u8]) -> u64 {
         for byte in bytes {
             hash ^= u64::from(*byte);
             hash = hash.wrapping_mul(FNV_PRIME);
@@ -447,7 +459,7 @@ fn stable_create_node_fallback_hash(query: &str, params: &neo4r_query::QueryPara
     hash
 }
 
-fn write_request_shard(
+pub(crate) fn write_request_shard(
     db: &Neo4rDatabaseHandle,
     request: &BackendRequest,
     shard_count: u64,
@@ -481,7 +493,7 @@ fn write_request_shard(
     Ok(shard_id)
 }
 
-fn format_command_request_payload(request: &BackendRequest) -> Result<String, String> {
+pub(crate) fn format_command_request_payload(request: &BackendRequest) -> Result<String, String> {
     match request {
         BackendRequest::CreateNodeOnShard {
             shard_id,
@@ -564,7 +576,7 @@ fn format_command_request_payload(request: &BackendRequest) -> Result<String, St
     }
 }
 
-fn format_if_not_exists_suffix(if_not_exists: bool) -> &'static str {
+pub(crate) fn format_if_not_exists_suffix(if_not_exists: bool) -> &'static str {
     if if_not_exists {
         "\tIF_NOT_EXISTS"
     } else {
@@ -572,7 +584,7 @@ fn format_if_not_exists_suffix(if_not_exists: bool) -> &'static str {
     }
 }
 
-fn format_if_exists_suffix(if_exists: bool) -> &'static str {
+pub(crate) fn format_if_exists_suffix(if_exists: bool) -> &'static str {
     if if_exists {
         "\tIF_EXISTS"
     } else {
@@ -580,7 +592,7 @@ fn format_if_exists_suffix(if_exists: bool) -> &'static str {
     }
 }
 
-fn format_properties_suffix(properties: &neo4r_core::Properties) -> String {
+pub(crate) fn format_properties_suffix(properties: &neo4r_core::Properties) -> String {
     let mut keys = properties.keys().collect::<Vec<_>>();
     keys.sort();
     let mut suffix = String::new();
@@ -595,7 +607,7 @@ fn format_properties_suffix(properties: &neo4r_core::Properties) -> String {
     suffix
 }
 
-fn format_query_write_shard_payload(
+pub(crate) fn format_query_write_shard_payload(
     shard_id: u64,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -603,7 +615,7 @@ fn format_query_write_shard_payload(
     format_query_payload_with_command("QUERY_WRITE_SHARD", shard_id, query, params)
 }
 
-fn format_tx_prepare_write_batch_shard_payload(
+pub(crate) fn format_tx_prepare_write_batch_shard_payload(
     shard_id: u64,
     writes: &[(String, neo4r_query::QueryParams)],
 ) -> String {
@@ -613,7 +625,7 @@ fn format_tx_prepare_write_batch_shard_payload(
     )
 }
 
-fn format_query_payload_with_command(
+pub(crate) fn format_query_payload_with_command(
     command: &str,
     shard_id: u64,
     query: &str,
@@ -635,7 +647,7 @@ fn format_query_payload_with_command(
     Ok(payload)
 }
 
-fn format_query_shard_payload(
+pub(crate) fn format_query_shard_payload(
     shard_id: u64,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -643,7 +655,7 @@ fn format_query_shard_payload(
     format_query_payload_with_command("QUERY_SHARD", shard_id, query, params)
 }
 
-fn format_query_staged_shard_payload(
+pub(crate) fn format_query_staged_shard_payload(
     shard_id: u64,
     query: &str,
     params: &neo4r_query::QueryParams,
@@ -658,7 +670,7 @@ fn format_query_staged_shard_payload(
     )
 }
 
-fn format_value_for_request(value: &neo4r_core::Value) -> String {
+pub(crate) fn format_value_for_request(value: &neo4r_core::Value) -> String {
     match value {
         neo4r_core::Value::Null => "n:".to_string(),
         neo4r_core::Value::Bool(value) => format!("b:{value}"),
@@ -680,7 +692,7 @@ fn format_value_for_request(value: &neo4r_core::Value) -> String {
     }
 }
 
-fn encode_map_for_request(values: &neo4r_core::Properties) -> String {
+pub(crate) fn encode_map_for_request(values: &neo4r_core::Properties) -> String {
     let mut entries = values.iter().collect::<Vec<_>>();
     entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     entries
@@ -696,7 +708,7 @@ fn encode_map_for_request(values: &neo4r_core::Properties) -> String {
         .join(",")
 }
 
-fn encode_value_for_map_request(value: &neo4r_core::Value) -> String {
+pub(crate) fn encode_value_for_map_request(value: &neo4r_core::Value) -> String {
     match value {
         neo4r_core::Value::Null => "n".to_string(),
         neo4r_core::Value::Bool(value) => format!("b:{}", u8::from(*value)),
@@ -720,7 +732,7 @@ fn encode_value_for_map_request(value: &neo4r_core::Value) -> String {
     }
 }
 
-fn hex_encode_for_request(input: impl AsRef<[u8]>) -> String {
+pub(crate) fn hex_encode_for_request(input: impl AsRef<[u8]>) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let input = input.as_ref();
     let mut output = String::with_capacity(input.len() * 2);
@@ -731,7 +743,7 @@ fn hex_encode_for_request(input: impl AsRef<[u8]>) -> String {
     output
 }
 
-fn is_write_cypher(query: &str) -> bool {
+pub(crate) fn is_write_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     upper.starts_with("CREATE INDEX ")
         || upper.starts_with("CREATE VECTOR INDEX ")
@@ -748,7 +760,7 @@ fn is_write_cypher(query: &str) -> bool {
                 || upper.contains(" DELETE ")))
 }
 
-fn is_schema_cypher(query: &str) -> bool {
+pub(crate) fn is_schema_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     upper.starts_with("CREATE INDEX ")
         || upper.starts_with("CREATE VECTOR INDEX ")
@@ -757,7 +769,7 @@ fn is_schema_cypher(query: &str) -> bool {
         || upper.starts_with("DROP CONSTRAINT ")
 }
 
-fn is_create_node_cypher(query: &str) -> bool {
+pub(crate) fn is_create_node_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     upper.starts_with("CREATE ")
         && !upper.starts_with("CREATE INDEX ")
@@ -765,17 +777,17 @@ fn is_create_node_cypher(query: &str) -> bool {
         && !upper.starts_with("CREATE CONSTRAINT ")
 }
 
-fn is_merge_node_cypher(query: &str) -> bool {
+pub(crate) fn is_merge_node_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     upper.starts_with("MERGE ")
 }
 
-fn is_delete_cypher(query: &str) -> bool {
+pub(crate) fn is_delete_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     upper.starts_with("MATCH ") && upper.contains(" DELETE ")
 }
 
-fn is_batchable_transaction_set_cypher(query: &str) -> bool {
+pub(crate) fn is_batchable_transaction_set_cypher(query: &str) -> bool {
     let input = query.trim();
     let upper = input.to_ascii_uppercase();
     if !upper.starts_with("MATCH ")
@@ -788,17 +800,17 @@ fn is_batchable_transaction_set_cypher(query: &str) -> bool {
     true
 }
 
-fn is_batchable_multi_target_transaction_cypher(query: &str) -> bool {
+pub(crate) fn is_batchable_multi_target_transaction_cypher(query: &str) -> bool {
     is_batchable_transaction_set_cypher(query) || is_delete_cypher(query)
 }
 
-fn staged_writes_are_prepare_batchable(staged_writes: &[StagedWrite]) -> bool {
+pub(crate) fn staged_writes_are_prepare_batchable(staged_writes: &[StagedWrite]) -> bool {
     staged_writes
         .iter()
         .all(|staged| is_batchable_cypher_mutation(&staged.query))
 }
 
-fn is_batchable_cypher_mutation(query: &str) -> bool {
+pub(crate) fn is_batchable_cypher_mutation(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     if upper.starts_with("CREATE INDEX ")
         || upper.starts_with("CREATE VECTOR INDEX ")
@@ -818,7 +830,7 @@ fn is_batchable_cypher_mutation(query: &str) -> bool {
                 || upper.contains(" DELETE ")))
 }
 
-fn is_staged_transaction_overlay_cypher(query: &str) -> bool {
+pub(crate) fn is_staged_transaction_overlay_cypher(query: &str) -> bool {
     let upper = query.trim().to_ascii_uppercase();
     if upper.starts_with("CREATE INDEX ")
         || upper.starts_with("CREATE VECTOR INDEX ")

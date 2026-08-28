@@ -1,3 +1,4 @@
+use super::*;
 impl TcpBackend {
     pub fn new(db: Neo4rDatabaseHandle) -> Self {
         Self::with_config(db, TcpBackendConfig::default())
@@ -42,7 +43,7 @@ impl TcpBackend {
         Ok(backend)
     }
 
-    fn with_peer_stores(
+    pub(crate) fn with_peer_stores(
         db: Neo4rDatabaseHandle,
         config: TcpBackendConfig,
         query_peers: QueryPeerStore,
@@ -57,7 +58,7 @@ impl TcpBackend {
         )
     }
 
-    fn with_stores(
+    pub(crate) fn with_stores(
         db: Neo4rDatabaseHandle,
         config: TcpBackendConfig,
         query_peers: QueryPeerStore,
@@ -301,5 +302,4 @@ impl TcpBackend {
     pub fn handle_replication_stream(&self, mut stream: TcpStream) -> io::Result<()> {
         handle_tcp_replication_stream(&self.db, &mut stream).map_err(io::Error::other)
     }
-
 }

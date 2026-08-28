@@ -1,5 +1,7 @@
+use super::*;
+
 impl NativeExecutionContext {
-    fn execute_frame(&self, session_id: u64, frame: NativeFrame) -> NativeFrame {
+    pub(crate) fn execute_frame(&self, session_id: u64, frame: NativeFrame) -> NativeFrame {
         let request_id = frame.request_id;
         match self.execute_frame_inner(session_id, frame) {
             Ok(response) => NativeFrame::new(
@@ -15,7 +17,11 @@ impl NativeExecutionContext {
         }
     }
 
-    fn execute_frame_inner(&self, session_id: u64, frame: NativeFrame) -> Result<String, String> {
+    pub(crate) fn execute_frame_inner(
+        &self,
+        session_id: u64,
+        frame: NativeFrame,
+    ) -> Result<String, String> {
         match frame.message_type {
             NativeMessageType::Ping => Ok(format_response(&BackendResponse::OkPong)),
             NativeMessageType::Quit => Ok(format_response(&BackendResponse::OkBye)),
@@ -64,7 +70,7 @@ impl NativeExecutionContext {
         }
     }
 
-    fn execute_backend_command(
+    pub(crate) fn execute_backend_command(
         &self,
         session_id: u64,
         request: BackendRequest,
@@ -209,11 +215,11 @@ impl NativeExecutionContext {
         }
     }
 
-    fn sync_index_catalog_from_peer(&self, server_id: u64) -> Result<(), String> {
+    pub(crate) fn sync_index_catalog_from_peer(&self, server_id: u64) -> Result<(), String> {
         sync_index_catalog_from_peer(&self.db, &self.query_peers, server_id)
     }
 
-    fn forward_shard_write_if_needed(
+    pub(crate) fn forward_shard_write_if_needed(
         &self,
         request: &BackendRequest,
     ) -> Result<Option<String>, String> {
@@ -241,7 +247,7 @@ impl NativeExecutionContext {
         Ok(Some(request_remote_command(&address, &payload)?))
     }
 
-    fn execute_query(
+    pub(crate) fn execute_query(
         &self,
         session_id: u64,
         query: &str,
@@ -265,7 +271,7 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, total_rows, page))
     }
 
-    fn execute_prepared_query_command(
+    pub(crate) fn execute_prepared_query_command(
         &self,
         session_id: u64,
         command: PreparedQueryCommand,
@@ -327,7 +333,7 @@ impl NativeExecutionContext {
         }
     }
 
-    fn execute_write_query_with_routing(
+    pub(crate) fn execute_write_query_with_routing(
         &self,
         query: &str,
         params: neo4r_query::QueryParams,
@@ -375,7 +381,7 @@ impl NativeExecutionContext {
         Ok(rows)
     }
 
-    fn execute_distributed_query_cursor(
+    pub(crate) fn execute_distributed_query_cursor(
         &self,
         session_id: u64,
         query: &str,
@@ -399,7 +405,7 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, total_rows, page))
     }
 
-    fn execute_query_shard_cursor(
+    pub(crate) fn execute_query_shard_cursor(
         &self,
         session_id: u64,
         shard_id: u64,
@@ -423,7 +429,7 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, total_rows, page))
     }
 
-    fn execute_staged_query_shard_cursor(
+    pub(crate) fn execute_staged_query_shard_cursor(
         &self,
         session_id: u64,
         shard_id: u64,
@@ -450,7 +456,7 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, total_rows, page))
     }
 
-    fn execute_write_query_on_shard_cursor(
+    pub(crate) fn execute_write_query_on_shard_cursor(
         &self,
         session_id: u64,
         shard_id: u64,
@@ -471,7 +477,7 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, total_rows, page))
     }
 
-    fn execute_write_query_batch_on_shard(
+    pub(crate) fn execute_write_query_batch_on_shard(
         &self,
         session_id: u64,
         shard_id: u64,
@@ -489,16 +495,19 @@ impl NativeExecutionContext {
         Ok(format_result_start(cursor_id, Some(0), page))
     }
 
-    fn fetch_cursor(&self, session_id: u64, request: FetchRequest) -> Result<String, String> {
+    pub(crate) fn fetch_cursor(
+        &self,
+        session_id: u64,
+        request: FetchRequest,
+    ) -> Result<String, String> {
         let page = self
             .cursors
             .fetch(session_id, request.cursor_id, request.page_size)?;
         Ok(format_result_page(request.cursor_id, page))
     }
 
-    fn close_cursor(&self, session_id: u64, cursor_id: u64) -> Result<String, String> {
+    pub(crate) fn close_cursor(&self, session_id: u64, cursor_id: u64) -> Result<String, String> {
         self.cursors.close(session_id, cursor_id)?;
         Ok(format!("OK\tCURSOR_CLOSED\t{cursor_id}"))
     }
-
 }

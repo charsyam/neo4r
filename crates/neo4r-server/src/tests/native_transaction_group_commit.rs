@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_read_write_transaction_group_commits_property_replacements() {
+pub(super) fn native_read_write_transaction_group_commits_property_replacements() {
     let dir = temp_dir("neo4r-native-read-write-tx-replacement-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -134,7 +137,7 @@ fn native_read_write_transaction_group_commits_property_replacements() {
 }
 
 #[test]
-fn native_read_write_transaction_group_commits_property_map_merges() {
+pub(super) fn native_read_write_transaction_group_commits_property_map_merges() {
     let dir = temp_dir("neo4r-native-read-write-tx-map-merge-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -263,7 +266,7 @@ fn native_read_write_transaction_group_commits_property_map_merges() {
 }
 
 #[test]
-fn native_read_write_transaction_group_commits_property_replacement_merges() {
+pub(super) fn native_read_write_transaction_group_commits_property_replacement_merges() {
     let dir = temp_dir("neo4r-native-read-write-tx-replace-merge-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -501,7 +504,7 @@ fn native_read_write_transaction_group_commits_property_replacement_merges() {
 }
 
 #[test]
-fn native_read_write_transaction_forwards_commit_to_remote_primary() {
+pub(super) fn native_read_write_transaction_forwards_commit_to_remote_primary() {
     let local_dir = temp_dir("neo4r-native-tx-forward-local");
     let remote_dir = temp_dir("neo4r-native-tx-forward-remote");
     let routing_table = ShardRoutingTable {
@@ -620,7 +623,7 @@ fn native_read_write_transaction_forwards_commit_to_remote_primary() {
 }
 
 #[test]
-fn native_read_write_transaction_prepared_commits_remote_merge_node() {
+pub(super) fn native_read_write_transaction_prepared_commits_remote_merge_node() {
     let local_dir = temp_dir("neo4r-native-tx-merge-forward-local");
     let remote_dir = temp_dir("neo4r-native-tx-merge-forward-remote");
     let routing_table = ShardRoutingTable {
@@ -741,7 +744,7 @@ fn native_read_write_transaction_prepared_commits_remote_merge_node() {
 }
 
 #[test]
-fn native_prepared_write_batch_commits_merge_relationship() {
+pub(super) fn native_prepared_write_batch_commits_merge_relationship() {
     let dir = temp_dir("neo4r-native-prepared-merge-relationship");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node_on_shard(
@@ -828,7 +831,7 @@ fn native_prepared_write_batch_commits_merge_relationship() {
 }
 
 #[test]
-fn native_prepared_write_batch_commits_merge_property_replacements() {
+pub(super) fn native_prepared_write_batch_commits_merge_property_replacements() {
     let dir = temp_dir("neo4r-native-prepared-merge-replacements");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node_on_shard(

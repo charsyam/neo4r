@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn raft_append_truncates_divergent_segmented_wal_suffix() {
+pub(super) fn raft_append_truncates_divergent_segmented_wal_suffix() {
     let dir = temp_dir("facade-raft-divergent-wal-truncate");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -78,7 +88,7 @@ fn raft_append_truncates_divergent_segmented_wal_suffix() {
 }
 
 #[test]
-fn raft_strong_read_requires_leader_lease_but_follower_stale_can_read() {
+pub(super) fn raft_strong_read_requires_leader_lease_but_follower_stale_can_read() {
     let dir = temp_dir("facade-raft-read-index-lease");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -123,7 +133,7 @@ fn raft_strong_read_requires_leader_lease_but_follower_stale_can_read() {
 }
 
 #[test]
-fn tcp_install_snapshot_updates_replica_snapshot_payload() {
+pub(super) fn tcp_install_snapshot_updates_replica_snapshot_payload() {
     let dir = temp_dir("facade-tcp-install-snapshot");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -188,7 +198,7 @@ fn tcp_install_snapshot_updates_replica_snapshot_payload() {
 }
 
 #[test]
-fn tcp_raft_append_falls_back_to_install_snapshot_on_rejection() {
+pub(super) fn tcp_raft_append_falls_back_to_install_snapshot_on_rejection() {
     let dir = temp_dir("facade-tcp-append-fallback-snapshot");
     let routing_table = ShardRoutingTable {
         version: 1,
@@ -259,7 +269,7 @@ fn tcp_raft_append_falls_back_to_install_snapshot_on_rejection() {
 }
 
 #[test]
-fn tcp_raft_replication_pump_sends_heartbeat_to_registered_peer() {
+pub(super) fn tcp_raft_replication_pump_sends_heartbeat_to_registered_peer() {
     let primary_dir = temp_dir("facade-tcp-raft-pump-primary");
     let replica_dir = temp_dir("facade-tcp-raft-pump-replica");
     let routing_table = ShardRoutingTable {
@@ -305,7 +315,7 @@ fn tcp_raft_replication_pump_sends_heartbeat_to_registered_peer() {
 }
 
 #[test]
-fn tcp_raft_replication_pump_catches_up_replica_with_committed_entries() {
+pub(super) fn tcp_raft_replication_pump_catches_up_replica_with_committed_entries() {
     let primary_dir = temp_dir("facade-tcp-raft-pump-entry-primary");
     let replica_dir = temp_dir("facade-tcp-raft-pump-entry-replica");
     let primary_routing_table = ShardRoutingTable {
@@ -373,7 +383,7 @@ fn tcp_raft_replication_pump_catches_up_replica_with_committed_entries() {
 }
 
 #[test]
-fn tcp_replicator_applies_primary_writes_to_replica() {
+pub(super) fn tcp_replicator_applies_primary_writes_to_replica() {
     let primary_dir = temp_dir("facade-tcp-primary");
     let replica_dir = temp_dir("facade-tcp-replica");
     let routing_table = ShardRoutingTable {
@@ -429,7 +439,7 @@ fn tcp_replicator_applies_primary_writes_to_replica() {
 }
 
 #[test]
-fn tcp_replicator_batches_group_commit_to_replica() {
+pub(super) fn tcp_replicator_batches_group_commit_to_replica() {
     let primary_dir = temp_dir("facade-tcp-batch-primary");
     let replica_dir = temp_dir("facade-tcp-batch-replica");
     let write_count = 8;
@@ -502,7 +512,7 @@ fn tcp_replicator_batches_group_commit_to_replica() {
 }
 
 #[test]
-fn tcp_replicator_retries_until_replica_listener_is_available() {
+pub(super) fn tcp_replicator_retries_until_replica_listener_is_available() {
     let primary_dir = temp_dir("facade-tcp-retry-primary");
     let replica_dir = temp_dir("facade-tcp-retry-replica");
     let routing_table = ShardRoutingTable {
@@ -567,7 +577,7 @@ fn tcp_replicator_retries_until_replica_listener_is_available() {
 }
 
 #[test]
-fn tcp_replicator_quorum_succeeds_with_one_missing_replica() {
+pub(super) fn tcp_replicator_quorum_succeeds_with_one_missing_replica() {
     let primary_dir = temp_dir("facade-tcp-quorum-primary");
     let replica_dir = temp_dir("facade-tcp-quorum-replica");
     let routing_table = ShardRoutingTable {
@@ -632,7 +642,7 @@ fn tcp_replicator_quorum_succeeds_with_one_missing_replica() {
 }
 
 #[test]
-fn tcp_replicator_all_policy_fails_with_one_missing_replica() {
+pub(super) fn tcp_replicator_all_policy_fails_with_one_missing_replica() {
     let primary_dir = temp_dir("facade-tcp-all-fail-primary");
     let replica_dir = temp_dir("facade-tcp-all-fail-replica");
     let routing_table = ShardRoutingTable {
@@ -686,7 +696,7 @@ fn tcp_replicator_all_policy_fails_with_one_missing_replica() {
 }
 
 #[test]
-fn tcp_catch_up_fetches_missing_entries_from_primary_log() {
+pub(super) fn tcp_catch_up_fetches_missing_entries_from_primary_log() {
     let primary_dir = temp_dir("facade-tcp-catchup-primary");
     let replica_dir = temp_dir("facade-tcp-catchup-replica");
     let routing_table = ShardRoutingTable {
@@ -745,7 +755,7 @@ fn tcp_catch_up_fetches_missing_entries_from_primary_log() {
 }
 
 #[test]
-fn tcp_catch_up_can_fetch_missing_entries_in_limited_batches() {
+pub(super) fn tcp_catch_up_can_fetch_missing_entries_in_limited_batches() {
     let primary_dir = temp_dir("facade-tcp-catchup-batched-primary");
     let replica_dir = temp_dir("facade-tcp-catchup-batched-replica");
     let routing_table = ShardRoutingTable {
@@ -809,7 +819,7 @@ fn tcp_catch_up_can_fetch_missing_entries_in_limited_batches() {
 }
 
 #[test]
-fn tcp_catch_up_from_primaries_uses_local_committed_positions() {
+pub(super) fn tcp_catch_up_from_primaries_uses_local_committed_positions() {
     let primary_dir = temp_dir("facade-tcp-auto-catchup-primary");
     let replica_dir = temp_dir("facade-tcp-auto-catchup-replica");
     let routing_table = ShardRoutingTable {

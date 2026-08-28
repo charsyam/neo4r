@@ -1,12 +1,13 @@
+use super::*;
 #[derive(Debug, Eq, PartialEq)]
-struct ReplicationPeerStatusEntry {
+pub(crate) struct ReplicationPeerStatusEntry {
     server_id: u64,
     address: Option<String>,
     primary_shards: Vec<u64>,
     replica_shards: Vec<u64>,
 }
 
-fn replication_peer_status(
+pub(crate) fn replication_peer_status(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
     server_id: Option<u64>,
@@ -57,7 +58,7 @@ fn replication_peer_status(
     Ok(statuses)
 }
 
-fn format_replication_peer_status(entries: &[ReplicationPeerStatusEntry]) -> String {
+pub(crate) fn format_replication_peer_status(entries: &[ReplicationPeerStatusEntry]) -> String {
     entries
         .iter()
         .map(|entry| {
@@ -74,7 +75,7 @@ fn format_replication_peer_status(entries: &[ReplicationPeerStatusEntry]) -> Str
         .join(",")
 }
 
-fn format_shard_id_list(shards: &[u64]) -> String {
+pub(crate) fn format_shard_id_list(shards: &[u64]) -> String {
     if shards.is_empty() {
         "-".to_string()
     } else {
@@ -86,7 +87,7 @@ fn format_shard_id_list(shards: &[u64]) -> String {
     }
 }
 
-fn replication_status(
+pub(crate) fn replication_status(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
 ) -> Result<String, String> {
@@ -109,7 +110,7 @@ fn replication_status(
     ))
 }
 
-fn format_replication_shard_status(status: &neo4r_db::ShardStatus) -> String {
+pub(crate) fn format_replication_shard_status(status: &neo4r_db::ShardStatus) -> String {
     let primary = status
         .primary_server_id
         .map(|server_id| server_id.to_string())
@@ -173,7 +174,7 @@ fn format_replication_shard_status(status: &neo4r_db::ShardStatus) -> String {
     )
 }
 
-fn catch_up_from_primaries(
+pub(crate) fn catch_up_from_primaries(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
     connect_timeout: Duration,
@@ -206,7 +207,7 @@ fn catch_up_from_primaries(
     .map_err(|err| err.to_string())
 }
 
-fn catch_up_from_primary(
+pub(crate) fn catch_up_from_primary(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
     connect_timeout: Duration,
@@ -270,14 +271,14 @@ fn catch_up_from_primary(
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct CatchUpPlanEntry {
+pub(crate) struct CatchUpPlanEntry {
     shard_id: u64,
     primary_server_id: u64,
     start_index: u64,
     peer_registered: bool,
 }
 
-fn catch_up_plan(
+pub(crate) fn catch_up_plan(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
     server_id: Option<u64>,
@@ -320,13 +321,13 @@ fn catch_up_plan(
     Ok(entries)
 }
 
-fn catch_up_end_index(start_index: u64, fetched_entries: usize) -> u64 {
+pub(crate) fn catch_up_end_index(start_index: u64, fetched_entries: usize) -> u64 {
     start_index
         .saturating_add(fetched_entries as u64)
         .saturating_sub(1)
 }
 
-fn format_catch_up_plan(entries: &[CatchUpPlanEntry]) -> String {
+pub(crate) fn format_catch_up_plan(entries: &[CatchUpPlanEntry]) -> String {
     entries
         .iter()
         .map(|entry| {
@@ -344,7 +345,7 @@ fn format_catch_up_plan(entries: &[CatchUpPlanEntry]) -> String {
         .join(",")
 }
 
-fn format_catch_up_results(results: &[neo4r_db::TcpCatchUpResult]) -> String {
+pub(crate) fn format_catch_up_results(results: &[neo4r_db::TcpCatchUpResult]) -> String {
     results
         .iter()
         .map(|result| {
@@ -361,7 +362,7 @@ fn format_catch_up_results(results: &[neo4r_db::TcpCatchUpResult]) -> String {
         .join(",")
 }
 
-fn sync_index_catalog_from_peer(
+pub(crate) fn sync_index_catalog_from_peer(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
     server_id: u64,

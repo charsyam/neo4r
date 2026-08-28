@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn persistent_backend_recovers_local_mixed_prepared_commit_with_staged_overlay() {
+pub(super) fn persistent_backend_recovers_local_mixed_prepared_commit_with_staged_overlay() {
     let dir = temp_dir("neo4r-local-mixed-tx-decision-recovery");
     let config = DatabaseConfig::new(&dir, 1, 1).with_server_id(1);
     let db = Neo4rDatabaseHandle::open(config.clone()).unwrap();
@@ -74,7 +77,7 @@ fn persistent_backend_recovers_local_mixed_prepared_commit_with_staged_overlay()
 }
 
 #[test]
-fn persistent_prepared_transaction_store_removes_committed_batches() {
+pub(super) fn persistent_prepared_transaction_store_removes_committed_batches() {
     let dir = temp_dir("neo4r-prepared-store-remove");
     let path = dir.join("transactions").join(PREPARED_TRANSACTIONS_FILE);
     let store = PreparedTransactionStore::open(&path).unwrap();
@@ -103,7 +106,7 @@ fn persistent_prepared_transaction_store_removes_committed_batches() {
 }
 
 #[test]
-fn persistent_prepared_transaction_store_keeps_concurrent_prepares() {
+pub(super) fn persistent_prepared_transaction_store_keeps_concurrent_prepares() {
     let dir = temp_dir("neo4r-prepared-store-concurrent");
     let path = dir.join("transactions").join(PREPARED_TRANSACTIONS_FILE);
     let store = PreparedTransactionStore::open(&path).unwrap();
@@ -146,7 +149,7 @@ fn persistent_prepared_transaction_store_keeps_concurrent_prepares() {
 }
 
 #[test]
-fn persistent_prepared_transaction_store_reports_status() {
+pub(super) fn persistent_prepared_transaction_store_reports_status() {
     let dir = temp_dir("neo4r-prepared-store-status");
     let path = dir.join("transactions").join(PREPARED_TRANSACTIONS_FILE);
     let store = PreparedTransactionStore::open(&path).unwrap();
@@ -176,7 +179,7 @@ fn persistent_prepared_transaction_store_reports_status() {
 }
 
 #[test]
-fn persistent_prepared_transaction_prepare_failure_rolls_back_memory() {
+pub(super) fn persistent_prepared_transaction_prepare_failure_rolls_back_memory() {
     let dir = temp_dir("neo4r-prepared-store-prepare-failure");
     let path = dir.join("transactions").join(PREPARED_TRANSACTIONS_FILE);
     let store = PreparedTransactionStore::open(&path).unwrap();
@@ -204,7 +207,7 @@ fn persistent_prepared_transaction_prepare_failure_rolls_back_memory() {
 }
 
 #[test]
-fn persistent_prepared_transaction_take_failure_restores_memory() {
+pub(super) fn persistent_prepared_transaction_take_failure_restores_memory() {
     let dir = temp_dir("neo4r-prepared-store-take-failure");
     let path = dir.join("transactions").join(PREPARED_TRANSACTIONS_FILE);
     let store = PreparedTransactionStore::open(&path).unwrap();
@@ -238,7 +241,7 @@ fn persistent_prepared_transaction_take_failure_restores_memory() {
 }
 
 #[test]
-fn backend_recovers_abort_decision_for_remote_prepared_participant() {
+pub(super) fn backend_recovers_abort_decision_for_remote_prepared_participant() {
     let local_dir = temp_dir("neo4r-tx-abort-recovery-local");
     let remote_dir = temp_dir("neo4r-tx-abort-recovery-remote");
     let local_db =
@@ -340,7 +343,7 @@ fn backend_recovers_abort_decision_for_remote_prepared_participant() {
 }
 
 #[test]
-fn native_prepared_write_batch_aborts_or_commits_on_participant() {
+pub(super) fn native_prepared_write_batch_aborts_or_commits_on_participant() {
     let dir = temp_dir("neo4r-native-prepared-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node(
@@ -540,7 +543,7 @@ fn native_prepared_write_batch_aborts_or_commits_on_participant() {
 }
 
 #[test]
-fn native_read_write_transaction_group_commits_local_multi_shard_sets() {
+pub(super) fn native_read_write_transaction_group_commits_local_multi_shard_sets() {
     let dir = temp_dir("neo4r-native-multi-shard-tx-batch");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node_on_shard(
@@ -642,7 +645,7 @@ fn native_read_write_transaction_group_commits_local_multi_shard_sets() {
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_local_multi_shard_detach_delete() {
+pub(super) fn native_read_write_transaction_prepare_commits_local_multi_shard_detach_delete() {
     let dir = temp_dir("neo4r-native-multi-shard-tx-detach-delete");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node_on_shard(
@@ -737,7 +740,7 @@ fn native_read_write_transaction_prepare_commits_local_multi_shard_detach_delete
 }
 
 #[test]
-fn native_read_write_transaction_prepare_commits_remote_multi_shard_sets() {
+pub(super) fn native_read_write_transaction_prepare_commits_remote_multi_shard_sets() {
     let local_dir = temp_dir("neo4r-native-multi-remote-tx-local");
     let remote0_dir = temp_dir("neo4r-native-multi-remote-tx-remote0");
     let remote1_dir = temp_dir("neo4r-native-multi-remote-tx-remote1");

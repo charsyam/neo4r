@@ -1,6 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
 
 #[test]
-fn tcp_backend_handles_ping_create_query_and_quit() {
+pub(super) fn tcp_backend_handles_ping_create_query_and_quit() {
     let dir = temp_dir("neo4r-tcp-backend");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -86,7 +88,7 @@ fn tcp_backend_handles_ping_create_query_and_quit() {
 }
 
 #[test]
-fn web_console_serves_index_and_graph_api() {
+pub(super) fn web_console_serves_index_and_graph_api() {
     let dir = temp_dir("neo4r-web-console");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice"})"#)
@@ -393,7 +395,7 @@ fn web_console_serves_index_and_graph_api() {
 }
 
 #[test]
-fn web_console_isolates_tenant_databases_and_scopes_tokens() {
+pub(super) fn web_console_isolates_tenant_databases_and_scopes_tokens() {
     let dir = temp_dir("neo4r-web-tenants");
     let config = DatabaseConfig::new(&dir, 1, 1);
     let db = Neo4rDatabaseHandle::open(config.clone()).unwrap();
@@ -721,7 +723,7 @@ fn web_console_isolates_tenant_databases_and_scopes_tokens() {
 }
 
 #[test]
-fn native_prepared_query_executes_with_params_and_transactions() {
+pub(super) fn native_prepared_query_executes_with_params_and_transactions() {
     let dir = temp_dir("neo4r-native-prepared-query");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::with_config(

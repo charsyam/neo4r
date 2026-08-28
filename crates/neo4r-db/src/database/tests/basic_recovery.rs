@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+use super::*;
 use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
 use neo4r_query::QueryValue;
 use std::fs;
@@ -7,7 +9,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
-fn creates_nodes_relationships_and_queries_them() {
+pub(super) fn creates_nodes_relationships_and_queries_them() {
     let dir = temp_dir("facade-query");
     let mut db = open_test_db(&dir);
 
@@ -42,7 +44,7 @@ fn creates_nodes_relationships_and_queries_them() {
 }
 
 #[test]
-fn reopens_and_replays_segmented_logs() {
+pub(super) fn reopens_and_replays_segmented_logs() {
     let dir = temp_dir("facade-reopen");
     {
         let mut db = open_test_db(&dir);
@@ -75,7 +77,7 @@ fn reopens_and_replays_segmented_logs() {
 }
 
 #[test]
-fn reopens_and_rebuilds_vector_search_from_replayed_properties() {
+pub(super) fn reopens_and_rebuilds_vector_search_from_replayed_properties() {
     let dir = temp_dir("facade-vector-reopen");
     {
         let mut db = open_test_db(&dir);
@@ -114,7 +116,7 @@ fn reopens_and_rebuilds_vector_search_from_replayed_properties() {
 }
 
 #[test]
-fn updates_and_deletes_nodes_through_durable_api() {
+pub(super) fn updates_and_deletes_nodes_through_durable_api() {
     let dir = temp_dir("facade-node-cud");
     {
         let mut db = open_test_db(&dir);
@@ -150,7 +152,7 @@ fn updates_and_deletes_nodes_through_durable_api() {
 }
 
 #[test]
-fn execute_cypher_adds_and_removes_node_labels() {
+pub(super) fn execute_cypher_adds_and_removes_node_labels() {
     let dir = temp_dir("facade-cypher-label-cud");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice"})"#)
@@ -191,7 +193,7 @@ fn execute_cypher_adds_and_removes_node_labels() {
 }
 
 #[test]
-fn reopens_and_replays_node_label_updates() {
+pub(super) fn reopens_and_replays_node_label_updates() {
     let dir = temp_dir("facade-label-replay");
     {
         let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
@@ -215,7 +217,7 @@ fn reopens_and_replays_node_label_updates() {
 }
 
 #[test]
-fn adding_label_validates_vector_indexed_property_shape() {
+pub(super) fn adding_label_validates_vector_indexed_property_shape() {
     let dir = temp_dir("facade-label-vector-validation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
     db.execute_cypher(
@@ -236,7 +238,7 @@ fn adding_label_validates_vector_indexed_property_shape() {
 }
 
 #[test]
-fn staged_overlay_reads_node_label_updates() {
+pub(super) fn staged_overlay_reads_node_label_updates() {
     let dir = temp_dir("facade-staged-label-overlay");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice"})"#)
@@ -265,7 +267,7 @@ fn staged_overlay_reads_node_label_updates() {
 }
 
 #[test]
-fn staged_overlay_reads_property_map_replacements() {
+pub(super) fn staged_overlay_reads_property_map_replacements() {
     let dir = temp_dir("facade-staged-replace-map-overlay");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 2)).unwrap();
     db.execute_cypher(r#"CREATE (n:Person {name: "Alice", stale: true})"#)
@@ -299,7 +301,7 @@ fn staged_overlay_reads_property_map_replacements() {
 }
 
 #[test]
-fn updates_and_deletes_relationships_through_durable_api() {
+pub(super) fn updates_and_deletes_relationships_through_durable_api() {
     let dir = temp_dir("facade-relationship-cud");
     {
         let mut db = open_test_db(&dir);
@@ -336,7 +338,7 @@ fn updates_and_deletes_relationships_through_durable_api() {
 }
 
 #[test]
-fn rejects_writes_that_reference_missing_records() {
+pub(super) fn rejects_writes_that_reference_missing_records() {
     let dir = temp_dir("facade-missing-records");
     let mut db = open_test_db(&dir);
 
@@ -359,7 +361,7 @@ fn rejects_writes_that_reference_missing_records() {
 }
 
 #[test]
-fn writes_segment_files_by_shard_log_position() {
+pub(super) fn writes_segment_files_by_shard_log_position() {
     let dir = temp_dir("facade-segments");
     {
         let mut db = open_test_db(&dir);
@@ -382,7 +384,7 @@ fn writes_segment_files_by_shard_log_position() {
 }
 
 #[test]
-fn replays_wal_entry_written_after_checkpoint_but_before_store_apply() {
+pub(super) fn replays_wal_entry_written_after_checkpoint_but_before_store_apply() {
     let dir = temp_dir("facade-wal-replay");
     let config = DatabaseConfig::new(&dir, 1, 2)
         .with_log_entries_per_segment(2)
@@ -425,7 +427,7 @@ fn replays_wal_entry_written_after_checkpoint_but_before_store_apply() {
 }
 
 #[test]
-fn failure_injection_after_commit_before_apply_recovers_on_reopen() {
+pub(super) fn failure_injection_after_commit_before_apply_recovers_on_reopen() {
     let dir = temp_dir("facade-fail-after-commit-before-apply");
     let config = DatabaseConfig::new(&dir, 1, 1).with_failure_injection(FailureInjection {
         fail_after_commit_before_apply: true,
@@ -462,7 +464,7 @@ fn failure_injection_after_commit_before_apply_recovers_on_reopen() {
 }
 
 #[test]
-fn concurrent_handle_serializes_writes_and_assigns_unique_ids() {
+pub(super) fn concurrent_handle_serializes_writes_and_assigns_unique_ids() {
     let dir = temp_dir("facade-concurrent-writes");
     let db = Neo4rDatabaseHandle::open(
         DatabaseConfig::new(&dir, 4, 2)
@@ -520,7 +522,7 @@ fn concurrent_handle_serializes_writes_and_assigns_unique_ids() {
 }
 
 #[test]
-fn group_commit_batches_concurrent_local_writes() {
+pub(super) fn group_commit_batches_concurrent_local_writes() {
     let dir = temp_dir("facade-group-commit");
     let write_count = 8;
     let db = Neo4rDatabaseHandle::open(
@@ -562,7 +564,7 @@ fn group_commit_batches_concurrent_local_writes() {
 }
 
 #[test]
-fn execute_cypher_applies_index_ddl_to_catalog() {
+pub(super) fn execute_cypher_applies_index_ddl_to_catalog() {
     let dir = temp_dir("facade-cypher-index-ddl");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 
@@ -831,7 +833,7 @@ fn execute_cypher_applies_index_ddl_to_catalog() {
 }
 
 #[test]
-fn unique_node_property_constraint_rejects_duplicate_writes() {
+pub(super) fn unique_node_property_constraint_rejects_duplicate_writes() {
     let dir = temp_dir("facade-unique-node-property");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(

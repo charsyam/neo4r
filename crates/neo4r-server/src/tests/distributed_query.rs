@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+use super::*;
+
 #[test]
-fn native_query_forwards_create_relationship_to_remote_primary() {
+pub(super) fn native_query_forwards_create_relationship_to_remote_primary() {
     let local_dir = temp_dir("neo4r-forward-cypher-rel-local");
     let remote_dir = temp_dir("neo4r-forward-cypher-rel-remote");
     let routing_table = ShardRoutingTable {
@@ -99,7 +102,7 @@ fn native_query_forwards_create_relationship_to_remote_primary() {
 }
 
 #[test]
-fn backend_query_peer_management_updates_distributed_query_routes() {
+pub(super) fn backend_query_peer_management_updates_distributed_query_routes() {
     let local_dir = temp_dir("neo4r-query-peer-management-local");
     let remote_dir = temp_dir("neo4r-query-peer-management-remote");
     let routing_table = ShardRoutingTable {
@@ -182,7 +185,7 @@ fn backend_query_peer_management_updates_distributed_query_routes() {
 }
 
 #[test]
-fn native_command_distributed_query_returns_cursor_rows() {
+pub(super) fn native_command_distributed_query_returns_cursor_rows() {
     let local_dir = temp_dir("neo4r-native-distributed-local");
     let remote_dir = temp_dir("neo4r-native-distributed-remote");
     let routing_table = ShardRoutingTable {
@@ -333,7 +336,7 @@ fn native_command_distributed_query_returns_cursor_rows() {
 }
 
 #[test]
-fn native_transaction_distributed_query_reads_remote_shards() {
+pub(super) fn native_transaction_distributed_query_reads_remote_shards() {
     let local_dir = temp_dir("neo4r-native-tx-distributed-local");
     let remote_dir = temp_dir("neo4r-native-tx-distributed-remote");
     let routing_table = ShardRoutingTable {
@@ -461,7 +464,7 @@ fn native_transaction_distributed_query_reads_remote_shards() {
 }
 
 #[test]
-fn native_read_write_transaction_distributed_query_reads_local_staged_writes() {
+pub(super) fn native_read_write_transaction_distributed_query_reads_local_staged_writes() {
     let local_dir = temp_dir("neo4r-native-rw-tx-distributed-staged-local");
     let remote_dir = temp_dir("neo4r-native-rw-tx-distributed-staged-remote");
     let routing_table = ShardRoutingTable {
@@ -635,7 +638,7 @@ fn native_read_write_transaction_distributed_query_reads_local_staged_writes() {
 }
 
 #[test]
-fn native_read_write_transaction_distributed_query_reads_remote_staged_writes() {
+pub(super) fn native_read_write_transaction_distributed_query_reads_remote_staged_writes() {
     let local_dir = temp_dir("neo4r-native-rw-tx-distributed-remote-staged-local");
     let remote_dir = temp_dir("neo4r-native-rw-tx-distributed-remote-staged-remote");
     let routing_table = ShardRoutingTable {
@@ -775,7 +778,7 @@ fn native_read_write_transaction_distributed_query_reads_remote_staged_writes() 
 }
 
 #[test]
-fn line_protocol_remains_available_explicitly() {
+pub(super) fn line_protocol_remains_available_explicitly() {
     let dir = temp_dir("neo4r-line-backend");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -799,7 +802,7 @@ fn line_protocol_remains_available_explicitly() {
 }
 
 #[test]
-fn native_protocol_correlates_responses_by_request_id() {
+pub(super) fn native_protocol_correlates_responses_by_request_id() {
     let dir = temp_dir("neo4r-native-correlation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let backend = TcpBackend::new(db);
@@ -841,7 +844,7 @@ fn native_protocol_correlates_responses_by_request_id() {
 }
 
 #[test]
-fn cursor_store_scopes_cursors_to_session_and_cleans_up_session() {
+pub(super) fn cursor_store_scopes_cursors_to_session_and_cleans_up_session() {
     let store = CursorStore::default();
     let first_cursor = store.insert(10, Box::new(VecQueryCursor::new(vec![QueryRow::new()])));
     let second_cursor = store.insert(11, Box::new(VecQueryCursor::new(vec![QueryRow::new()])));

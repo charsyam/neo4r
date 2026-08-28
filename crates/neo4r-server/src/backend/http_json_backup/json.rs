@@ -185,7 +185,10 @@ pub(crate) fn extract_json_string_field(input: &str, field: &str) -> Result<Stri
     parse_json_string(rest).map(|(value, _)| value)
 }
 
-pub(crate) fn extract_optional_json_string_field(input: &str, field: &str) -> Result<Option<String>, String> {
+pub(crate) fn extract_optional_json_string_field(
+    input: &str,
+    field: &str,
+) -> Result<Option<String>, String> {
     let Some(rest) = find_json_field_value(input, field)? else {
         return Ok(None);
     };
@@ -281,7 +284,10 @@ pub(crate) fn parse_json_params_field(input: &str) -> Result<QueryParams, String
     Ok(params)
 }
 
-pub(crate) fn find_json_field_value<'a>(input: &'a str, field: &str) -> Result<Option<&'a str>, String> {
+pub(crate) fn find_json_field_value<'a>(
+    input: &'a str,
+    field: &str,
+) -> Result<Option<&'a str>, String> {
     let needle = format!("\"{field}\"");
     let Some(start) = input.find(&needle) else {
         return Ok(None);

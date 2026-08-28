@@ -1,5 +1,15 @@
+#![allow(unused_imports)]
+use super::*;
+use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use neo4r_query::QueryValue;
+use std::fs;
+use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 #[test]
-fn unique_node_property_constraint_validates_existing_data_and_persists() {
+pub(super) fn unique_node_property_constraint_validates_existing_data_and_persists() {
     let dir = temp_dir("facade-unique-node-property-reopen");
     {
         let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
@@ -62,7 +72,7 @@ fn unique_node_property_constraint_validates_existing_data_and_persists() {
 }
 
 #[test]
-fn merge_node_lookup_prefers_unique_constraint_index() {
+pub(super) fn merge_node_lookup_prefers_unique_constraint_index() {
     let dir = temp_dir("facade-merge-node-index-lookup");
     let mut db = Neo4rDatabase::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_node_property_index("person_tenant", "Person", "tenant")
@@ -85,7 +95,7 @@ fn merge_node_lookup_prefers_unique_constraint_index() {
 }
 
 #[test]
-fn concurrent_handle_allows_safe_read_write_access() {
+pub(super) fn concurrent_handle_allows_safe_read_write_access() {
     let dir = temp_dir("facade-concurrent-read-write");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let writer = {
@@ -118,7 +128,7 @@ fn concurrent_handle_allows_safe_read_write_access() {
 }
 
 #[test]
-fn read_snapshot_keeps_query_view_stable_while_writes_continue() {
+pub(super) fn read_snapshot_keeps_query_view_stable_while_writes_continue() {
     let dir = temp_dir("facade-snapshot-isolation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -147,7 +157,7 @@ fn read_snapshot_keeps_query_view_stable_while_writes_continue() {
 }
 
 #[test]
-fn read_committed_is_statement_scoped() {
+pub(super) fn read_committed_is_statement_scoped() {
     let dir = temp_dir("facade-read-committed-isolation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     let options = QueryOptions::default().with_isolation(ReadIsolation::ReadCommitted);
@@ -182,7 +192,7 @@ fn read_committed_is_statement_scoped() {
 }
 
 #[test]
-fn snapshot_read_transaction_reuses_one_view_across_queries() {
+pub(super) fn snapshot_read_transaction_reuses_one_view_across_queries() {
     let dir = temp_dir("facade-read-transaction-isolation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -213,7 +223,7 @@ fn snapshot_read_transaction_reuses_one_view_across_queries() {
 }
 
 #[test]
-fn query_cursor_owns_snapshot_view() {
+pub(super) fn query_cursor_owns_snapshot_view() {
     let dir = temp_dir("facade-cursor-snapshot");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -240,7 +250,7 @@ fn query_cursor_owns_snapshot_view() {
 }
 
 #[test]
-fn query_with_params_filters_property_and_vector_search() {
+pub(super) fn query_with_params_filters_property_and_vector_search() {
     let dir = temp_dir("facade-query-params");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -291,7 +301,7 @@ fn query_with_params_filters_property_and_vector_search() {
 }
 
 #[test]
-fn query_orders_skips_and_limits_results() {
+pub(super) fn query_orders_skips_and_limits_results() {
     let dir = temp_dir("facade-query-result-modifiers");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     for (name, score) in [("Alice", 30), ("Bob", 10), ("Carol", 20), ("Dave", 40)] {
@@ -323,7 +333,7 @@ fn query_orders_skips_and_limits_results() {
 }
 
 #[test]
-fn query_filters_with_comparison_predicates() {
+pub(super) fn query_filters_with_comparison_predicates() {
     let dir = temp_dir("facade-query-comparison-predicates");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     for (name, score) in [("Alice", 30), ("Bob", 10), ("Carol", 20), ("Dave", 40)] {
@@ -398,7 +408,7 @@ fn query_filters_with_comparison_predicates() {
 }
 
 #[test]
-fn query_returns_distinct_results() {
+pub(super) fn query_returns_distinct_results() {
     let dir = temp_dir("facade-query-distinct");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     for (name, status) in [
@@ -435,7 +445,7 @@ fn query_returns_distinct_results() {
 }
 
 #[test]
-fn query_filters_with_null_predicates() {
+pub(super) fn query_filters_with_null_predicates() {
     let dir = temp_dir("facade-query-null-predicates");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -474,7 +484,7 @@ fn query_filters_with_null_predicates() {
 }
 
 #[test]
-fn query_counts_matching_results() {
+pub(super) fn query_counts_matching_results() {
     let dir = temp_dir("facade-query-count");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     for (name, active) in [("Alice", true), ("Bob", false), ("Carol", true)] {
@@ -532,7 +542,7 @@ fn query_counts_matching_results() {
 }
 
 #[test]
-fn create_node_routing_key_uses_parsed_labels_and_properties() {
+pub(super) fn create_node_routing_key_uses_parsed_labels_and_properties() {
     let params = [("name".to_string(), Value::String("Alice".to_string()))]
         .into_iter()
         .collect();
@@ -576,7 +586,7 @@ fn create_node_routing_key_uses_parsed_labels_and_properties() {
 }
 
 #[test]
-fn execute_cypher_creates_anonymous_node() {
+pub(super) fn execute_cypher_creates_anonymous_node() {
     let dir = temp_dir("facade-cypher-create-anonymous-node");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     let mut params = QueryParams::new();
@@ -599,7 +609,7 @@ fn execute_cypher_creates_anonymous_node() {
 }
 
 #[test]
-fn merge_node_routing_key_uses_parsed_labels_and_properties() {
+pub(super) fn merge_node_routing_key_uses_parsed_labels_and_properties() {
     let params = [
         (
             "email".to_string(),
@@ -641,7 +651,7 @@ fn merge_node_routing_key_uses_parsed_labels_and_properties() {
 }
 
 #[test]
-fn query_shard_reads_only_requested_owner_shard() {
+pub(super) fn query_shard_reads_only_requested_owner_shard() {
     let dir = temp_dir("facade-query-shard");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -677,7 +687,7 @@ fn query_shard_reads_only_requested_owner_shard() {
 }
 
 #[test]
-fn index_catalog_persists_across_reopen() {
+pub(super) fn index_catalog_persists_across_reopen() {
     let dir = temp_dir("facade-index-catalog");
     {
         let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
@@ -759,7 +769,7 @@ fn index_catalog_persists_across_reopen() {
 }
 
 #[test]
-fn index_lifecycle_resumes_building_status_on_reopen() {
+pub(super) fn index_lifecycle_resumes_building_status_on_reopen() {
     let dir = temp_dir("facade-index-lifecycle-resume");
     let index = IndexDefinition::node_property("person_name", "Person", "name");
     {
@@ -786,7 +796,7 @@ fn index_lifecycle_resumes_building_status_on_reopen() {
 }
 
 #[test]
-fn vector_index_rejects_dimension_mismatches() {
+pub(super) fn vector_index_rejects_dimension_mismatches() {
     let dir = temp_dir("facade-vector-index-dimensions");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 2)).unwrap();
     db.create_node(
@@ -805,7 +815,7 @@ fn vector_index_rejects_dimension_mismatches() {
 }
 
 #[test]
-fn vector_index_rejects_invalid_indexed_writes_before_wal_append() {
+pub(super) fn vector_index_rejects_invalid_indexed_writes_before_wal_append() {
     let dir = temp_dir("facade-vector-index-write-validation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.create_vector_index("doc_embedding", "Document", "embedding", 2, "cosine")
@@ -842,7 +852,7 @@ fn vector_index_rejects_invalid_indexed_writes_before_wal_append() {
 }
 
 #[test]
-fn graph_writes_reject_map_values_before_wal_append() {
+pub(super) fn graph_writes_reject_map_values_before_wal_append() {
     let dir = temp_dir("facade-map-property-write-validation");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
 

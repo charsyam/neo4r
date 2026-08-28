@@ -117,21 +117,63 @@ struct SlowQueryEntry {
     query: String,
 }
 
-include!("backend/backend_core.rs");
-include!("backend/backend_web_admin.rs");
-include!("backend/backend_web_query_backup.rs");
-include!("backend/backend_native_replication.rs");
+#[path = "backend/backend_core.rs"]
+mod backend_core;
+#[path = "backend/backend_native_replication.rs"]
+mod backend_native_replication;
+#[path = "backend/backend_web_admin.rs"]
+mod backend_web_admin;
+#[path = "backend/backend_web_query_backup.rs"]
+mod backend_web_query_backup;
+#[path = "backend/distributed_query.rs"]
+mod distributed_query;
+#[path = "backend/http_json_backup.rs"]
+mod http_json_backup;
+#[path = "backend/native_execution.rs"]
+mod native_execution;
+#[path = "backend/native_worker.rs"]
+mod native_worker;
+#[path = "backend/prepared_query.rs"]
+mod prepared_query;
+#[path = "backend/remote_transactions.rs"]
+mod remote_transactions;
+#[path = "backend/replication_admin.rs"]
+mod replication_admin;
+#[path = "backend/transaction_protocol.rs"]
+mod transaction_protocol;
+#[path = "backend/transaction_store.rs"]
+mod transaction_store;
+#[path = "backend/web_index.rs"]
+mod web_index;
 
-include!("backend/native_execution.rs");
-include!("backend/replication_admin.rs");
-include!("backend/distributed_query.rs");
-include!("backend/remote_transactions.rs");
-include!("backend/transaction_protocol.rs");
-include!("backend/transaction_store.rs");
-include!("backend/prepared_query.rs");
-include!("backend/native_worker.rs");
-include!("backend/http_json_backup.rs");
-include!("backend/web_index.rs");
+#[allow(unused_imports)]
+use backend_core::*;
+#[allow(unused_imports)]
+use backend_native_replication::*;
+#[allow(unused_imports)]
+use backend_web_admin::*;
+#[allow(unused_imports)]
+use backend_web_query_backup::*;
+#[allow(unused_imports)]
+use distributed_query::*;
+#[allow(unused_imports)]
+use http_json_backup::*;
+#[allow(unused_imports)]
+use native_execution::*;
+#[allow(unused_imports)]
+use native_worker::*;
+#[allow(unused_imports)]
+use prepared_query::*;
+#[allow(unused_imports)]
+use remote_transactions::*;
+#[allow(unused_imports)]
+use replication_admin::*;
+#[allow(unused_imports)]
+use transaction_protocol::*;
+#[allow(unused_imports)]
+use transaction_store::*;
+#[allow(unused_imports)]
+use web_index::*;
 fn default_worker_count() -> usize {
     thread::available_parallelism()
         .map(usize::from)

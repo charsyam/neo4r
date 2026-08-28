@@ -1,3 +1,4 @@
+use super::*;
 impl TcpBackend {
     pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
         let (stream, _) = listener.accept()?;
@@ -111,11 +112,15 @@ impl TcpBackend {
         Ok(())
     }
 
-    fn cancel_pending_request(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
+    pub(crate) fn cancel_pending_request(
+        &self,
+        session_id: u64,
+        request_id: u64,
+    ) -> Result<bool, String> {
         self.pending_requests.cancel(session_id, request_id)
     }
 
-    fn execute_backend_request(&self, request: BackendRequest) -> BackendResponse {
+    pub(crate) fn execute_backend_request(&self, request: BackendRequest) -> BackendResponse {
         match request {
             BackendRequest::QueryDistributed { query, params } => {
                 self.execute_distributed_query(&query, params)
@@ -207,7 +212,7 @@ impl TcpBackend {
         }
     }
 
-    fn execute_distributed_query(
+    pub(crate) fn execute_distributed_query(
         &self,
         query: &str,
         params: neo4r_query::QueryParams,

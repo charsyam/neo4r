@@ -1,3 +1,8 @@
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::write_cypher_model::*;
+use super::*;
+
 impl Neo4rReadSnapshot {
     pub fn timestamp(&self) -> HybridTimestamp {
         self.timestamp
@@ -49,7 +54,7 @@ impl Neo4rReadSnapshot {
             .execute_with_params(&graph, query, params)?)
     }
 
-    fn query_shard_with_staged_writes(
+    pub(super) fn query_shard_with_staged_writes(
         &self,
         shard_id: ShardId,
         query: &str,
@@ -95,7 +100,7 @@ impl Neo4rReadSnapshot {
         Ok(engine.execute_owned_cursor_with_params(Arc::new(self.store), query, params)?)
     }
 
-    fn build_staged_overlay(
+    pub(super) fn build_staged_overlay(
         &self,
         staged_writes: &[(String, QueryParams)],
     ) -> DatabaseResult<StagedOverlay> {

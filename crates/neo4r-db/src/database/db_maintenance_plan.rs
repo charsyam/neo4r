@@ -1,5 +1,10 @@
+use super::metadata_types::*;
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::*;
+
 impl Neo4rDatabase {
-    fn recover_allocators_from_store(&mut self) -> DatabaseResult<()> {
+    pub(super) fn recover_allocators_from_store(&mut self) -> DatabaseResult<()> {
         self.next_node_id = self
             .store
             .nodes()?
@@ -24,7 +29,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn observe_entry(&mut self, entry: &LogEntry) {
+    pub(super) fn observe_entry(&mut self, entry: &LogEntry) {
         self.observe_log_position(entry);
         self.clock.observe(entry.timestamp);
         match &entry.command {
@@ -46,12 +51,12 @@ impl Neo4rDatabase {
         }
     }
 
-    fn observe_log_position(&mut self, entry: &LogEntry) {
+    pub(super) fn observe_log_position(&mut self, entry: &LogEntry) {
         let index_slot = &mut self.next_log_indexes[entry.shard_id as usize];
         *index_slot = (*index_slot).max(entry.index.saturating_add(1));
     }
 
-    fn observe_replication_outcome(
+    pub(super) fn observe_replication_outcome(
         &mut self,
         entry: &LogEntry,
         outcome: &ReplicationOutcome,
@@ -74,7 +79,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn observe_raft_replication_outcome(
+    pub(super) fn observe_raft_replication_outcome(
         &mut self,
         entry: &LogEntry,
         outcome: &ReplicationOutcome,
@@ -100,7 +105,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn commit_entry(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
+    pub(super) fn commit_entry(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
         let expected = self.commit_index(entry.shard_id)?.saturating_add(1);
         if entry.index != expected {
             return Err(DatabaseError::Replication(format!(
@@ -118,7 +123,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn commit_entries(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
+    pub(super) fn commit_entries(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
         let mut last_by_shard = BTreeMap::<ShardId, (u64, LogIndex)>::new();
         for entry in entries {
             let expected = self.commit_index(entry.shard_id)?.saturating_add(1);
@@ -142,78 +147,78 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn allocate_node_id(&mut self) -> NodeId {
+    pub(super) fn allocate_node_id(&mut self) -> NodeId {
         let id = self.next_node_id;
         self.next_node_id += 1;
         id
     }
 
-    fn allocate_node_id_for_shard(&mut self, shard_id: ShardId) -> NodeId {
+    pub(super) fn allocate_node_id_for_shard(&mut self, shard_id: ShardId) -> NodeId {
         while self.shard_map.owner_of_node(self.next_node_id) != shard_id {
             self.next_node_id += 1;
         }
         self.allocate_node_id()
     }
 
-    fn validate_shard_id(&self, shard_id: ShardId) -> DatabaseResult<()> {
+    pub(super) fn validate_shard_id(&self, shard_id: ShardId) -> DatabaseResult<()> {
         if shard_id >= self.shard_map.shard_count() {
             return Err(DatabaseError::MissingShardLog(shard_id));
         }
         Ok(())
     }
 
-    fn allocate_relationship_id(&mut self) -> RelationshipId {
+    pub(super) fn allocate_relationship_id(&mut self) -> RelationshipId {
         let id = self.next_relationship_id;
         self.next_relationship_id += 1;
         id
     }
 
-    fn next_log_index(&self, shard_id: ShardId) -> DatabaseResult<LogIndex> {
+    pub(super) fn next_log_index(&self, shard_id: ShardId) -> DatabaseResult<LogIndex> {
         self.next_log_indexes
             .get(shard_id as usize)
             .copied()
             .ok_or(DatabaseError::MissingShardLog(shard_id))
     }
 
-    fn log(&self, shard_id: ShardId) -> DatabaseResult<&SegmentedShardLog> {
+    pub(super) fn log(&self, shard_id: ShardId) -> DatabaseResult<&SegmentedShardLog> {
         self.logs
             .get(shard_id as usize)
             .ok_or(DatabaseError::MissingShardLog(shard_id))
     }
 
-    fn checkpoint(&self, shard_id: ShardId) -> DatabaseResult<&CheckpointStore> {
+    pub(super) fn checkpoint(&self, shard_id: ShardId) -> DatabaseResult<&CheckpointStore> {
         self.checkpoints
             .get(shard_id as usize)
             .ok_or(DatabaseError::MissingShardLog(shard_id))
     }
 
-    fn should_checkpoint(&self, index: LogIndex) -> bool {
+    pub(super) fn should_checkpoint(&self, index: LogIndex) -> bool {
         index != 0 && index % self.config.checkpoint_interval == 0
     }
 
-    fn should_sync_wal(&self, index: LogIndex) -> bool {
+    pub(super) fn should_sync_wal(&self, index: LogIndex) -> bool {
         index != 0 && index % self.config.wal_sync_interval == 0
     }
 
-    fn applied_indexes(&self) -> Vec<LogIndex> {
+    pub(super) fn applied_indexes(&self) -> Vec<LogIndex> {
         self.next_log_indexes
             .iter()
             .map(|next| next.saturating_sub(1))
             .collect()
     }
 
-    fn committed_indexes(&self) -> Vec<LogIndex> {
+    pub(super) fn committed_indexes(&self) -> Vec<LogIndex> {
         self.commit_indexes.clone()
     }
 
-    fn commit_index(&self, shard_id: ShardId) -> DatabaseResult<LogIndex> {
+    pub(super) fn commit_index(&self, shard_id: ShardId) -> DatabaseResult<LogIndex> {
         self.commit_indexes
             .get(shard_id as usize)
             .copied()
             .ok_or(DatabaseError::MissingShardLog(shard_id))
     }
 
-    fn query_route(&self) -> QueryRoute {
+    pub(super) fn query_route(&self) -> QueryRoute {
         let remote_shards = (0..self.shard_map.shard_count())
             .filter(|shard_id| {
                 !self
@@ -228,7 +233,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn query_plan(&self, query: &str, params: &QueryParams) -> DistributedQueryPlan {
+    pub(super) fn query_plan(&self, query: &str, params: &QueryParams) -> DistributedQueryPlan {
         self.observe_index_cache_probe(query);
         let route = self.query_route();
         let access_plan = self.query_access_plan(query, params);
@@ -269,7 +274,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn observe_index_cache_probe(&self, query: &str) {
+    pub(super) fn observe_index_cache_probe(&self, query: &str) {
         let key = format!("v{}:{query}", self.routing_table.version);
         if let (Ok(mut cache), Ok(mut stats)) =
             (self.read_cache.lock(), self.read_cache_stats.lock())
@@ -283,7 +288,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn statistics_catalog(&self) -> DatabaseResult<StatisticsCatalog> {
+    pub(super) fn statistics_catalog(&self) -> DatabaseResult<StatisticsCatalog> {
         if self.statistics.node_count != 0
             || self.statistics.relationship_count != 0
             || self.statistics.index_count != 0
@@ -296,7 +301,7 @@ impl Neo4rDatabase {
         self.compute_statistics_catalog()
     }
 
-    fn compute_statistics_catalog(&self) -> DatabaseResult<StatisticsCatalog> {
+    pub(super) fn compute_statistics_catalog(&self) -> DatabaseResult<StatisticsCatalog> {
         let nodes = self.store.nodes().map_err(DatabaseError::GraphRead)?;
         let relationships = self.store.relationships()?;
         let mut label_counts = BTreeMap::new();
@@ -331,12 +336,12 @@ impl Neo4rDatabase {
         })
     }
 
-    fn refresh_statistics_catalog(&mut self) -> DatabaseResult<()> {
+    pub(super) fn refresh_statistics_catalog(&mut self) -> DatabaseResult<()> {
         self.statistics = self.compute_statistics_catalog()?;
         self.statistics_store.save(&self.statistics)
     }
 
-    fn storage_status(&self) -> DatabaseResult<StorageStatus> {
+    pub(super) fn storage_status(&self) -> DatabaseResult<StorageStatus> {
         let stats = collect_storage_files(&self.config.data_dir)?;
         let cache_stats = self.read_cache_stats()?;
         Ok(StorageStatus {
@@ -355,7 +360,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn checkpoint_now(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn checkpoint_now(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
         let timestamp = self.clock.tick();
         let committed_indexes = self.committed_indexes();
         let mut files_touched = 0;
@@ -374,7 +379,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn compact_storage(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn compact_storage(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
         let before = collect_storage_files(&self.config.data_dir)?;
         self.invalidate_read_cache();
         Ok(StorageMaintenanceResult {
@@ -386,7 +391,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn verify_storage_invariants(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn verify_storage_invariants(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
         let report = self.store.verify_invariants()?;
         Ok(storage_invariant_maintenance_result(
             "verify_invariants",
@@ -394,7 +399,7 @@ impl Neo4rDatabase {
         ))
     }
 
-    fn repair_storage_invariants(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn repair_storage_invariants(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
         let report = self.store.repair_indexes()?;
         Ok(storage_invariant_maintenance_result(
             "repair_invariants",
@@ -402,7 +407,7 @@ impl Neo4rDatabase {
         ))
     }
 
-    fn snapshot_now(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn snapshot_now(&mut self) -> DatabaseResult<StorageMaintenanceResult> {
         let mut files_touched = 0;
         let mut bytes_observed = 0;
         let mut manifest_shards = Vec::new();
@@ -456,7 +461,10 @@ impl Neo4rDatabase {
         })
     }
 
-    fn restore_snapshot(&mut self, shard_id: ShardId) -> DatabaseResult<StorageMaintenanceResult> {
+    pub(super) fn restore_snapshot(
+        &mut self,
+        shard_id: ShardId,
+    ) -> DatabaseResult<StorageMaintenanceResult> {
         self.ensure_local_copy(shard_id)?;
         let snapshot_store = neo4r_storage::SnapshotStore::open(&self.config.data_dir, shard_id)?;
         let snapshot = snapshot_store.load()?.ok_or_else(|| {
@@ -502,7 +510,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn recover_pending_snapshot_restore(&mut self) -> DatabaseResult<()> {
+    pub(super) fn recover_pending_snapshot_restore(&mut self) -> DatabaseResult<()> {
         let Some((shard_id, expected_index)) = self.load_snapshot_restore_manifest()? else {
             return Ok(());
         };
@@ -528,11 +536,11 @@ impl Neo4rDatabase {
         self.clear_snapshot_restore_manifest()
     }
 
-    fn snapshot_restore_manifest_path(&self) -> PathBuf {
+    pub(super) fn snapshot_restore_manifest_path(&self) -> PathBuf {
         self.config.data_dir.join("system").join("restore.pending")
     }
 
-    fn write_snapshot_restore_manifest(
+    pub(super) fn write_snapshot_restore_manifest(
         &self,
         shard_id: ShardId,
         snapshot: &neo4r_storage::LoadedSnapshot,
@@ -561,7 +569,9 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn load_snapshot_restore_manifest(&self) -> DatabaseResult<Option<(ShardId, LogIndex)>> {
+    pub(super) fn load_snapshot_restore_manifest(
+        &self,
+    ) -> DatabaseResult<Option<(ShardId, LogIndex)>> {
         let path = self.snapshot_restore_manifest_path();
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
@@ -583,7 +593,7 @@ impl Neo4rDatabase {
         Ok(Some((shard_id, index)))
     }
 
-    fn clear_snapshot_restore_manifest(&self) -> DatabaseResult<()> {
+    pub(super) fn clear_snapshot_restore_manifest(&self) -> DatabaseResult<()> {
         let path = self.snapshot_restore_manifest_path();
         match fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -592,7 +602,10 @@ impl Neo4rDatabase {
         }
     }
 
-    fn shard_graph_state(&self, shard_id: ShardId) -> DatabaseResult<neo4r_core::GraphState> {
+    pub(super) fn shard_graph_state(
+        &self,
+        shard_id: ShardId,
+    ) -> DatabaseResult<neo4r_core::GraphState> {
         let mut graph = neo4r_core::GraphState::new();
         for node in self.store.nodes()? {
             if self.shard_map.owner_of_node(node.id) == shard_id {
@@ -633,11 +646,11 @@ impl Neo4rDatabase {
         Ok(graph)
     }
 
-    fn metadata_operations(&self) -> DatabaseResult<Vec<MetadataOperationRecord>> {
+    pub(super) fn metadata_operations(&self) -> DatabaseResult<Vec<MetadataOperationRecord>> {
         self.metadata_log_store.load()
     }
 
-    fn query_access_plan(&self, query: &str, params: &QueryParams) -> QueryAccessPlan {
+    pub(super) fn query_access_plan(&self, query: &str, params: &QueryParams) -> QueryAccessPlan {
         match self.try_query_access_plan(query, params) {
             Ok(plan) => plan,
             Err(err) => QueryAccessPlan::Unsupported {
@@ -646,7 +659,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn try_query_access_plan(
+    pub(super) fn try_query_access_plan(
         &self,
         query: &str,
         params: &QueryParams,
@@ -712,7 +725,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn parsed_read_query_if_supported(
+    pub(super) fn parsed_read_query_if_supported(
         &self,
         query: &str,
         params: &QueryParams,
@@ -725,7 +738,7 @@ impl Neo4rDatabase {
         Ok(Some(parsed))
     }
 
-    fn best_indexed_node_property<'a>(
+    pub(super) fn best_indexed_node_property<'a>(
         &self,
         label: &str,
         properties: impl Iterator<Item = &'a String>,
@@ -749,7 +762,7 @@ impl Neo4rDatabase {
             })
     }
 
-    fn has_vector_index(&self, label: &str, property: &str, metric: &str) -> bool {
+    pub(super) fn has_vector_index(&self, label: &str, property: &str, metric: &str) -> bool {
         self.index_catalog.indexes.iter().any(|index| {
             index.label == label
                 && index.property == property
@@ -760,7 +773,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn relationship_access_plan(&self, pattern: &str) -> QueryAccessPlan {
+    pub(super) fn relationship_access_plan(&self, pattern: &str) -> QueryAccessPlan {
         let compact = pattern
             .chars()
             .filter(|ch| !ch.is_whitespace())
@@ -786,7 +799,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn relationship_access_plan_from_parsed(
+    pub(super) fn relationship_access_plan_from_parsed(
         &self,
         pattern: &neo4r_query::Pattern,
     ) -> QueryAccessPlan {
@@ -804,7 +817,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn has_unique_node_property_constraint(&self, label: &str, property: &str) -> bool {
+    pub(super) fn has_unique_node_property_constraint(&self, label: &str, property: &str) -> bool {
         self.index_catalog.indexes.iter().any(|index| {
             matches!(index.kind, IndexKind::UniqueNodeProperty)
                 && index.label == label
@@ -812,7 +825,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn has_node_property_index(&self, label: &str, property: &str) -> bool {
+    pub(super) fn has_node_property_index(&self, label: &str, property: &str) -> bool {
         self.index_catalog.indexes.iter().any(|index| {
             matches!(index.kind, IndexKind::NodeProperty)
                 && index.label == label
@@ -820,7 +833,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn cluster_status(&self) -> ClusterStatus {
+    pub(super) fn cluster_status(&self) -> ClusterStatus {
         let applied_indexes = self.applied_indexes();
         let committed_indexes = self.committed_indexes();
         let shards = self

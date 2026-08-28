@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StorageStatus {
     pub data_dir: PathBuf,
@@ -43,12 +45,12 @@ pub struct IndexLifecycleStatus {
 }
 
 #[derive(Clone, Debug)]
-struct IndexLifecycleStore {
+pub(super) struct IndexLifecycleStore {
     path: PathBuf,
 }
 
 impl IndexLifecycleStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let index_dir = data_dir.as_ref().join("indexes");
         fs::create_dir_all(&index_dir).map_err(StorageError::Io)?;
         Ok(Self {
@@ -56,7 +58,7 @@ impl IndexLifecycleStore {
         })
     }
 
-    fn save_status(&self, status: &IndexLifecycleStatus) -> DatabaseResult<()> {
+    pub(super) fn save_status(&self, status: &IndexLifecycleStatus) -> DatabaseResult<()> {
         let mut statuses = self.load()?;
         statuses.retain(|existing| existing.name != status.name);
         statuses.push(status.clone());
@@ -64,7 +66,7 @@ impl IndexLifecycleStore {
         self.save_all(&statuses)
     }
 
-    fn load(&self) -> DatabaseResult<Vec<IndexLifecycleStatus>> {
+    pub(super) fn load(&self) -> DatabaseResult<Vec<IndexLifecycleStatus>> {
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -92,7 +94,7 @@ impl IndexLifecycleStore {
         Ok(statuses)
     }
 
-    fn save_all(&self, statuses: &[IndexLifecycleStatus]) -> DatabaseResult<()> {
+    pub(super) fn save_all(&self, statuses: &[IndexLifecycleStatus]) -> DatabaseResult<()> {
         let tmp_path = self.path.with_extension("txt.tmp");
         let mut file = OpenOptions::new()
             .create(true)
@@ -119,18 +121,18 @@ impl IndexLifecycleStore {
 }
 
 #[derive(Clone, Debug, Default)]
-struct ReadPathCache {
-    nodes: HashMap<NodeId, Option<Node>>,
-    relationships: HashMap<RelationshipId, Option<Relationship>>,
-    index_lookups: HashMap<String, Vec<u64>>,
+pub(super) struct ReadPathCache {
+    pub(super) nodes: HashMap<NodeId, Option<Node>>,
+    pub(super) relationships: HashMap<RelationshipId, Option<Relationship>>,
+    pub(super) index_lookups: HashMap<String, Vec<u64>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct ReadCacheStats {
-    hits: u64,
-    misses: u64,
-    index_hits: u64,
-    index_misses: u64,
+pub(super) struct ReadCacheStats {
+    pub(super) hits: u64,
+    pub(super) misses: u64,
+    pub(super) index_hits: u64,
+    pub(super) index_misses: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -274,12 +276,12 @@ pub enum RebalancePlanState {
 }
 
 #[derive(Clone, Debug)]
-struct RebalancePlanStore {
+pub(super) struct RebalancePlanStore {
     path: PathBuf,
 }
 
 impl RebalancePlanStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let cluster_dir = data_dir.as_ref().join("cluster");
         fs::create_dir_all(&cluster_dir).map_err(StorageError::Io)?;
         Ok(Self {
@@ -287,7 +289,7 @@ impl RebalancePlanStore {
         })
     }
 
-    fn save(&self, plan: &RebalancePlan) -> DatabaseResult<()> {
+    pub(super) fn save(&self, plan: &RebalancePlan) -> DatabaseResult<()> {
         let tmp_path = self.path.with_extension("txt.tmp");
         let mut file = OpenOptions::new()
             .create(true)
@@ -319,7 +321,7 @@ impl RebalancePlanStore {
         Ok(())
     }
 
-    fn load(&self) -> DatabaseResult<Option<RebalancePlan>> {
+    pub(super) fn load(&self) -> DatabaseResult<Option<RebalancePlan>> {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
@@ -362,7 +364,7 @@ impl RebalancePlanStore {
         }))
     }
 
-    fn next_plan_id(&self) -> DatabaseResult<u64> {
+    pub(super) fn next_plan_id(&self) -> DatabaseResult<u64> {
         Ok(self
             .load()?
             .map(|plan| plan.plan_id.saturating_add(1))
@@ -371,12 +373,12 @@ impl RebalancePlanStore {
 }
 
 #[derive(Clone, Debug)]
-struct RebalanceExecutionStore {
+pub(super) struct RebalanceExecutionStore {
     path: PathBuf,
 }
 
 impl RebalanceExecutionStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let cluster_dir = data_dir.as_ref().join("cluster");
         fs::create_dir_all(&cluster_dir).map_err(StorageError::Io)?;
         Ok(Self {
@@ -384,7 +386,7 @@ impl RebalanceExecutionStore {
         })
     }
 
-    fn save(&self, execution: &RebalanceExecution) -> DatabaseResult<()> {
+    pub(super) fn save(&self, execution: &RebalanceExecution) -> DatabaseResult<()> {
         let tmp_path = self.path.with_extension("txt.tmp");
         let mut file = OpenOptions::new()
             .create(true)
@@ -429,7 +431,7 @@ impl RebalanceExecutionStore {
         Ok(())
     }
 
-    fn load(&self) -> DatabaseResult<Option<RebalanceExecution>> {
+    pub(super) fn load(&self) -> DatabaseResult<Option<RebalanceExecution>> {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
@@ -495,12 +497,12 @@ impl RebalanceExecutionStore {
 }
 
 #[derive(Clone, Debug)]
-struct ClusterMetadataStore {
+pub(super) struct ClusterMetadataStore {
     path: PathBuf,
 }
 
 impl ClusterMetadataStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let cluster_dir = data_dir.as_ref().join("cluster");
         fs::create_dir_all(&cluster_dir).map_err(StorageError::Io)?;
         Ok(Self {
@@ -508,7 +510,7 @@ impl ClusterMetadataStore {
         })
     }
 
-    fn save(&self, metadata: &ClusterMetadataState) -> DatabaseResult<()> {
+    pub(super) fn save(&self, metadata: &ClusterMetadataState) -> DatabaseResult<()> {
         let tmp_path = self.path.with_extension("txt.tmp");
         let mut file = OpenOptions::new()
             .create(true)
@@ -532,7 +534,7 @@ impl ClusterMetadataStore {
         Ok(())
     }
 
-    fn load(&self) -> DatabaseResult<Option<ClusterMetadataState>> {
+    pub(super) fn load(&self) -> DatabaseResult<Option<ClusterMetadataState>> {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
@@ -561,12 +563,12 @@ impl ClusterMetadataStore {
 }
 
 #[derive(Clone, Debug)]
-struct MetadataOperationLogStore {
+pub(super) struct MetadataOperationLogStore {
     path: PathBuf,
 }
 
 impl MetadataOperationLogStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let cluster_dir = data_dir.as_ref().join("cluster");
         fs::create_dir_all(&cluster_dir).map_err(StorageError::Io)?;
         let store = Self {
@@ -585,7 +587,7 @@ impl MetadataOperationLogStore {
         Ok(store)
     }
 
-    fn append(
+    pub(super) fn append(
         &self,
         term: u64,
         config_epoch: u64,
@@ -607,7 +609,7 @@ impl MetadataOperationLogStore {
         })
     }
 
-    fn load(&self) -> DatabaseResult<Vec<MetadataOperationRecord>> {
+    pub(super) fn load(&self) -> DatabaseResult<Vec<MetadataOperationRecord>> {
         let file = File::open(&self.path).map_err(StorageError::Io)?;
         let mut lines = BufReader::new(file).lines();
         let header = lines
@@ -642,7 +644,7 @@ impl MetadataOperationLogStore {
         Ok(records)
     }
 
-    fn next_index(&self) -> DatabaseResult<u64> {
+    pub(super) fn next_index(&self) -> DatabaseResult<u64> {
         Ok(self
             .load()?
             .last()
@@ -652,12 +654,12 @@ impl MetadataOperationLogStore {
 }
 
 #[derive(Clone, Debug)]
-struct StatisticsCatalogStore {
+pub(super) struct StatisticsCatalogStore {
     path: PathBuf,
 }
 
 impl StatisticsCatalogStore {
-    fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub(super) fn open(data_dir: impl AsRef<Path>) -> DatabaseResult<Self> {
         let cluster_dir = data_dir.as_ref().join("cluster");
         fs::create_dir_all(&cluster_dir).map_err(StorageError::Io)?;
         Ok(Self {
@@ -665,7 +667,7 @@ impl StatisticsCatalogStore {
         })
     }
 
-    fn save(&self, statistics: &StatisticsCatalog) -> DatabaseResult<()> {
+    pub(super) fn save(&self, statistics: &StatisticsCatalog) -> DatabaseResult<()> {
         let tmp_path = self.path.with_extension("txt.tmp");
         let mut file = OpenOptions::new()
             .create(true)
@@ -710,7 +712,7 @@ impl StatisticsCatalogStore {
         Ok(())
     }
 
-    fn load(&self) -> DatabaseResult<Option<StatisticsCatalog>> {
+    pub(super) fn load(&self) -> DatabaseResult<Option<StatisticsCatalog>> {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
@@ -793,7 +795,7 @@ pub enum RebalanceStep {
     },
 }
 
-fn encode_rebalance_plan_state(state: RebalancePlanState) -> &'static str {
+pub(super) fn encode_rebalance_plan_state(state: RebalancePlanState) -> &'static str {
     match state {
         RebalancePlanState::Proposed => "proposed",
         RebalancePlanState::Running => "running",
@@ -803,7 +805,7 @@ fn encode_rebalance_plan_state(state: RebalancePlanState) -> &'static str {
     }
 }
 
-fn decode_rebalance_plan_state(input: &str) -> DatabaseResult<RebalancePlanState> {
+pub(super) fn decode_rebalance_plan_state(input: &str) -> DatabaseResult<RebalancePlanState> {
     match input {
         "proposed" => Ok(RebalancePlanState::Proposed),
         "running" => Ok(RebalancePlanState::Running),
@@ -816,7 +818,7 @@ fn decode_rebalance_plan_state(input: &str) -> DatabaseResult<RebalancePlanState
     }
 }
 
-fn encode_rebalance_step(step: &RebalanceStep) -> String {
+pub(super) fn encode_rebalance_step(step: &RebalanceStep) -> String {
     match step {
         RebalanceStep::AddReplica {
             shard_id,
@@ -832,7 +834,7 @@ fn encode_rebalance_step(step: &RebalanceStep) -> String {
     }
 }
 
-fn encode_rebalance_step_state(state: RebalanceStepState) -> &'static str {
+pub(super) fn encode_rebalance_step_state(state: RebalanceStepState) -> &'static str {
     match state {
         RebalanceStepState::Pending => "pending",
         RebalanceStepState::Preparing => "preparing",
@@ -845,7 +847,7 @@ fn encode_rebalance_step_state(state: RebalanceStepState) -> &'static str {
     }
 }
 
-fn decode_rebalance_step_state(input: &str) -> DatabaseResult<RebalanceStepState> {
+pub(super) fn decode_rebalance_step_state(input: &str) -> DatabaseResult<RebalanceStepState> {
     match input {
         "pending" => Ok(RebalanceStepState::Pending),
         "preparing" => Ok(RebalanceStepState::Preparing),
@@ -861,7 +863,7 @@ fn decode_rebalance_step_state(input: &str) -> DatabaseResult<RebalanceStepState
     }
 }
 
-fn decode_rebalance_step(line: &str) -> DatabaseResult<RebalanceStep> {
+pub(super) fn decode_rebalance_step(line: &str) -> DatabaseResult<RebalanceStep> {
     let parts = line.split('\t').collect::<Vec<_>>();
     match parts.first().copied() {
         Some("ADD_REPLICA") if parts.len() == 3 => Ok(RebalanceStep::AddReplica {
@@ -881,19 +883,19 @@ fn decode_rebalance_step(line: &str) -> DatabaseResult<RebalanceStep> {
     }
 }
 
-fn parse_plan_u64(input: &str, name: &str) -> DatabaseResult<u64> {
+pub(super) fn parse_plan_u64(input: &str, name: &str) -> DatabaseResult<u64> {
     input
         .parse::<u64>()
         .map_err(|_| StorageError::CorruptStore(format!("invalid {name}")).into())
 }
 
-fn parse_plan_usize(input: &str, name: &str) -> DatabaseResult<usize> {
+pub(super) fn parse_plan_usize(input: &str, name: &str) -> DatabaseResult<usize> {
     input
         .parse::<usize>()
         .map_err(|_| StorageError::CorruptStore(format!("invalid {name}")).into())
 }
 
-fn parse_plan_bool(input: &str, name: &str) -> DatabaseResult<bool> {
+pub(super) fn parse_plan_bool(input: &str, name: &str) -> DatabaseResult<bool> {
     match input {
         "0" => Ok(false),
         "1" => Ok(true),
@@ -901,7 +903,7 @@ fn parse_plan_bool(input: &str, name: &str) -> DatabaseResult<bool> {
     }
 }
 
-fn sanitize_cluster_text(input: &str) -> String {
+pub(super) fn sanitize_cluster_text(input: &str) -> String {
     input
         .chars()
         .map(|ch| {

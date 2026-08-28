@@ -1,5 +1,9 @@
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::*;
+
 impl Neo4rDatabase {
-    fn rebuild_raft_groups(&mut self) -> DatabaseResult<()> {
+    pub(super) fn rebuild_raft_groups(&mut self) -> DatabaseResult<()> {
         if self.raft_groups.is_none() {
             return Ok(());
         }
@@ -12,7 +16,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn begin_joint_consensus_for_routing(
+    pub(super) fn begin_joint_consensus_for_routing(
         &mut self,
         routing_table: &ShardRoutingTable,
     ) -> DatabaseResult<()> {
@@ -32,7 +36,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn finalize_joint_consensus_for_routing(
+    pub(super) fn finalize_joint_consensus_for_routing(
         &mut self,
         routing_table: &ShardRoutingTable,
     ) -> DatabaseResult<()> {
@@ -47,7 +51,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn append_replicated_config_change_phase(
+    pub(super) fn append_replicated_config_change_phase(
         &mut self,
         phase: &str,
         description: &str,
@@ -74,7 +78,7 @@ impl Neo4rDatabase {
         )
     }
 
-    fn add_index_definition(&mut self, index: IndexDefinition) -> DatabaseResult<()> {
+    pub(super) fn add_index_definition(&mut self, index: IndexDefinition) -> DatabaseResult<()> {
         validate_index_definition(&index)?;
         if self
             .index_catalog
@@ -135,7 +139,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn add_index_definition_if_not_exists(&mut self, index: IndexDefinition) -> DatabaseResult<()> {
+    pub(super) fn add_index_definition_if_not_exists(
+        &mut self,
+        index: IndexDefinition,
+    ) -> DatabaseResult<()> {
         validate_index_definition(&index)?;
         if let Some(existing) = self
             .index_catalog
@@ -212,7 +219,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn resume_index_builds(&mut self) -> DatabaseResult<()> {
+    pub(super) fn resume_index_builds(&mut self) -> DatabaseResult<()> {
         let persisted = self.index_lifecycle_store.load()?;
         let resumable = persisted
             .into_iter()
@@ -239,7 +246,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn build_vector_indexes_for_catalog(
+    pub(super) fn build_vector_indexes_for_catalog(
         &self,
         catalog: &IndexCatalog,
     ) -> DatabaseResult<PersistentVectorIndexes> {
@@ -251,7 +258,10 @@ impl Neo4rDatabase {
         Ok(indexes)
     }
 
-    fn validate_index_catalog_against_store(&self, catalog: &IndexCatalog) -> DatabaseResult<()> {
+    pub(super) fn validate_index_catalog_against_store(
+        &self,
+        catalog: &IndexCatalog,
+    ) -> DatabaseResult<()> {
         for index in &catalog.indexes {
             match index.kind {
                 IndexKind::UniqueNodeProperty => {
@@ -266,7 +276,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn load_or_rebuild_vector_indexes(&mut self) -> DatabaseResult<()> {
+    pub(super) fn load_or_rebuild_vector_indexes(&mut self) -> DatabaseResult<()> {
         match load_vector_index_cache(self.vector_index_cache_path(), &self.index_catalog)? {
             Some(indexes) => {
                 *self
@@ -279,7 +289,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn save_vector_index_cache(&self) -> DatabaseResult<()> {
+    pub(super) fn save_vector_index_cache(&self) -> DatabaseResult<()> {
         let indexes = self
             .vector_indexes
             .lock()
@@ -291,14 +301,14 @@ impl Neo4rDatabase {
         )
     }
 
-    fn vector_index_cache_path(&self) -> PathBuf {
+    pub(super) fn vector_index_cache_path(&self) -> PathBuf {
         self.config
             .data_dir
             .join("indexes")
             .join("vector-cache.bin")
     }
 
-    fn find_merge_node(
+    pub(super) fn find_merge_node(
         &self,
         labels: &[String],
         properties: &Properties,
@@ -333,7 +343,7 @@ impl Neo4rDatabase {
         Ok(None)
     }
 
-    fn merge_node_lookup_key<'a>(
+    pub(super) fn merge_node_lookup_key<'a>(
         &'a self,
         labels: &'a [String],
         properties: &'a Properties,
@@ -342,7 +352,7 @@ impl Neo4rDatabase {
             .or_else(|| self.merge_node_lookup_key_for_kind(labels, properties, false))
     }
 
-    fn merge_node_lookup_key_for_kind<'a>(
+    pub(super) fn merge_node_lookup_key_for_kind<'a>(
         &'a self,
         labels: &'a [String],
         properties: &'a Properties,
@@ -368,7 +378,7 @@ impl Neo4rDatabase {
         None
     }
 
-    fn find_merge_relationship(
+    pub(super) fn find_merge_relationship(
         &self,
         from: NodeId,
         to: NodeId,
@@ -389,7 +399,7 @@ impl Neo4rDatabase {
         Ok(None)
     }
 
-    fn validate_existing_unique_node_property_constraint(
+    pub(super) fn validate_existing_unique_node_property_constraint(
         &self,
         index: &IndexDefinition,
     ) -> DatabaseResult<()> {
@@ -417,7 +427,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn validate_existing_vector_index_values(&self, index: &IndexDefinition) -> DatabaseResult<()> {
+    pub(super) fn validate_existing_vector_index_values(
+        &self,
+        index: &IndexDefinition,
+    ) -> DatabaseResult<()> {
         let Some((dimensions, _)) = vector_definition_parts(index) else {
             return Ok(());
         };
@@ -427,7 +440,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn validate_unique_constraints_for_command(&self, command: &Command) -> DatabaseResult<()> {
+    pub(super) fn validate_unique_constraints_for_command(
+        &self,
+        command: &Command,
+    ) -> DatabaseResult<()> {
         match command {
             Command::CreateNode {
                 id,
@@ -490,7 +506,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn validate_vector_indexes_for_command(&self, command: &Command) -> DatabaseResult<()> {
+    pub(super) fn validate_vector_indexes_for_command(
+        &self,
+        command: &Command,
+    ) -> DatabaseResult<()> {
         match command {
             Command::CreateNode {
                 labels, properties, ..
@@ -523,7 +542,9 @@ impl Neo4rDatabase {
         }
     }
 
-    fn validate_storable_properties_for_command(command: &Command) -> DatabaseResult<()> {
+    pub(super) fn validate_storable_properties_for_command(
+        command: &Command,
+    ) -> DatabaseResult<()> {
         match command {
             Command::CreateNode { properties, .. }
             | Command::CreateRelationship { properties, .. }
@@ -544,7 +565,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn validate_replicated_vector_indexes_for_command(
+    pub(super) fn validate_replicated_vector_indexes_for_command(
         &self,
         command: &Command,
         node_overlay: &mut HashMap<NodeId, Option<Node>>,
@@ -609,7 +630,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn overlay_node(
+    pub(super) fn overlay_node(
         &self,
         node_overlay: &HashMap<NodeId, Option<Node>>,
         id: NodeId,
@@ -620,7 +641,7 @@ impl Neo4rDatabase {
         self.store.node(id).map_err(DatabaseError::from)
     }
 
-    fn validate_vector_indexed_properties(
+    pub(super) fn validate_vector_indexed_properties(
         &self,
         labels: &[String],
         properties: &Properties,
@@ -637,7 +658,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn validate_node_vector_indexed_property(
+    pub(super) fn validate_node_vector_indexed_property(
         &self,
         node: &Node,
         index: &IndexDefinition,
@@ -649,7 +670,7 @@ impl Neo4rDatabase {
         self.validate_vector_indexed_property_value(index, &node.properties, dimensions)
     }
 
-    fn validate_vector_indexed_property_value(
+    pub(super) fn validate_vector_indexed_property_value(
         &self,
         index: &IndexDefinition,
         properties: &Properties,
@@ -676,7 +697,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn unique_node_property_constraints_for(
+    pub(super) fn unique_node_property_constraints_for(
         &self,
         labels: &[String],
         property: Option<&str>,
@@ -691,7 +712,7 @@ impl Neo4rDatabase {
             .collect()
     }
 
-    fn ensure_unique_node_property_value(
+    pub(super) fn ensure_unique_node_property_value(
         &self,
         label: &str,
         property: &str,
@@ -714,11 +735,11 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn snapshot_store(&self) -> DatabaseResult<PartitionedGraphStore<RocksKvSnapshot>> {
+    pub(super) fn snapshot_store(&self) -> DatabaseResult<PartitionedGraphStore<RocksKvSnapshot>> {
         Ok(self.store.snapshot()?)
     }
 
-    fn read_snapshot(&self) -> DatabaseResult<Neo4rReadSnapshot> {
+    pub(super) fn read_snapshot(&self) -> DatabaseResult<Neo4rReadSnapshot> {
         Ok(Neo4rReadSnapshot {
             store: self.snapshot_store()?,
             shard_map: self.shard_map,
@@ -731,7 +752,7 @@ impl Neo4rDatabase {
         })
     }
 
-    fn ensure_raft_read_index(&self) -> DatabaseResult<()> {
+    pub(super) fn ensure_raft_read_index(&self) -> DatabaseResult<()> {
         let Some(raft_groups) = self.raft_groups.as_ref() else {
             return Ok(());
         };
@@ -759,7 +780,11 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn write_command(&mut self, shard_id: ShardId, command: Command) -> DatabaseResult<()> {
+    pub(super) fn write_command(
+        &mut self,
+        shard_id: ShardId,
+        command: Command,
+    ) -> DatabaseResult<()> {
         let entry = self.append_local_command(shard_id, command, true)?;
         let outcome = self.replicator.publish(&entry)?;
         self.observe_replication_outcome(&entry, &outcome)?;
@@ -769,7 +794,7 @@ impl Neo4rDatabase {
         self.apply_entry(&entry)
     }
 
-    fn maybe_inject_failure_after_commit_before_apply(&self) -> DatabaseResult<()> {
+    pub(super) fn maybe_inject_failure_after_commit_before_apply(&self) -> DatabaseResult<()> {
         if self.config.failure_injection.fail_after_commit_before_apply {
             return Err(DatabaseError::Replication(
                 "injected failure after commit before apply".to_string(),
@@ -778,7 +803,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn prepare_local_write(&mut self, operation: WriteOperation) -> DatabaseResult<PreparedWrite> {
+    pub(super) fn prepare_local_write(
+        &mut self,
+        operation: WriteOperation,
+    ) -> DatabaseResult<PreparedWrite> {
         match operation {
             WriteOperation::CreateNode { labels, properties } => {
                 let id = self.allocate_node_id();
@@ -939,5 +967,4 @@ impl Neo4rDatabase {
             }
         }
     }
-
 }

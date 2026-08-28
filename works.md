@@ -3,6 +3,37 @@
 Requested scope: set items 1 through 10 as a goal and complete them, with item
 1 specifically keeping individual files around the 1000-line range.
 
+Current formal layer goal:
+
+1. Convert `neo4r-db` database code from include-backed splits into a real
+   facade/module tree.
+2. Split write Cypher helper responsibilities into narrower modules.
+3. Split database write/schema/read/index responsibilities.
+4. Split database cluster membership, rebalance, and metadata authority
+   responsibilities.
+5. Split server HTTP/JSON/backup responsibilities.
+6. Reclassify numeric test shards into behavior-named modules.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+- Converted `neo4r-db/src/database.rs` from `include!` composition to a real
+  `database/` module tree with facade exports for public DB API types.
+- Moved remaining free helper functions out of the database facade into
+  `database/helpers.rs`.
+- Split write Cypher helper mutation/return/delta/literal helpers into
+  `database/write_cypher_helpers/mutation.rs`.
+- Split DB write/schema responsibilities into write dispatch, read API, and
+  schema/index submodules.
+- Split DB cluster responsibilities into membership control, rebalance, and
+  metadata helper submodules.
+- Split server HTTP helper code into HTTP request/response, JSON codec/parser,
+  and backup manifest submodules.
+- Renamed numeric DB/server test shards to behavior-named files.
+
 Follow-up formalization:
 
 - Converted `neo4r-query::cypher` from text-level `include!` composition to

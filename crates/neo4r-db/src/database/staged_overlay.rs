@@ -1,14 +1,16 @@
-struct StagedOverlay {
-    nodes: HashMap<NodeId, Option<Node>>,
-    relationships: HashMap<RelationshipId, Option<Relationship>>,
-    temp_node_ids: BTreeSet<NodeId>,
-    temp_relationship_ids: BTreeSet<RelationshipId>,
+use super::*;
+
+pub(super) struct StagedOverlay {
+    pub(super) nodes: HashMap<NodeId, Option<Node>>,
+    pub(super) relationships: HashMap<RelationshipId, Option<Relationship>>,
+    pub(super) temp_node_ids: BTreeSet<NodeId>,
+    pub(super) temp_relationship_ids: BTreeSet<RelationshipId>,
 }
 
-const STAGED_TEMP_NODE_ID_START: NodeId = NodeId::MAX;
-const STAGED_TEMP_RELATIONSHIP_ID_START: RelationshipId = RelationshipId::MAX;
+pub(super) const STAGED_TEMP_NODE_ID_START: NodeId = NodeId::MAX;
+pub(super) const STAGED_TEMP_RELATIONSHIP_ID_START: RelationshipId = RelationshipId::MAX;
 
-fn allocate_staged_id(next_id: &mut u64) -> DatabaseResult<u64> {
+pub(super) fn allocate_staged_id(next_id: &mut u64) -> DatabaseResult<u64> {
     let id = *next_id;
     *next_id = next_id.checked_sub(1).ok_or_else(|| {
         DatabaseError::InvalidConfig("staged transaction id space exhausted".to_string())
@@ -16,10 +18,10 @@ fn allocate_staged_id(next_id: &mut u64) -> DatabaseResult<u64> {
     Ok(id)
 }
 
-struct StagedOverlayGraph<'a> {
-    base: &'a PartitionedGraphStore<RocksKvSnapshot>,
-    node_overlay: &'a HashMap<NodeId, Option<Node>>,
-    relationship_overlay: &'a HashMap<RelationshipId, Option<Relationship>>,
+pub(super) struct StagedOverlayGraph<'a> {
+    pub(super) base: &'a PartitionedGraphStore<RocksKvSnapshot>,
+    pub(super) node_overlay: &'a HashMap<NodeId, Option<Node>>,
+    pub(super) relationship_overlay: &'a HashMap<RelationshipId, Option<Relationship>>,
 }
 
 impl GraphRead for StagedOverlayGraph<'_> {
@@ -159,7 +161,7 @@ impl GraphRead for StagedOverlayGraph<'_> {
 }
 
 impl StagedOverlayGraph<'_> {
-    fn ensure_overlay_node_visible(&self, node_id: NodeId) -> GraphReadResult<()> {
+    pub(super) fn ensure_overlay_node_visible(&self, node_id: NodeId) -> GraphReadResult<()> {
         if matches!(self.node_overlay.get(&node_id), Some(None)) {
             Err(GraphReadError::Store(format!(
                 "node {node_id} is hidden by staged transaction overlay"
@@ -169,7 +171,7 @@ impl StagedOverlayGraph<'_> {
         }
     }
 
-    fn overlay_relationships(
+    pub(super) fn overlay_relationships(
         &self,
         relationships: Vec<Relationship>,
         include_overlay: impl Fn(&Relationship) -> bool,
@@ -210,14 +212,18 @@ impl StagedOverlayGraph<'_> {
     }
 }
 
-struct ShardScopedGraphRead<'a, G: ?Sized> {
+pub(super) struct ShardScopedGraphRead<'a, G: ?Sized> {
     graph: &'a G,
     shard_map: ShardMap,
     shard_id: ShardId,
 }
 
 impl<'a, G: ?Sized> ShardScopedGraphRead<'a, G> {
-    fn new(graph: &'a G, shard_map: ShardMap, shard_id: ShardId) -> DatabaseResult<Self> {
+    pub(super) fn new(
+        graph: &'a G,
+        shard_map: ShardMap,
+        shard_id: ShardId,
+    ) -> DatabaseResult<Self> {
         if shard_id >= shard_map.shard_count() {
             return Err(DatabaseError::MissingShardLog(shard_id));
         }
@@ -228,11 +234,11 @@ impl<'a, G: ?Sized> ShardScopedGraphRead<'a, G> {
         })
     }
 
-    fn owns_node(&self, id: NodeId) -> bool {
+    pub(super) fn owns_node(&self, id: NodeId) -> bool {
         self.shard_map.owner_of_node(id) == self.shard_id
     }
 
-    fn owns_relationship(&self, relationship: &Relationship) -> bool {
+    pub(super) fn owns_relationship(&self, relationship: &Relationship) -> bool {
         self.shard_map.owner_of_relationship(
             relationship.from,
             relationship.to,
@@ -415,18 +421,18 @@ impl Neo4rReadTransaction {
     }
 }
 
-struct WriteRequest {
-    operation: WriteOperation,
-    response: mpsc::Sender<DatabaseResult<WriteResponse>>,
+pub(super) struct WriteRequest {
+    pub(super) operation: WriteOperation,
+    pub(super) response: mpsc::Sender<DatabaseResult<WriteResponse>>,
 }
 
-struct WriterActor {
+pub(super) struct WriterActor {
     sender: Mutex<Option<mpsc::Sender<WriteRequest>>>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl WriterActor {
-    fn send(&self, request: WriteRequest) -> DatabaseResult<()> {
+    pub(super) fn send(&self, request: WriteRequest) -> DatabaseResult<()> {
         let sender = self
             .sender
             .lock()
@@ -453,7 +459,7 @@ impl Drop for WriterActor {
     }
 }
 
-enum WriteOperation {
+pub(super) enum WriteOperation {
     CreateNode {
         labels: Vec<String>,
         properties: Properties,
@@ -511,13 +517,13 @@ enum WriteOperation {
 }
 
 #[derive(Debug)]
-enum WriteResponse {
+pub(super) enum WriteResponse {
     NodeId(NodeId),
     RelationshipId(RelationshipId),
     Unit,
 }
 
-fn spawn_writer_actor(inner: Arc<Mutex<Neo4rDatabase>>) -> Arc<WriterActor> {
+pub(super) fn spawn_writer_actor(inner: Arc<Mutex<Neo4rDatabase>>) -> Arc<WriterActor> {
     let (tx, rx) = mpsc::channel::<WriteRequest>();
     let join = thread::spawn(move || {
         while let Ok(first) = rx.recv() {
@@ -545,7 +551,9 @@ fn spawn_writer_actor(inner: Arc<Mutex<Neo4rDatabase>>) -> Arc<WriterActor> {
     })
 }
 
-fn group_commit_config(inner: &Arc<Mutex<Neo4rDatabase>>) -> DatabaseResult<(usize, Duration)> {
+pub(super) fn group_commit_config(
+    inner: &Arc<Mutex<Neo4rDatabase>>,
+) -> DatabaseResult<(usize, Duration)> {
     let database = inner.lock().map_err(|_| DatabaseError::LockPoisoned)?;
     Ok((
         database.config.group_commit_max_entries.max(1),
@@ -553,7 +561,7 @@ fn group_commit_config(inner: &Arc<Mutex<Neo4rDatabase>>) -> DatabaseResult<(usi
     ))
 }
 
-fn execute_write_batch(inner: &Arc<Mutex<Neo4rDatabase>>, batch: Vec<WriteRequest>) {
+pub(super) fn execute_write_batch(inner: &Arc<Mutex<Neo4rDatabase>>, batch: Vec<WriteRequest>) {
     let mut database = match inner.lock().map_err(|_| DatabaseError::LockPoisoned) {
         Ok(database) => database,
         Err(err) => {
@@ -613,18 +621,18 @@ fn execute_write_batch(inner: &Arc<Mutex<Neo4rDatabase>>, batch: Vec<WriteReques
     }
 }
 
-fn expect_unit(response: WriteResponse) -> DatabaseResult<()> {
+pub(super) fn expect_unit(response: WriteResponse) -> DatabaseResult<()> {
     match response {
         WriteResponse::Unit => Ok(()),
         response => Err(unexpected_write_response(response)),
     }
 }
 
-fn unexpected_write_response(response: WriteResponse) -> DatabaseError {
+pub(super) fn unexpected_write_response(response: WriteResponse) -> DatabaseError {
     DatabaseError::UnexpectedWriteResponse(format!("{response:?}"))
 }
 
-fn error_for_batch_response(err: &DatabaseError) -> DatabaseError {
+pub(super) fn error_for_batch_response(err: &DatabaseError) -> DatabaseError {
     match err {
         DatabaseError::InvalidConfig(message) => DatabaseError::InvalidConfig(message.clone()),
         DatabaseError::MissingShardLog(shard_id) => DatabaseError::MissingShardLog(*shard_id),
@@ -675,9 +683,9 @@ fn error_for_batch_response(err: &DatabaseError) -> DatabaseError {
     }
 }
 
-struct PreparedWrite {
-    entry: LogEntry,
-    response: WriteResponse,
+pub(super) struct PreparedWrite {
+    pub(super) entry: LogEntry,
+    pub(super) response: WriteResponse,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

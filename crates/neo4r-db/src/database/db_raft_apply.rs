@@ -1,5 +1,8 @@
+use super::metadata_types::*;
+use super::*;
+
 impl Neo4rDatabase {
-    fn append_local_command(
+    pub(super) fn append_local_command(
         &mut self,
         shard_id: ShardId,
         command: Command,
@@ -29,7 +32,7 @@ impl Neo4rDatabase {
         Ok(entry)
     }
 
-    fn local_raft_term_for_append(&mut self, shard_id: ShardId) -> DatabaseResult<u64> {
+    pub(super) fn local_raft_term_for_append(&mut self, shard_id: ShardId) -> DatabaseResult<u64> {
         let Some(raft_groups) = self.raft_groups.as_mut() else {
             return Ok(0);
         };
@@ -43,7 +46,7 @@ impl Neo4rDatabase {
         Ok(group.current_term())
     }
 
-    fn append_entry_to_local_raft(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
+    pub(super) fn append_entry_to_local_raft(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
         let Some(raft_groups) = self.raft_groups.as_mut() else {
             return Ok(());
         };
@@ -53,7 +56,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn flush_group_commit(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
+    pub(super) fn flush_group_commit(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
         let outcomes = self.replicator.publish_batch(entries)?;
         for (entry, outcome) in entries.iter().zip(outcomes.iter()) {
             self.observe_replication_outcome(entry, outcome)?;
@@ -62,7 +65,7 @@ impl Neo4rDatabase {
         self.flush_entries(entries)
     }
 
-    fn flush_entries(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
+    pub(super) fn flush_entries(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
         let mut segments = BTreeMap::new();
         for entry in entries {
             let segment_start = self
@@ -219,7 +222,7 @@ impl Neo4rDatabase {
         }))
     }
 
-    fn apply_loaded_snapshot(
+    pub(super) fn apply_loaded_snapshot(
         &mut self,
         shard_id: ShardId,
         snapshot: &neo4r_storage::LoadedSnapshot,
@@ -279,7 +282,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn prune_snapshot_shard_state(&mut self, shard_id: ShardId) -> DatabaseResult<()> {
+    pub(super) fn prune_snapshot_shard_state(&mut self, shard_id: ShardId) -> DatabaseResult<()> {
         let mut relationship_ids = self
             .store
             .relationships()?
@@ -320,7 +323,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn install_raft_snapshot_metadata(
+    pub(super) fn install_raft_snapshot_metadata(
         &mut self,
         metadata: RaftSnapshotMetadata,
     ) -> DatabaseResult<()> {
@@ -425,7 +428,10 @@ impl Neo4rDatabase {
         Ok(candidates)
     }
 
-    fn append_replicated_entries(&mut self, entries: Vec<LogEntry>) -> DatabaseResult<()> {
+    pub(super) fn append_replicated_entries(
+        &mut self,
+        entries: Vec<LogEntry>,
+    ) -> DatabaseResult<()> {
         if entries.is_empty() {
             return Ok(());
         }
@@ -466,7 +472,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn truncate_replicated_log_for_append(
+    pub(super) fn truncate_replicated_log_for_append(
         &mut self,
         shard_id: ShardId,
         entries: &[LogEntry],
@@ -498,7 +504,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn observe_raft_append_entries(
+    pub(super) fn observe_raft_append_entries(
         &mut self,
         heartbeat_shard_id: ShardId,
         entries: &[LogEntry],
@@ -596,7 +602,10 @@ impl Neo4rDatabase {
         }))
     }
 
-    fn commit_and_apply_through(&mut self, leader_commit: LogIndex) -> DatabaseResult<()> {
+    pub(super) fn commit_and_apply_through(
+        &mut self,
+        leader_commit: LogIndex,
+    ) -> DatabaseResult<()> {
         if leader_commit == 0 {
             return Ok(());
         }
@@ -616,7 +625,10 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn validate_replicated_entry_metadata(&self, entry: &LogEntry) -> DatabaseResult<()> {
+    pub(super) fn validate_replicated_entry_metadata(
+        &self,
+        entry: &LogEntry,
+    ) -> DatabaseResult<()> {
         if entry.config_version != 0 && entry.config_version != self.routing_table.version {
             return Err(DatabaseError::LogConflict {
                 shard_id: entry.shard_id,
@@ -630,7 +642,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn ensure_duplicate_entry_matches(&self, entry: &LogEntry) -> DatabaseResult<()> {
+    pub(super) fn ensure_duplicate_entry_matches(&self, entry: &LogEntry) -> DatabaseResult<()> {
         let Some(existing) = self.log(entry.shard_id)?.entry(entry.index)? else {
             return Err(DatabaseError::LogConflict {
                 shard_id: entry.shard_id,
@@ -649,7 +661,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn apply_entry(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
+    pub(super) fn apply_entry(&mut self, entry: &LogEntry) -> DatabaseResult<()> {
         self.apply_cluster_config_change(&entry.command)?;
         self.store.apply(entry.shard_id, &entry.command)?;
         self.invalidate_read_cache();
@@ -666,7 +678,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn apply_cluster_config_change(&mut self, command: &Command) -> DatabaseResult<()> {
+    pub(super) fn apply_cluster_config_change(&mut self, command: &Command) -> DatabaseResult<()> {
         let Command::ClusterConfigChange {
             phase,
             routing_table,
@@ -697,7 +709,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn observe_read_cache_hit(&self) -> DatabaseResult<()> {
+    pub(super) fn observe_read_cache_hit(&self) -> DatabaseResult<()> {
         let mut stats = self
             .read_cache_stats
             .lock()
@@ -706,7 +718,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn observe_read_cache_miss(&self) -> DatabaseResult<()> {
+    pub(super) fn observe_read_cache_miss(&self) -> DatabaseResult<()> {
         let mut stats = self
             .read_cache_stats
             .lock()
@@ -715,14 +727,14 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn read_cache_stats(&self) -> DatabaseResult<ReadCacheStats> {
+    pub(super) fn read_cache_stats(&self) -> DatabaseResult<ReadCacheStats> {
         self.read_cache_stats
             .lock()
             .map_err(|_| DatabaseError::LockPoisoned)
             .map(|stats| *stats)
     }
 
-    fn invalidate_read_cache(&self) {
+    pub(super) fn invalidate_read_cache(&self) {
         if let Ok(mut cache) = self.read_cache.lock() {
             cache.nodes.clear();
             cache.relationships.clear();
@@ -730,7 +742,10 @@ impl Neo4rDatabase {
         }
     }
 
-    fn update_vector_indexes_for_command(&mut self, command: &Command) -> DatabaseResult<()> {
+    pub(super) fn update_vector_indexes_for_command(
+        &mut self,
+        command: &Command,
+    ) -> DatabaseResult<()> {
         match command {
             Command::CreateNode { id, .. }
             | Command::SetNodeProperty { id, .. }
@@ -772,7 +787,7 @@ impl Neo4rDatabase {
         Ok(())
     }
 
-    fn ensure_local_primary(&self, shard_id: ShardId) -> DatabaseResult<()> {
+    pub(super) fn ensure_local_primary(&self, shard_id: ShardId) -> DatabaseResult<()> {
         let primary_server_id = self.routing_table.primary_server_id(shard_id);
         if primary_server_id == Some(self.config.server_id) {
             Ok(())
@@ -785,7 +800,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn ensure_local_copy(&self, shard_id: ShardId) -> DatabaseResult<()> {
+    pub(super) fn ensure_local_copy(&self, shard_id: ShardId) -> DatabaseResult<()> {
         if self
             .routing_table
             .has_local_copy(shard_id, self.config.server_id)
@@ -799,7 +814,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn ensure_local_node_exists(&self, id: NodeId) -> DatabaseResult<()> {
+    pub(super) fn ensure_local_node_exists(&self, id: NodeId) -> DatabaseResult<()> {
         if self.store.node(id)?.is_some() {
             Ok(())
         } else {
@@ -807,7 +822,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn ensure_node_or_boundary_exists(&self, id: NodeId) -> DatabaseResult<()> {
+    pub(super) fn ensure_node_or_boundary_exists(&self, id: NodeId) -> DatabaseResult<()> {
         if self.store.node(id)?.is_some() || self.store.boundary_node(id)?.is_some() {
             Ok(())
         } else {
@@ -815,7 +830,7 @@ impl Neo4rDatabase {
         }
     }
 
-    fn relationship_owner_shard(&self, id: RelationshipId) -> DatabaseResult<ShardId> {
+    pub(super) fn relationship_owner_shard(&self, id: RelationshipId) -> DatabaseResult<ShardId> {
         let relationship = self
             .store
             .relationship(id)?
@@ -827,7 +842,7 @@ impl Neo4rDatabase {
         ))
     }
 
-    fn replay_logs(&mut self) -> DatabaseResult<()> {
+    pub(super) fn replay_logs(&mut self) -> DatabaseResult<()> {
         for shard_id in 0..self.shard_map.shard_count() {
             let start_index = self
                 .checkpoint(shard_id)?
@@ -844,5 +859,4 @@ impl Neo4rDatabase {
         }
         Ok(())
     }
-
 }

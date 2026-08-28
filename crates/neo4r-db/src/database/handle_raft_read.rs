@@ -1,3 +1,8 @@
+use super::metadata_types::*;
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::*;
+
 impl Neo4rDatabaseHandle {
     pub fn execute_cypher_on_shard(
         &self,
@@ -233,7 +238,7 @@ impl Neo4rDatabaseHandle {
         self.lock()?.read_snapshot()
     }
 
-    fn ensure_raft_read_index(&self, options: QueryOptions) -> DatabaseResult<()> {
+    pub(super) fn ensure_raft_read_index(&self, options: QueryOptions) -> DatabaseResult<()> {
         if options.consistency != ReadConsistency::Strong {
             return Ok(());
         }
@@ -405,5 +410,4 @@ impl Neo4rDatabaseHandle {
             plan,
         })
     }
-
 }

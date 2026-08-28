@@ -59,14 +59,11 @@ contracts are `pub(super)`, not crate-public.
 
 ## Next Formalization Targets
 
-1. Convert `neo4r-db/src/database.rs` include-backed files into a `database/`
-   module tree with explicit facade exports.
-2. Split `write_cypher_helpers.rs` into node mutation, relationship mutation,
-   merge/upsert, and expression helper modules.
-3. Split `db_write_schema.rs` into query read, write dispatch, schema/index
-   catalog, and index status modules.
-4. Split `db_cluster.rs` into membership, rebalance planning, rebalance
-   execution, and metadata authority modules.
-5. Split `server/backend/http_json_backup.rs` into HTTP parsing, JSON codec,
-   query HTTP, admin HTTP, and backup HTTP modules.
-6. Re-group numeric test shards by behavior after the module tree is stable.
+1. Split `db_index_validation.rs`, `db_open_write.rs`, `metadata_types.rs`, and
+   `db_maintenance_plan.rs` into narrower formal submodules.
+2. Move `server/src/lib.rs` backend `include!` files into a real backend module
+   tree.
+3. Move `server/src/protocol.rs` parser/executor/codec include splits into
+   formal protocol submodules.
+4. Replace behavior-named test `include!` wrappers with real `mod` tests once
+   shared fixtures are factored out.

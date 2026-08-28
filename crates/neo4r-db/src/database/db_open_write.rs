@@ -1,3 +1,9 @@
+use super::metadata_types::*;
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::write_cypher_model::*;
+use super::*;
+
 impl Neo4rDatabase {
     pub fn open(config: DatabaseConfig) -> DatabaseResult<Self> {
         Self::open_with_replicator(config, Arc::new(NoopShardReplicator))
@@ -215,7 +221,7 @@ impl Neo4rDatabase {
         self.execute_write_cypher_on_optional_shard(query, params, None)
     }
 
-    fn execute_cypher_on_shard(
+    pub(super) fn execute_cypher_on_shard(
         &mut self,
         shard_id: ShardId,
         query: &str,
@@ -225,7 +231,7 @@ impl Neo4rDatabase {
         self.execute_write_cypher_on_optional_shard(query, params, Some(shard_id))
     }
 
-    fn write_cypher_target_shards(
+    pub(super) fn write_cypher_target_shards(
         &mut self,
         query: &str,
         params: &QueryParams,
@@ -294,7 +300,7 @@ impl Neo4rDatabase {
         Ok(shards.into_iter().collect())
     }
 
-    fn execute_cypher_mutation_batch_on_shard(
+    pub(super) fn execute_cypher_mutation_batch_on_shard(
         &mut self,
         shard_id: ShardId,
         writes: Vec<(String, QueryParams)>,
@@ -303,14 +309,14 @@ impl Neo4rDatabase {
         self.execute_cypher_mutation_batch_inner(writes, Some(shard_id))
     }
 
-    fn execute_cypher_mutation_batch(
+    pub(super) fn execute_cypher_mutation_batch(
         &mut self,
         writes: Vec<(String, QueryParams)>,
     ) -> DatabaseResult<usize> {
         self.execute_cypher_mutation_batch_inner(writes, None)
     }
 
-    fn execute_staged_cypher_transaction_on_shard(
+    pub(super) fn execute_staged_cypher_transaction_on_shard(
         &mut self,
         shard_id: ShardId,
         writes: Vec<(String, QueryParams)>,
@@ -331,7 +337,7 @@ impl Neo4rDatabase {
         Ok(entries.len())
     }
 
-    fn commands_from_staged_overlay_on_shard(
+    pub(super) fn commands_from_staged_overlay_on_shard(
         &mut self,
         target_shard: ShardId,
         base: &PartitionedGraphStore<RocksKvSnapshot>,
@@ -472,7 +478,7 @@ impl Neo4rDatabase {
         Ok(commands)
     }
 
-    fn execute_cypher_mutation_batch_inner(
+    pub(super) fn execute_cypher_mutation_batch_inner(
         &mut self,
         writes: Vec<(String, QueryParams)>,
         target_shard: Option<ShardId>,
@@ -934,5 +940,4 @@ impl Neo4rDatabase {
         self.flush_group_commit(&entries)?;
         Ok(entries.len())
     }
-
 }

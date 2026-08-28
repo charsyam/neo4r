@@ -1,4 +1,11 @@
-fn parse_create_node_write(input: &str, params: &QueryParams) -> DatabaseResult<WriteCypher> {
+use super::write_cypher_helpers::*;
+use super::write_cypher_model::*;
+use super::*;
+
+pub(super) fn parse_create_node_write(
+    input: &str,
+    params: &QueryParams,
+) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "CREATE")?;
     let (body, returns) = parse_optional_write_return(body)?;
     let (pattern, set_part) = match split_keyword(body, "SET") {
@@ -39,7 +46,7 @@ fn parse_create_node_write(input: &str, params: &QueryParams) -> DatabaseResult<
     })
 }
 
-fn parse_create_node_then_relationship_write(
+pub(super) fn parse_create_node_then_relationship_write(
     input: &str,
     params: &QueryParams,
 ) -> DatabaseResult<WriteCypher> {
@@ -134,7 +141,7 @@ fn parse_create_node_then_relationship_write(
     })
 }
 
-fn parse_create_node_pattern_write(
+pub(super) fn parse_create_node_pattern_write(
     input: &str,
     params: &QueryParams,
 ) -> DatabaseResult<NodePatternWrite> {
@@ -167,7 +174,10 @@ fn parse_create_node_pattern_write(
     })
 }
 
-fn parse_merge_node_write(input: &str, params: &QueryParams) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_merge_node_write(
+    input: &str,
+    params: &QueryParams,
+) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "MERGE")?;
     let (body, returns) = parse_optional_write_return(body)?;
     let NodePatternWrite {
@@ -188,7 +198,7 @@ fn parse_merge_node_write(input: &str, params: &QueryParams) -> DatabaseResult<W
     })
 }
 
-fn parse_set_node_property(
+pub(super) fn parse_set_node_property(
     match_part: &str,
     set_part: &str,
     params: &QueryParams,
@@ -222,7 +232,7 @@ fn parse_set_node_property(
     })
 }
 
-fn parse_create_relationship_write(
+pub(super) fn parse_create_relationship_write(
     match_part: &str,
     create_part: &str,
     params: &QueryParams,
@@ -283,7 +293,7 @@ fn parse_create_relationship_write(
     })
 }
 
-fn parse_merge_relationship_write(
+pub(super) fn parse_merge_relationship_write(
     match_part: &str,
     merge_part: &str,
     params: &QueryParams,
@@ -324,7 +334,7 @@ fn parse_merge_relationship_write(
     })
 }
 
-fn parse_relationship_endpoint_matchers(
+pub(super) fn parse_relationship_endpoint_matchers(
     match_part: &str,
     params: &QueryParams,
     missing_message: &str,
@@ -345,7 +355,7 @@ fn parse_relationship_endpoint_matchers(
     ))
 }
 
-fn parse_set_property(
+pub(super) fn parse_set_property(
     match_part: &str,
     set_part: &str,
     params: &QueryParams,
@@ -359,7 +369,7 @@ fn parse_set_property(
     parse_set_node_property(match_part, set_part, params)
 }
 
-fn parse_remove_property(
+pub(super) fn parse_remove_property(
     match_part: &str,
     remove_part: &str,
     params: &QueryParams,
@@ -373,7 +383,7 @@ fn parse_remove_property(
     parse_remove_node_property(match_part, remove_part, params)
 }
 
-fn parse_remove_node_property(
+pub(super) fn parse_remove_node_property(
     match_part: &str,
     remove_part: &str,
     params: &QueryParams,
@@ -393,7 +403,7 @@ fn parse_remove_node_property(
     })
 }
 
-fn parse_add_node_label(
+pub(super) fn parse_add_node_label(
     match_part: &str,
     set_part: &str,
     params: &QueryParams,
@@ -413,7 +423,7 @@ fn parse_add_node_label(
     })
 }
 
-fn parse_remove_node_label(
+pub(super) fn parse_remove_node_label(
     match_part: &str,
     remove_part: &str,
     params: &QueryParams,
@@ -433,7 +443,7 @@ fn parse_remove_node_label(
     })
 }
 
-fn parse_remove_relationship_property(
+pub(super) fn parse_remove_relationship_property(
     match_part: &str,
     remove_part: &str,
     params: &QueryParams,
@@ -453,7 +463,7 @@ fn parse_remove_relationship_property(
     })
 }
 
-fn parse_set_relationship_property(
+pub(super) fn parse_set_relationship_property(
     match_part: &str,
     set_part: &str,
     params: &QueryParams,
@@ -487,7 +497,7 @@ fn parse_set_relationship_property(
     })
 }
 
-fn parse_property_replacement(
+pub(super) fn parse_property_replacement(
     set_part: &str,
     expected_variable: &str,
     params: &QueryParams,
@@ -513,7 +523,7 @@ fn parse_property_replacement(
     Ok(Some(parse_property_map(right.trim(), params)?))
 }
 
-fn parse_set_assignments(
+pub(super) fn parse_set_assignments(
     set_part: &str,
     expected_variable: &str,
     params: &QueryParams,
@@ -554,7 +564,7 @@ fn parse_set_assignments(
     Ok(assignments)
 }
 
-fn parse_merge_pattern_part(input: &str) -> DatabaseResult<&str> {
+pub(super) fn parse_merge_pattern_part(input: &str) -> DatabaseResult<&str> {
     let create_index = find_keyword(input, "ON CREATE SET");
     let match_index = find_keyword(input, "ON MATCH SET");
     let pattern_end = [create_index, match_index]
@@ -567,7 +577,7 @@ fn parse_merge_pattern_part(input: &str) -> DatabaseResult<&str> {
     Ok(pattern)
 }
 
-fn parse_merge_set_clauses(
+pub(super) fn parse_merge_set_clauses(
     input: &str,
     expected_variable: &str,
     params: &QueryParams,
@@ -627,7 +637,7 @@ fn parse_merge_set_clauses(
     Ok(parsed)
 }
 
-fn parse_remove_keys(
+pub(super) fn parse_remove_keys(
     remove_part: &str,
     expected_variable: &str,
     variable_mismatch_message: &str,
@@ -642,7 +652,7 @@ fn parse_remove_keys(
     Ok(keys)
 }
 
-fn parse_label_refs(
+pub(super) fn parse_label_refs(
     input: &str,
     expected_variable: &str,
     variable_mismatch_message: &str,
@@ -671,7 +681,7 @@ fn parse_label_refs(
     Ok(labels)
 }
 
-fn parse_delete(
+pub(super) fn parse_delete(
     match_part: &str,
     delete_part: &str,
     params: &QueryParams,
@@ -682,7 +692,7 @@ fn parse_delete(
     parse_delete_node(match_part, delete_part, params)
 }
 
-fn parse_delete_node(
+pub(super) fn parse_delete_node(
     match_part: &str,
     delete_part: &str,
     params: &QueryParams,
@@ -698,11 +708,14 @@ fn parse_delete_node(
     Ok(WriteCypher::DeleteNode { matcher, returns })
 }
 
-fn parse_node_matcher(input: &str, params: &QueryParams) -> DatabaseResult<NodeMatcher> {
+pub(super) fn parse_node_matcher(input: &str, params: &QueryParams) -> DatabaseResult<NodeMatcher> {
     parse_node_matcher_body(strip_keyword(input.trim(), "MATCH")?.trim(), params)
 }
 
-fn parse_node_matcher_body(input: &str, params: &QueryParams) -> DatabaseResult<NodeMatcher> {
+pub(super) fn parse_node_matcher_body(
+    input: &str,
+    params: &QueryParams,
+) -> DatabaseResult<NodeMatcher> {
     let match_body = input.trim();
     let (pattern, predicate) = match split_keyword(match_body, "WHERE") {
         Some((pattern, predicate)) => (pattern.trim(), Some(predicate.trim())),
@@ -739,7 +752,7 @@ fn parse_node_matcher_body(input: &str, params: &QueryParams) -> DatabaseResult<
     })
 }
 
-fn parse_delete_relationship(
+pub(super) fn parse_delete_relationship(
     match_part: &str,
     delete_part: &str,
     params: &QueryParams,
@@ -755,7 +768,7 @@ fn parse_delete_relationship(
     Ok(WriteCypher::DeleteRelationship { matcher, returns })
 }
 
-fn parse_relationship_matcher(
+pub(super) fn parse_relationship_matcher(
     input: &str,
     params: &QueryParams,
 ) -> DatabaseResult<RelationshipMatcher> {
@@ -777,7 +790,7 @@ fn parse_relationship_matcher(
     })
 }
 
-fn relationship_matcher_predicate(
+pub(super) fn relationship_matcher_predicate(
     relationship: &RelationshipPatternWrite,
     explicit_predicate: Option<&str>,
 ) -> DatabaseResult<String> {

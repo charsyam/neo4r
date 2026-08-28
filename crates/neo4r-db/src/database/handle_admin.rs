@@ -1,3 +1,9 @@
+use super::metadata_types::*;
+use super::staged_overlay::*;
+use super::write_cypher_helpers::*;
+use super::write_cypher_model::*;
+use super::*;
+
 impl Neo4rDatabaseHandle {
     pub fn storage_status(&self) -> DatabaseResult<StorageStatus> {
         self.lock()?.storage_status()
@@ -300,7 +306,10 @@ impl Neo4rDatabaseHandle {
         ]))
     }
 
-    fn show_index_rows_for_query(&self, query: &str) -> DatabaseResult<Option<Vec<QueryRow>>> {
+    pub(super) fn show_index_rows_for_query(
+        &self,
+        query: &str,
+    ) -> DatabaseResult<Option<Vec<QueryRow>>> {
         if let Some(name) = show_vector_index_status_name(query)? {
             Ok(Some(self.show_vector_index_status_by_name(&name)?))
         } else if is_show_vector_index_status_cypher(query) {
@@ -329,7 +338,10 @@ impl Neo4rDatabaseHandle {
         )?])
     }
 
-    fn show_constraint_rows_for_query(&self, query: &str) -> DatabaseResult<Option<Vec<QueryRow>>> {
+    pub(super) fn show_constraint_rows_for_query(
+        &self,
+        query: &str,
+    ) -> DatabaseResult<Option<Vec<QueryRow>>> {
         if let Some(name) = show_constraint_name(query)? {
             Ok(Some(self.show_constraint(&name)?))
         } else if is_show_constraints_cypher(query) {
@@ -363,11 +375,11 @@ impl Neo4rDatabaseHandle {
         self.lock()?.vector_index_status_by_name(name)
     }
 
-    fn lock(&self) -> DatabaseResult<MutexGuard<'_, Neo4rDatabase>> {
+    pub(super) fn lock(&self) -> DatabaseResult<MutexGuard<'_, Neo4rDatabase>> {
         self.inner.lock().map_err(|_| DatabaseError::LockPoisoned)
     }
 
-    fn send_write(&self, operation: WriteOperation) -> DatabaseResult<WriteResponse> {
+    pub(super) fn send_write(&self, operation: WriteOperation) -> DatabaseResult<WriteResponse> {
         let (response_tx, response_rx) = mpsc::channel();
         self.writer.send(WriteRequest {
             operation,
@@ -378,7 +390,7 @@ impl Neo4rDatabaseHandle {
             .map_err(|_| DatabaseError::WriterUnavailable)?
     }
 
-    fn match_node_ids(
+    pub(super) fn match_node_ids(
         &self,
         matcher: &NodeMatcher,
         params: &QueryParams,
@@ -389,7 +401,7 @@ impl Neo4rDatabaseHandle {
         )
     }
 
-    fn match_relationship_ids(
+    pub(super) fn match_relationship_ids(
         &self,
         matcher: &RelationshipMatcher,
         params: &QueryParams,

@@ -1,4 +1,8 @@
-enum WriteCypher {
+use super::write_cypher_helpers::*;
+use super::write_cypher_parse::*;
+use super::*;
+
+pub(super) enum WriteCypher {
     CreateNode {
         variable: String,
         labels: Vec<String>,
@@ -133,37 +137,37 @@ enum WriteCypher {
     },
 }
 
-struct NodeMatcher {
-    variable: String,
-    match_query: String,
+pub(super) struct NodeMatcher {
+    pub(super) variable: String,
+    pub(super) match_query: String,
 }
 
-struct RelationshipMatcher {
-    variable: String,
-    match_query: String,
+pub(super) struct RelationshipMatcher {
+    pub(super) variable: String,
+    pub(super) match_query: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct PropertyAssignment {
-    key: String,
-    value: Value,
+pub(super) struct PropertyAssignment {
+    pub(super) key: String,
+    pub(super) value: Value,
 }
 
 #[derive(Default)]
-struct MergeSetClauses {
-    on_create: Vec<PropertyAssignment>,
-    on_create_replacement: Option<Properties>,
-    on_match: Vec<PropertyAssignment>,
-    on_match_replacement: Option<Properties>,
+pub(super) struct MergeSetClauses {
+    pub(super) on_create: Vec<PropertyAssignment>,
+    pub(super) on_create_replacement: Option<Properties>,
+    pub(super) on_match: Vec<PropertyAssignment>,
+    pub(super) on_match_replacement: Option<Properties>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum WriteReturnItem {
+pub(super) enum WriteReturnItem {
     Variable(String),
     Property { variable: String, key: String },
 }
 
-type WriteReturnItems = Vec<WriteReturnItem>;
+pub(super) type WriteReturnItems = Vec<WriteReturnItem>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateNodeRoutingKey {
@@ -202,7 +206,10 @@ pub fn merge_node_routing_key(
     }
 }
 
-fn parse_write_cypher(query: &str, params: &QueryParams) -> DatabaseResult<Option<WriteCypher>> {
+pub(super) fn parse_write_cypher(
+    query: &str,
+    params: &QueryParams,
+) -> DatabaseResult<Option<WriteCypher>> {
     let input = query.trim();
     if input.is_empty() {
         return Ok(None);
@@ -268,11 +275,11 @@ fn parse_write_cypher(query: &str, params: &QueryParams) -> DatabaseResult<Optio
     Ok(None)
 }
 
-fn is_show_indexes_cypher(query: &str) -> bool {
+pub(super) fn is_show_indexes_cypher(query: &str) -> bool {
     query.trim().eq_ignore_ascii_case("SHOW INDEXES")
 }
 
-fn show_index_name(query: &str) -> DatabaseResult<Option<String>> {
+pub(super) fn show_index_name(query: &str) -> DatabaseResult<Option<String>> {
     let input = query.trim();
     if !starts_with_keyword(input, "SHOW INDEX") || is_show_indexes_cypher(input) {
         return Ok(None);
@@ -286,17 +293,17 @@ fn show_index_name(query: &str) -> DatabaseResult<Option<String>> {
     Ok(Some(name.to_string()))
 }
 
-fn is_show_vector_indexes_cypher(query: &str) -> bool {
+pub(super) fn is_show_vector_indexes_cypher(query: &str) -> bool {
     query.trim().eq_ignore_ascii_case("SHOW VECTOR INDEXES")
 }
 
-fn is_show_vector_index_status_cypher(query: &str) -> bool {
+pub(super) fn is_show_vector_index_status_cypher(query: &str) -> bool {
     query
         .trim()
         .eq_ignore_ascii_case("SHOW VECTOR INDEX STATUS")
 }
 
-fn show_vector_index_status_name(query: &str) -> DatabaseResult<Option<String>> {
+pub(super) fn show_vector_index_status_name(query: &str) -> DatabaseResult<Option<String>> {
     let input = query.trim();
     if !starts_with_keyword(input, "SHOW VECTOR INDEX STATUS")
         || is_show_vector_index_status_cypher(input)
@@ -312,7 +319,7 @@ fn show_vector_index_status_name(query: &str) -> DatabaseResult<Option<String>> 
     Ok(Some(name.to_string()))
 }
 
-fn show_vector_index_name(query: &str) -> DatabaseResult<Option<String>> {
+pub(super) fn show_vector_index_name(query: &str) -> DatabaseResult<Option<String>> {
     let input = query.trim();
     if !starts_with_keyword(input, "SHOW VECTOR INDEX")
         || is_show_vector_indexes_cypher(input)
@@ -329,11 +336,11 @@ fn show_vector_index_name(query: &str) -> DatabaseResult<Option<String>> {
     Ok(Some(name.to_string()))
 }
 
-fn is_show_constraints_cypher(query: &str) -> bool {
+pub(super) fn is_show_constraints_cypher(query: &str) -> bool {
     query.trim().eq_ignore_ascii_case("SHOW CONSTRAINTS")
 }
 
-fn show_constraint_name(query: &str) -> DatabaseResult<Option<String>> {
+pub(super) fn show_constraint_name(query: &str) -> DatabaseResult<Option<String>> {
     let input = query.trim();
     if !starts_with_keyword(input, "SHOW CONSTRAINT") || is_show_constraints_cypher(input) {
         return Ok(None);
@@ -347,7 +354,7 @@ fn show_constraint_name(query: &str) -> DatabaseResult<Option<String>> {
     Ok(Some(name.to_string()))
 }
 
-fn format_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
+pub(super) fn format_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
     indexes
         .iter()
         .map(|index| {
@@ -403,7 +410,7 @@ fn format_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
         .collect()
 }
 
-fn format_vector_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
+pub(super) fn format_vector_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
     format_index_rows(
         &indexes
             .iter()
@@ -413,7 +420,7 @@ fn format_vector_index_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
     )
 }
 
-fn format_vector_index_status_rows(statuses: &[VectorIndexStatus]) -> Vec<QueryRow> {
+pub(super) fn format_vector_index_status_rows(statuses: &[VectorIndexStatus]) -> Vec<QueryRow> {
     statuses
         .iter()
         .map(|status| {
@@ -447,7 +454,10 @@ fn format_vector_index_status_rows(statuses: &[VectorIndexStatus]) -> Vec<QueryR
         .collect()
 }
 
-fn format_index_row_by_name(indexes: &[IndexDefinition], name: &str) -> DatabaseResult<QueryRow> {
+pub(super) fn format_index_row_by_name(
+    indexes: &[IndexDefinition],
+    name: &str,
+) -> DatabaseResult<QueryRow> {
     let Some(index) = indexes.iter().find(|index| index.name == name) else {
         return Err(DatabaseError::InvalidConfig(format!(
             "index {name:?} does not exist"
@@ -459,7 +469,7 @@ fn format_index_row_by_name(indexes: &[IndexDefinition], name: &str) -> Database
         .expect("one index row"))
 }
 
-fn format_vector_index_row_by_name(
+pub(super) fn format_vector_index_row_by_name(
     indexes: &[IndexDefinition],
     name: &str,
 ) -> DatabaseResult<QueryRow> {
@@ -479,7 +489,7 @@ fn format_vector_index_row_by_name(
         .expect("one index row"))
 }
 
-fn format_constraint_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
+pub(super) fn format_constraint_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
     indexes
         .iter()
         .filter(|index| matches!(index.kind, IndexKind::UniqueNodeProperty))
@@ -506,7 +516,7 @@ fn format_constraint_rows(indexes: &[IndexDefinition]) -> Vec<QueryRow> {
         .collect()
 }
 
-fn format_constraint_row_by_name(
+pub(super) fn format_constraint_row_by_name(
     indexes: &[IndexDefinition],
     name: &str,
 ) -> DatabaseResult<QueryRow> {
@@ -526,7 +536,7 @@ fn format_constraint_row_by_name(
         .expect("one constraint row"))
 }
 
-fn parse_create_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_create_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "CREATE INDEX")?;
     let (name, target) = split_first_token(body, "CREATE INDEX requires index name")?;
     validate_identifier_write(name)?;
@@ -540,7 +550,9 @@ fn parse_create_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     })
 }
 
-fn parse_create_unique_node_property_constraint_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_create_unique_node_property_constraint_ddl(
+    input: &str,
+) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "CREATE CONSTRAINT")?;
     let (name, target) = split_first_token(body, "CREATE CONSTRAINT requires constraint name")?;
     validate_identifier_write(name)?;
@@ -573,7 +585,7 @@ fn parse_create_unique_node_property_constraint_ddl(input: &str) -> DatabaseResu
     })
 }
 
-fn parse_create_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_create_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "CREATE VECTOR INDEX")?;
     let (name, rest) = split_first_token(body, "CREATE VECTOR INDEX requires index name")?;
     validate_identifier_write(name)?;
@@ -600,7 +612,7 @@ fn parse_create_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     })
 }
 
-fn parse_drop_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_drop_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "DROP INDEX")?;
     let (name, if_exists) = strip_if_exists_suffix(body);
     validate_identifier_write(name)?;
@@ -610,7 +622,7 @@ fn parse_drop_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     })
 }
 
-fn parse_drop_constraint_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_drop_constraint_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "DROP CONSTRAINT")?;
     let (name, if_exists) = strip_if_exists_suffix(body);
     validate_identifier_write(name)?;
@@ -620,7 +632,7 @@ fn parse_drop_constraint_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     })
 }
 
-fn parse_rebuild_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
+pub(super) fn parse_rebuild_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     let body = strip_keyword(input, "REBUILD VECTOR INDEX")?;
     ensure_write_parse(
         !body.contains(char::is_whitespace),
@@ -632,7 +644,7 @@ fn parse_rebuild_vector_index_ddl(input: &str) -> DatabaseResult<WriteCypher> {
     })
 }
 
-fn strip_if_exists_suffix(input: &str) -> (&str, bool) {
+pub(super) fn strip_if_exists_suffix(input: &str) -> (&str, bool) {
     let input = input.trim();
     match strip_keyword_suffix(input, "IF EXISTS") {
         Some(name) => (name.trim(), true),
@@ -640,14 +652,17 @@ fn strip_if_exists_suffix(input: &str) -> (&str, bool) {
     }
 }
 
-fn strip_if_not_exists_prefix(input: &str) -> (&str, bool) {
+pub(super) fn strip_if_not_exists_prefix(input: &str) -> (&str, bool) {
     match strip_keyword(input.trim(), "IF NOT EXISTS") {
         Ok(rest) => (rest.trim(), true),
         Err(_) => (input.trim(), false),
     }
 }
 
-fn split_first_token<'a>(input: &'a str, missing: &str) -> DatabaseResult<(&'a str, &'a str)> {
+pub(super) fn split_first_token<'a>(
+    input: &'a str,
+    missing: &str,
+) -> DatabaseResult<(&'a str, &'a str)> {
     let input = input.trim();
     let Some(index) = input.find(char::is_whitespace) else {
         return Err(write_parse_error(missing));
@@ -658,7 +673,7 @@ fn split_first_token<'a>(input: &'a str, missing: &str) -> DatabaseResult<(&'a s
     Ok((head, rest))
 }
 
-fn parse_index_target(input: &str) -> DatabaseResult<(String, String)> {
+pub(super) fn parse_index_target(input: &str) -> DatabaseResult<(String, String)> {
     let input = input.trim();
     if starts_with_keyword(input, "FOR") {
         return parse_for_on_index_target(input);
@@ -667,7 +682,7 @@ fn parse_index_target(input: &str) -> DatabaseResult<(String, String)> {
     parse_legacy_index_target(target)
 }
 
-fn parse_for_on_index_target(input: &str) -> DatabaseResult<(String, String)> {
+pub(super) fn parse_for_on_index_target(input: &str) -> DatabaseResult<(String, String)> {
     let body = strip_keyword(input, "FOR")?;
     let (pattern, on_part) =
         split_keyword(body, "ON").ok_or_else(|| write_parse_error("index target requires ON"))?;
@@ -685,7 +700,7 @@ fn parse_for_on_index_target(input: &str) -> DatabaseResult<(String, String)> {
     Ok((node.labels[0].clone(), property))
 }
 
-fn parse_legacy_index_target(input: &str) -> DatabaseResult<(String, String)> {
+pub(super) fn parse_legacy_index_target(input: &str) -> DatabaseResult<(String, String)> {
     let input = input.trim();
     let label_start = input
         .strip_prefix(':')

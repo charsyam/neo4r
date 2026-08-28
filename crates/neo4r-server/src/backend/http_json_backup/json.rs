@@ -209,6 +209,27 @@ pub(crate) fn extract_optional_json_bool_field(input: &str, field: &str) -> Resu
     }
 }
 
+pub(crate) fn extract_optional_json_u64_field(
+    input: &str,
+    field: &str,
+) -> Result<Option<u64>, String> {
+    let Some(rest) = find_json_field_value(input, field)? else {
+        return Ok(None);
+    };
+    let rest = rest.trim_start();
+    let digits = rest
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        return Err(format!("JSON u64 field {field} must be a number"));
+    }
+    digits
+        .parse()
+        .map(Some)
+        .map_err(|_| format!("JSON u64 field {field} is out of range"))
+}
+
 pub(crate) fn database_from_use_clause(query: &str) -> Result<Option<String>, String> {
     split_database_use_clause(query).map(|(database, _)| database)
 }

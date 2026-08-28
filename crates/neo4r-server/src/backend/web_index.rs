@@ -69,6 +69,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       </div>
       <div class="row">
         <button class="secondary" id="cluster">Cluster</button>
+        <button class="secondary" id="topology">Topology</button>
         <button class="secondary" id="rebalance">Rebalance</button>
         <button class="secondary" id="slow">Slow</button>
       </div>
@@ -414,6 +415,24 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       setStatus(response.ok ? path + ' loaded.' : path + ' failed.');
     }
 
+    async function showTopology() {
+      setStatus('Loading topology...');
+      const [registryResponse, raftResponse] = await Promise.all([
+        fetch('/api/cluster/registry', { headers: authHeaders() }),
+        fetch('/api/admin/raft-status', { headers: authHeaders() })
+      ]);
+      const registry = await registryResponse.json();
+      const raft = await raftResponse.json();
+      document.getElementById('detail').textContent = JSON.stringify({
+        registry,
+        raft,
+        migration_state: registry.migration_state || 'idle',
+        ownership_epoch: registry.ownership_epoch || 0,
+        registry_expires_at_ms: (registry.generated_at_ms || 0) + (registry.ttl_ms || 0)
+      }, null, 2);
+      setStatus(registryResponse.ok && raftResponse.ok ? 'Topology loaded.' : 'Topology failed.');
+    }
+
     function setStatus(value) {
       document.getElementById('status').textContent = value;
     }
@@ -488,6 +507,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     document.getElementById('stats').addEventListener('click', () => showManagement('/api/statistics'));
     document.getElementById('metrics').addEventListener('click', () => showManagement('/api/metrics'));
     document.getElementById('cluster').addEventListener('click', () => showManagement('/api/cluster'));
+    document.getElementById('topology').addEventListener('click', showTopology);
     document.getElementById('rebalance').addEventListener('click', () => runClusterAction('/api/cluster/advance-rebalance', 'Rebalance'));
     document.getElementById('slow').addEventListener('click', () => showManagement('/api/slow-queries'));
     document.getElementById('users').addEventListener('click', () => showManagement('/api/admin/users'));

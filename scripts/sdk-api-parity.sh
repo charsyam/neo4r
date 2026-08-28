@@ -17,6 +17,23 @@ required_methods=(
   metadata_log
   cluster_status
   cluster_management_status
+  routing_table
+  cluster_registry
+  capabilities
+  connect_to_cached_target
+)
+
+required_admin_methods=(
+  create_database
+  select_database
+  list_databases
+  invoke_token
+  revoke_token
+  query
+  metrics
+  routing_table
+  cluster_registry
+  capabilities
 )
 
 for method in "${required_methods[@]}"; do
@@ -26,6 +43,17 @@ for method in "${required_methods[@]}"; do
   fi
   if ! rg -q "def ${method}\\(" "$python_client"; then
     printf 'missing Python SDK method: %s\n' "$method" >&2
+    exit 1
+  fi
+done
+
+for method in "${required_admin_methods[@]}"; do
+  if ! rg -q "pub fn ${method}\\(" "$rust_client"; then
+    printf 'missing Rust SDK admin method: %s\n' "$method" >&2
+    exit 1
+  fi
+  if ! rg -q "def ${method}\\(" sdks/python/neo4r_client/http_admin.py; then
+    printf 'missing Python SDK admin method: %s\n' "$method" >&2
     exit 1
   fi
 done

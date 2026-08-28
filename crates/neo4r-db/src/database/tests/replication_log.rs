@@ -605,7 +605,7 @@ pub(super) fn raft_snapshot_fault_injection_persists_payload_before_metadata() {
     let db = Neo4rDatabaseHandle::open(
         DatabaseConfig::new(&dir, 1, 1)
             .with_server_id(1)
-            .with_routing_table(routing_table)
+            .with_routing_table(routing_table.clone())
             .with_raft_enabled(true)
             .with_failure_injection(FailureInjection {
                 fail_after_snapshot_payload_save_before_metadata: true,
@@ -633,11 +633,44 @@ pub(super) fn raft_snapshot_fault_injection_persists_payload_before_metadata() {
             .unwrap()
             .load_payload()
             .unwrap(),
-        Some(payload)
+        Some(payload.clone())
     );
     assert_eq!(db.read_snapshot().unwrap().committed_indexes(), &[0]);
 
     drop(db);
+    let retried = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(1)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+    let response = retried
+        .install_raft_snapshot(crate::InstallSnapshotRequest {
+            term: 5,
+            leader_id: 9,
+            metadata: crate::RaftSnapshotMetadata {
+                shard_id: 0,
+                last_included_term: 4,
+                last_included_index: 11,
+            },
+            payload,
+        })
+        .unwrap();
+    assert!(response.success);
+    assert_eq!(retried.read_snapshot().unwrap().committed_indexes(), &[11]);
+    assert_eq!(
+        retried
+            .query_with_options(
+                r#"MATCH (n:Person) WHERE n.name = "FaultSnapshotAlice" RETURN n.name"#,
+                QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+            )
+            .unwrap()
+            .len(),
+        1
+    );
+
+    drop(retried);
     let _ = fs::remove_dir_all(dir);
 }
 

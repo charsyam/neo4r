@@ -71,6 +71,10 @@ impl Neo4rDatabase {
         self.replicator.unregister_peer_address(server_id)
     }
 
+    pub fn replication_channel_metrics(&self) -> Option<ReplicationChannelMetricsSnapshot> {
+        self.replicator.channel_metrics_snapshot()
+    }
+
     pub fn cluster_membership(&self) -> &ClusterMembership {
         &self.membership
     }

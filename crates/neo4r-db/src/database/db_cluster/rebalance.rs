@@ -409,6 +409,10 @@ impl Neo4rDatabase {
                         self.mark_shard_caught_up(*shard_id, *server_id, observed_index)?;
                         execution_step.state = RebalanceStepState::Ready;
                         Ok("caught_up".to_string())
+                    } else if observed_index == 0 && committed_index > 0 {
+                        Ok(format!(
+                            "snapshot_bootstrap_required shard={shard_id} server={server_id} match_index={observed_index} committed_index={committed_index}"
+                        ))
                     } else {
                         Ok(format!(
                             "waiting_for_catch_up shard={shard_id} server={server_id} match_index={observed_index} committed_index={committed_index}"

@@ -421,6 +421,14 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
         }
     );
     assert_eq!(
+        parse_request("NEGOTIATE_REPLICATION_PEER\t3\t127.0.0.1:7689\t30").unwrap(),
+        BackendRequest::NegotiateReplicationPeer {
+            server_id: 3,
+            address: "127.0.0.1:7689".to_string(),
+            node_id: Some(30),
+        }
+    );
+    assert_eq!(
         parse_request("UNREGISTER_REPLICATION_PEER\t3").unwrap(),
         BackendRequest::UnregisterReplicationPeer(3)
     );
@@ -439,6 +447,18 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
     assert_eq!(
         parse_request("REPLICATION_STATUS").unwrap(),
         BackendRequest::ReplicationStatus
+    );
+    assert_eq!(
+        parse_request("ROUTING_TABLE").unwrap(),
+        BackendRequest::RoutingTable
+    );
+    assert_eq!(
+        parse_request("CLUSTER_REGISTRY").unwrap(),
+        BackendRequest::ClusterRegistry
+    );
+    assert_eq!(
+        parse_request("CAPABILITIES").unwrap(),
+        BackendRequest::Capabilities
     );
     assert_eq!(
         parse_request("CATCH_UP_FROM_PRIMARIES").unwrap(),
@@ -480,6 +500,12 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
             parse_request("REGISTER_QUERY_PEER\t2\t127.0.0.1:7688").unwrap()
         ),
         BackendResponse::Err(message) if message.contains("backend coordinator")
+    ));
+    assert!(matches!(
+        execute_request(&db, parse_request("CAPABILITIES").unwrap()),
+        BackendResponse::OkCapabilities(capabilities)
+            if capabilities.contains("ownership_epoch=true")
+                && capabilities.contains("snapshot_bootstrap=true")
     ));
     assert!(matches!(
         execute_request(&db, parse_request("CATCH_UP_FROM_PRIMARIES").unwrap()),

@@ -1,6 +1,7 @@
 import socket
 import unittest
 
+from neo4r_client.client import _parse_redirect
 from neo4r_client.protocol import (
     NativeFrame,
     Node,
@@ -88,6 +89,37 @@ class ProtocolTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_parse_redirect_response(self):
+        redirect = _parse_redirect(
+            "ERR\tMOVED\tshard=3\tleader=2\taddress=127.0.0.1:17688\t"
+            "routing_version=17\townership_epoch=17\tdatabase=tenant_a\tretryable=true"
+        )
+
+        self.assertEqual(
+            redirect,
+            {
+                "kind": "MOVED",
+                "shard": 3,
+                "leader": 2,
+                "address": "127.0.0.1:17688",
+                "routing_version": 17,
+                "ownership_epoch": 17,
+                "database": "tenant_a",
+                "retryable": True,
+            },
+        )
+
+    def test_parse_typed_stale_epoch_response(self):
+        redirect = _parse_redirect(
+            "ERR\tSTALE_EPOCH\ttx_epoch=1\tcurrent_epoch=2\t"
+            "routing_version=2\townership_epoch=2\tretryable=true"
+        )
+
+        self.assertEqual(redirect["kind"], "STALE_EPOCH")
+        self.assertEqual(redirect["routing_version"], 2)
+        self.assertEqual(redirect["ownership_epoch"], 2)
+        self.assertTrue(redirect["retryable"])
 
 
 if __name__ == "__main__":

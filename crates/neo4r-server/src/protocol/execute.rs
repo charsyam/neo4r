@@ -35,6 +35,15 @@ pub fn format_response(response: &BackendResponse) -> String {
         BackendResponse::OkReplicationStatus(status) => {
             format!("OK\tREPLICATION_STATUS\t{}", escape_response(status))
         }
+        BackendResponse::OkRoutingTable(routing) => {
+            format!("OK\tROUTING_TABLE\t{}", escape_response(routing))
+        }
+        BackendResponse::OkClusterRegistry(registry) => {
+            format!("OK\tCLUSTER_REGISTRY\t{}", escape_response(registry))
+        }
+        BackendResponse::OkCapabilities(capabilities) => {
+            format!("OK\tCAPABILITIES\t{}", escape_response(capabilities))
+        }
         BackendResponse::OkCatchUp(results) => {
             format!("OK\tCATCH_UP\t{}", escape_response(results))
         }
@@ -86,6 +95,7 @@ pub fn format_response(response: &BackendResponse) -> String {
         BackendResponse::OkClusterManagementStatus(status) => {
             format!("OK\tCLUSTER_MANAGEMENT\t{}", escape_response(status))
         }
+        BackendResponse::Redirect(redirect) => format_redirect_response(redirect),
         BackendResponse::Err(message) => format!("ERR\t{}", escape_response(message)),
     }
 }
@@ -168,10 +178,12 @@ fn execute_request_inner(
         | BackendRequest::UnregisterQueryPeer(_)
         | BackendRequest::ListQueryPeers
         | BackendRequest::RegisterReplicationPeer { .. }
+        | BackendRequest::NegotiateReplicationPeer { .. }
         | BackendRequest::UnregisterReplicationPeer(_)
         | BackendRequest::ListReplicationPeers
         | BackendRequest::ReplicationPeerStatus { .. }
         | BackendRequest::ReplicationStatus
+        | BackendRequest::ClusterRegistry
         | BackendRequest::CatchUpFromPrimaries { .. }
         | BackendRequest::CatchUpFromPrimary { .. }
         | BackendRequest::CatchUpPlan { .. } => Ok(BackendResponse::Err(
@@ -330,6 +342,12 @@ fn execute_request_inner(
         }
         BackendRequest::ClusterStatus => Ok(BackendResponse::OkClusterStatus(
             format_cluster_status(&db.cluster_status()?),
+        )),
+        BackendRequest::RoutingTable => Ok(BackendResponse::OkRoutingTable(format_routing_table(
+            &db.routing_table()?,
+        ))),
+        BackendRequest::Capabilities => Ok(BackendResponse::OkCapabilities(
+            format_protocol_capabilities(),
         )),
         BackendRequest::StorageStatus => Ok(BackendResponse::OkStorageStatus(
             format_storage_status(&db.storage_status()?),

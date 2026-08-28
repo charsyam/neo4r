@@ -239,6 +239,7 @@ Additional operator and contributor contracts:
 ```text
 GET  /api/graph?limit=1000
 GET  /api/examples
+GET  /api/capabilities
 POST /api/query
 POST /api/query-plan
 POST /api/profile
@@ -248,6 +249,8 @@ GET  /api/statistics
 GET  /api/storage
 GET  /api/metadata-log
 GET  /api/cluster
+GET  /api/cluster/routing-table
+GET  /api/cluster/registry
 GET  /api/database
 GET  /api/admin/users
 GET  /api/admin/databases
@@ -263,12 +266,20 @@ POST /api/admin/cleanup-expired-tokens
 POST /api/admin/delete-user
 POST /api/cluster/plan-rebalance
 POST /api/cluster/advance-rebalance
+POST /api/admin/cluster/snapshot
+POST /api/admin/cluster/migration/plan
+POST /api/admin/cluster/migration/start
+POST /api/admin/cluster/migration/advance
+POST /api/admin/cluster/migration/cancel
 POST /api/backup
 POST /api/restore
 ```
 
 `POST /api/query`, `/api/query-plan`, and `/api/profile` accept a JSON body like
 `{"query":"MATCH (n:Person) WHERE n.name = $name RETURN n","params":{"name":"Alice"}}`.
+`POST /api/query` also accepts `"read_consistency":"strong"`,
+`"follower_stale"`, or `"bounded_staleness"` with optional
+`"max_staleness_ms":1000` for read queries.
 For tenant selection, include `"database":"tenant_a"` or send
 `X-Neo4r-Database: tenant_a`, or write
 `{"query":"USE tenant_a MATCH (n) RETURN n"}`. `GET /api/database?db=tenant_a`
@@ -283,12 +294,45 @@ index, byte size, and checksum fields. Restore copies files into the live data
 directory, so it is intended for local development and controlled maintenance
 windows.
 
+Clients can discover shard placement with the native `ROUTING_TABLE` command,
+`GET /api/cluster/routing-table`, or the broker-style discovery endpoint
+`GET /api/cluster/registry`. The registry endpoint is a control-plane surface:
+it returns the selected database, local server id, routing/ownership epoch,
+freshness TTL, membership index, routing table, migration state, and known query
+peer addresses; it does not proxy data-path writes. It also reports
+`write_authority:"shard_primary_and_raft_leader"` so clients can treat routing
+primaries and Raft leadership as the write-eligibility policy.
+
+When a shard write cannot be served by the current node and the routing target
+must be refreshed, the server returns a structured redirect such as:
+
+```text
+ERR	MOVED	shard=3	leader=2	address=127.0.0.1:17688	routing_version=17	ownership_epoch=17	database=tenant_a	retryable=true
+```
+
+The Rust and Python SDKs parse retryable redirects, cache topology metadata, and
+automatically reconnect to the target address up to a bounded hop limit. HTTP
+data-path requests can include `x-neo4r-ownership-epoch` or
+`x-neo4r-routing-epoch`; stale epochs are rejected with a retryable 409 response.
+Native read-write transactions capture the ownership epoch at `BEGIN_TX`; if the
+routing epoch changes before `COMMIT_TX`, the server returns a typed
+`ERR	STALE_EPOCH	...	retryable=true` error so SDKs can distinguish topology
+conflicts from ordinary query errors.
+
+Migration catch-up uses the Raft/TCP catch-up and install-snapshot protocol
+surfaces. When a joining replica has no matching log position but the shard has
+committed data, the rebalance state machine reports
+`snapshot_bootstrap_required ...` before the replica can be marked ready.
+
 SDK examples can be checked without a long-running server for static
 compatibility, or with one local live server for Rust and Python examples:
 
 ```bash
 scripts/sdk-compat.sh
 NEO4R_RUN_SDK_LIVE=1 scripts/sdk-compat.sh
+scripts/multi-node-integration.sh
+scripts/security-regression.sh
+scripts/bench-regression.sh
 ```
 
 The live path runs the Rust and Python examples against the same endpoint. Both
@@ -306,6 +350,12 @@ The default wire protocol is a native length-prefixed frame:
 ```text
 magic(4) version(1) type(1) flags(2) length(4) request_id(8) payload(length)
 ```
+
+`CAPABILITIES` and `GET /api/capabilities` publish `native_protocol_min`,
+`native_protocol_max`, `http_protocol_min`, and `http_protocol_max` fields. The
+current protocol range is `1..=1`; clients should check capabilities before
+depending on redirect, topology-cache, typed epoch conflict, or bounded
+staleness features.
 
 Current request message types:
 

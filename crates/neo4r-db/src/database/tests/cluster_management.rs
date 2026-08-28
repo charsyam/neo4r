@@ -56,6 +56,26 @@ pub(super) fn cluster_rebalance_execution_advances_and_persists_status() {
 }
 
 #[test]
+pub(super) fn cluster_rebalance_reports_snapshot_bootstrap_before_catch_up() {
+    let dir = temp_dir("facade-rebalance-snapshot-bootstrap");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.create_node(
+        vec!["Person".to_string()],
+        properties(&[("name", Value::String("BootstrapAlice".to_string()))]),
+    )
+    .unwrap();
+    db.register_cluster_node(2, "127.0.0.1:17688").unwrap();
+
+    let prepared = db.advance_rebalance().unwrap();
+    assert_eq!(prepared.action, "prepared");
+    let waiting = db.advance_rebalance().unwrap();
+    assert!(waiting.action.contains("snapshot_bootstrap_required"));
+    assert!(waiting.action.contains("committed_index=1"));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn cluster_metadata_authority_guards_metadata_mutations() {
     let dir = temp_dir("facade-metadata-authority");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();

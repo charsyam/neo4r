@@ -626,3 +626,118 @@ pub(super) fn read_u32(reader: &mut impl Read) -> DatabaseResult<u32> {
         .map_err(|err| DatabaseError::Replication(format!("read u32: {err}")))?;
     Ok(u32::from_be_bytes(bytes))
 }
+
+pub(super) fn write_tcp_replication_hello_response(
+    writer: &mut impl Write,
+    result: &DatabaseResult<ReplicationNodeIdentity>,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_REPLICATION_RESPONSE_MAGIC)
+        .map_err(|err| {
+            DatabaseError::Replication(format!("write replication hello magic: {err}"))
+        })?;
+    match result {
+        Ok(identity) => {
+            writer.write_all(&[TCP_REPLICATION_OK]).map_err(|err| {
+                DatabaseError::Replication(format!("write replication hello ok: {err}"))
+            })?;
+            let payload = encode_replication_node_identity(identity);
+            write_u32(writer, payload.len() as u32)?;
+            writer.write_all(payload.as_bytes()).map_err(|err| {
+                DatabaseError::Replication(format!("write replication hello payload: {err}"))
+            })
+        }
+        Err(err) => {
+            writer
+                .write_all(&[TCP_REPLICATION_ERR])
+                .map_err(|write_err| {
+                    DatabaseError::Replication(format!("write replication hello err: {write_err}"))
+                })?;
+            let message = err.to_string();
+            write_u32(writer, message.len() as u32)?;
+            writer.write_all(message.as_bytes()).map_err(|write_err| {
+                DatabaseError::Replication(format!(
+                    "write replication hello err payload: {write_err}"
+                ))
+            })
+        }
+    }
+}
+
+pub(super) fn read_tcp_replication_hello_response(
+    reader: &mut impl Read,
+) -> DatabaseResult<ReplicationNodeIdentity> {
+    read_magic(
+        reader,
+        TCP_REPLICATION_RESPONSE_MAGIC,
+        "replication hello response",
+    )?;
+    let mut status = [0; 1];
+    reader.read_exact(&mut status).map_err(|err| {
+        DatabaseError::Replication(format!("read replication hello status: {err}"))
+    })?;
+    let len = read_u32(reader)? as usize;
+    let mut payload = vec![0; len];
+    reader.read_exact(&mut payload).map_err(|err| {
+        DatabaseError::Replication(format!("read replication hello payload: {err}"))
+    })?;
+    if status[0] == TCP_REPLICATION_ERR {
+        return Err(DatabaseError::Replication(
+            String::from_utf8_lossy(&payload).to_string(),
+        ));
+    }
+    decode_replication_node_identity(&String::from_utf8_lossy(&payload))
+}
+
+fn encode_replication_node_identity(identity: &ReplicationNodeIdentity) -> String {
+    let transports = identity
+        .transports
+        .iter()
+        .map(|kind| match kind {
+            ReplicationChannelKind::Tcp => "tcp",
+            ReplicationChannelKind::Udp => "udp",
+            ReplicationChannelKind::Rdma => "rdma",
+            ReplicationChannelKind::Custom => "custom",
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "{}\t{}\t{}\t{}\t{}",
+        identity.server_id, identity.node_id, identity.cluster_id, identity.database_id, transports
+    )
+}
+
+fn decode_replication_node_identity(input: &str) -> DatabaseResult<ReplicationNodeIdentity> {
+    let parts = input.split('\t').collect::<Vec<_>>();
+    if parts.len() != 5 {
+        return Err(DatabaseError::Replication(
+            "invalid replication hello identity payload".to_string(),
+        ));
+    }
+    let server_id = parts[0]
+        .parse::<u64>()
+        .map_err(|_| DatabaseError::Replication("invalid hello server id".to_string()))?;
+    let node_id = parts[1]
+        .parse::<u64>()
+        .map_err(|_| DatabaseError::Replication("invalid hello node id".to_string()))?;
+    let transports = parts[4]
+        .split(',')
+        .filter(|part| !part.is_empty())
+        .map(|part| match part {
+            "tcp" => Ok(ReplicationChannelKind::Tcp),
+            "udp" => Ok(ReplicationChannelKind::Udp),
+            "rdma" => Ok(ReplicationChannelKind::Rdma),
+            "custom" => Ok(ReplicationChannelKind::Custom),
+            other => Err(DatabaseError::Replication(format!(
+                "invalid hello transport {other:?}"
+            ))),
+        })
+        .collect::<DatabaseResult<Vec<_>>>()?;
+    Ok(ReplicationNodeIdentity {
+        server_id,
+        node_id,
+        cluster_id: parts[2].to_string(),
+        database_id: parts[3].to_string(),
+        transports,
+    })
+}

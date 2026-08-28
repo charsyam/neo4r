@@ -84,6 +84,7 @@ pub(super) fn transaction_store_lists_all_session_transactions() {
         7,
         NativeTransaction::ReadWrite {
             isolation: ReadIsolation::ReadCommitted,
+            ownership_epoch: 1,
             staged_writes: Vec::new(),
             conflict_keys: BTreeSet::new(),
         },
@@ -92,6 +93,7 @@ pub(super) fn transaction_store_lists_all_session_transactions() {
         9,
         NativeTransaction::ReadWrite {
             isolation: ReadIsolation::Snapshot,
+            ownership_epoch: 1,
             staged_writes: Vec::new(),
             conflict_keys: BTreeSet::new(),
         },
@@ -106,14 +108,14 @@ pub(super) fn transaction_store_lists_all_session_transactions() {
         .unwrap();
 
     assert_eq!(
-            format_tx_list_all(store.list_all().unwrap()),
-            format!(
-                "OK\tTX_LIST_ALL\t2\t7:{first_tx}:READ_WRITE:READ_COMMITTED:1,9:{second_tx}:READ_WRITE:SNAPSHOT:0"
-            )
-        );
+        format_tx_list_all(store.list_all().unwrap()),
+        format!(
+            "OK\tTX_LIST_ALL\t2\t7:{first_tx}:READ_WRITE:READ_COMMITTED:1:1,9:{second_tx}:READ_WRITE:SNAPSHOT:0:1"
+        )
+    );
     assert_eq!(
         format_tx_list(store.list(7).unwrap()),
-        format!("OK\tTX_LIST\t1\t{first_tx}:READ_WRITE:READ_COMMITTED:1")
+        format!("OK\tTX_LIST\t1\t{first_tx}:READ_WRITE:READ_COMMITTED:1:1")
     );
 }
 
@@ -124,6 +126,7 @@ pub(super) fn transaction_store_rejects_duplicate_staged_write_conflicts() {
         7,
         NativeTransaction::ReadWrite {
             isolation: ReadIsolation::ReadCommitted,
+            ownership_epoch: 1,
             staged_writes: Vec::new(),
             conflict_keys: BTreeSet::new(),
         },
@@ -185,7 +188,7 @@ pub(super) fn native_read_write_transaction_reports_status() {
         &mut stream,
         NativeMessageType::Response,
         2,
-        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tREAD_COMMITTED\t0"),
+        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tREAD_COMMITTED\t0\townership_epoch=1"),
     );
 
     write_frame(
@@ -218,7 +221,7 @@ pub(super) fn native_read_write_transaction_reports_status() {
         &mut stream,
         NativeMessageType::Response,
         4,
-        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tREAD_COMMITTED\t1"),
+        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tREAD_COMMITTED\t1\townership_epoch=1"),
     );
 
     write_frame(

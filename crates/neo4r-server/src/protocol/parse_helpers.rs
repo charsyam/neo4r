@@ -19,12 +19,18 @@ pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, Strin
         "REGISTER_REPLICATION_PEER" => {
             Err("REGISTER_REPLICATION_PEER requires server id".to_string())
         }
+        "NEGOTIATE_REPLICATION_PEER" => {
+            Err("NEGOTIATE_REPLICATION_PEER requires server id".to_string())
+        }
         "UNREGISTER_REPLICATION_PEER" => {
             Err("UNREGISTER_REPLICATION_PEER requires server id".to_string())
         }
         "LIST_REPLICATION_PEERS" => Ok(BackendRequest::ListReplicationPeers),
         "REPLICATION_PEER_STATUS" => Ok(BackendRequest::ReplicationPeerStatus { server_id: None }),
         "REPLICATION_STATUS" => Ok(BackendRequest::ReplicationStatus),
+        "ROUTING_TABLE" => Ok(BackendRequest::RoutingTable),
+        "CLUSTER_REGISTRY" => Ok(BackendRequest::ClusterRegistry),
+        "CAPABILITIES" => Ok(BackendRequest::Capabilities),
         "CATCH_UP_FROM_PRIMARIES" => Ok(BackendRequest::CatchUpFromPrimaries {
             max_entries_per_request: None,
         }),

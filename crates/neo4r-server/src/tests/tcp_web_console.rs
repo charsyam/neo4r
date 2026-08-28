@@ -867,11 +867,11 @@ pub(super) fn native_prepared_query_executes_with_params_and_transactions() {
     .unwrap();
     let tx_route = read_native_payload(&mut stream, NativeMessageType::Response, 8);
     assert_eq!(
-            tx_route,
-            format!(
-                "OK\tTX_PREPARED_QUERY_ROUTE\t{tx_id}\t2\tWRITE_TARGET_DYNAMIC\ttx_mode=READ_WRITE tx_isolation=SNAPSHOT staged_writes=0 staged_overlay=none"
-            )
-        );
+        tx_route,
+        format!(
+            "OK\tTX_PREPARED_QUERY_ROUTE\t{tx_id}\t2\tWRITE_TARGET_DYNAMIC\ttx_mode=READ_WRITE tx_isolation=SNAPSHOT staged_writes=0 staged_overlay=none ownership_epoch=1"
+        )
+    );
 
     write_frame(
         &mut stream,

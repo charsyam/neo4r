@@ -112,6 +112,150 @@ pub(super) fn backend_rejects_replication_peer_identity_cycles() {
 }
 
 #[test]
+pub(super) fn backend_rejects_indirect_replication_peer_identity_cycles() {
+    let dir = temp_dir("neo4r-server-register-repl-indirect-cycle");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    let backend = TcpBackend::new(db.clone());
+
+    assert_eq!(
+        backend.execute_backend_request(
+            parse_request("REGISTER_REPLICATION_PEER\t2\t127.0.0.1:17688\t3\ttcp").unwrap()
+        ),
+        BackendResponse::OkUnit
+    );
+    assert_eq!(
+        backend.execute_backend_request(
+            parse_request("REGISTER_REPLICATION_PEER\t3\t127.0.0.1:17689\t4\ttcp").unwrap()
+        ),
+        BackendResponse::OkUnit
+    );
+
+    let response = backend.execute_backend_request(
+        parse_request("REGISTER_REPLICATION_PEER\t4\t127.0.0.1:17690\t2\ttcp").unwrap(),
+    );
+
+    let BackendResponse::Err(message) = response else {
+        panic!("expected indirect cycle rejection");
+    };
+    assert!(message.contains("replication peer identity cycle detected"));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn backend_negotiates_replication_peer_identity_before_registration() {
+    let primary_dir = temp_dir("neo4r-server-negotiate-repl-primary");
+    let replica_dir = temp_dir("neo4r-server-negotiate-repl-replica");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let replica = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&replica_dir, 1, 1)
+            .with_server_id(2)
+            .with_routing_table(routing_table.clone()),
+    )
+    .unwrap();
+    let replica_backend = TcpBackend::new(replica.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let server = thread::spawn(move || {
+        replica_backend
+            .serve_replication_listener_once(listener)
+            .unwrap()
+    });
+
+    let primary = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&primary_dir, 1, 1)
+            .with_server_id(1)
+            .with_routing_table(routing_table),
+    )
+    .unwrap();
+    let primary_backend = TcpBackend::new(primary.clone());
+    assert_eq!(
+        primary_backend.execute_backend_request(
+            parse_request(&format!("NEGOTIATE_REPLICATION_PEER\t2\t{address}\t2")).unwrap()
+        ),
+        BackendResponse::OkUnit
+    );
+
+    server.join().unwrap();
+    assert_eq!(
+        primary_backend.list_replication_peers().unwrap(),
+        vec![(2, address)]
+    );
+
+    drop(primary);
+    drop(replica);
+    let _ = fs::remove_dir_all(primary_dir);
+    let _ = fs::remove_dir_all(replica_dir);
+}
+
+#[test]
+pub(super) fn backend_negotiation_rejects_non_member_peer() {
+    let dir = temp_dir("neo4r-server-negotiate-repl-non-member");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    let backend = TcpBackend::new(db.clone());
+
+    let response = backend.execute_backend_request(
+        parse_request("NEGOTIATE_REPLICATION_PEER\t2\t127.0.0.1:17688\t2").unwrap(),
+    );
+
+    let BackendResponse::Err(message) = response else {
+        panic!("expected non-member rejection");
+    };
+    assert!(message.contains("not present in the routing table"));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn backend_cluster_registry_reports_routing_and_query_peers() {
+    let dir = temp_dir("neo4r-server-cluster-registry");
+    let routing_table = ShardRoutingTable {
+        version: 9,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let db = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(1)
+            .with_routing_table(routing_table),
+    )
+    .unwrap();
+    let backend = TcpBackend::new(db.clone());
+    backend.register_query_peer(2, "127.0.0.1:17688").unwrap();
+
+    let response = backend.execute_backend_request(parse_request("CLUSTER_REGISTRY").unwrap());
+
+    let BackendResponse::OkClusterRegistry(registry) = response else {
+        panic!("expected cluster registry response");
+    };
+    assert!(registry.contains("database=default"));
+    assert!(registry.contains("local_server=1"));
+    assert!(registry.contains("routing_version=9"));
+    assert!(registry.contains("ownership_epoch=9"));
+    assert!(registry.contains("membership_index="));
+    assert!(registry.contains("metadata_index="));
+    assert!(registry.contains("generated_at="));
+    assert!(registry.contains("ttl_ms=5000"));
+    assert!(registry.contains("migration=idle"));
+    assert!(registry.contains("raft="));
+    assert!(registry.contains("query_peers=2:127.0.0.1:17688"));
+    assert!(registry.contains("shard=0:replicas=1:primary|2:replica"));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn replication_shard_status_reports_unknown_and_numeric_lag() {
     let status = format_replication_shard_status(&neo4r_db::ShardStatus {
         shard_id: 0,

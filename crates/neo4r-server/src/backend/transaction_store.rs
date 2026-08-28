@@ -162,6 +162,7 @@ impl TransactionStore {
             mode: tx.transaction.mode(),
             isolation: tx.transaction.isolation(),
             staged_writes: tx.transaction.staged_write_count(),
+            ownership_epoch: tx.transaction.ownership_epoch(),
         })
     }
 
@@ -234,6 +235,7 @@ impl TransactionStore {
             mode: tx.transaction.mode(),
             isolation: tx.transaction.isolation(),
             staged_writes: tx.transaction.staged_write_count(),
+            ownership_epoch: tx.transaction.ownership_epoch(),
         })
     }
 
@@ -280,6 +282,7 @@ impl TransactionStore {
                 mode: tx.transaction.mode(),
                 isolation: tx.transaction.isolation(),
                 staged_writes: tx.transaction.staged_write_count(),
+                ownership_epoch: tx.transaction.ownership_epoch(),
             })
             .collect::<Vec<_>>();
         infos.sort_by_key(|info| info.tx_id);
@@ -299,6 +302,7 @@ impl TransactionStore {
                 mode: tx.transaction.mode(),
                 isolation: tx.transaction.isolation(),
                 staged_writes: tx.transaction.staged_write_count(),
+                ownership_epoch: tx.transaction.ownership_epoch(),
             })
             .collect::<Vec<_>>();
         infos.sort_by_key(|info| (info.session_id, info.tx_id));
@@ -320,6 +324,7 @@ impl TransactionStore {
             mode: tx.transaction.mode(),
             isolation: tx.transaction.isolation(),
             staged_writes: tx.transaction.staged_write_count(),
+            ownership_epoch: tx.transaction.ownership_epoch(),
         })
     }
 }

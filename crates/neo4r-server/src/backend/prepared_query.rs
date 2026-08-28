@@ -3,6 +3,7 @@ pub(crate) enum NativeTransaction {
     ReadOnly(Neo4rReadTransaction),
     ReadWrite {
         isolation: ReadIsolation,
+        ownership_epoch: u64,
         staged_writes: Vec<StagedWrite>,
         conflict_keys: BTreeSet<String>,
     },
@@ -29,6 +30,15 @@ impl NativeTransaction {
             Self::ReadWrite { isolation, .. } => *isolation,
         }
     }
+
+    pub(crate) fn ownership_epoch(&self) -> u64 {
+        match self {
+            Self::ReadOnly(_) => 0,
+            Self::ReadWrite {
+                ownership_epoch, ..
+            } => *ownership_epoch,
+        }
+    }
 }
 
 pub(crate) struct TransactionInfo {
@@ -37,6 +47,7 @@ pub(crate) struct TransactionInfo {
     pub(crate) mode: TransactionMode,
     pub(crate) isolation: ReadIsolation,
     pub(crate) staged_writes: usize,
+    pub(crate) ownership_epoch: u64,
 }
 
 #[derive(Debug)]
@@ -50,6 +61,7 @@ pub(crate) struct TransactionPlanContext {
     pub(crate) mode: TransactionMode,
     pub(crate) isolation: ReadIsolation,
     pub(crate) staged_writes: usize,
+    pub(crate) ownership_epoch: u64,
 }
 
 pub(crate) fn format_transaction_plan_context(context: &TransactionPlanContext) -> String {
@@ -59,11 +71,12 @@ pub(crate) fn format_transaction_plan_context(context: &TransactionPlanContext) 
         "pending"
     };
     format!(
-        "tx_mode={} tx_isolation={} staged_writes={} staged_overlay={}",
+        "tx_mode={} tx_isolation={} staged_writes={} staged_overlay={} ownership_epoch={}",
         format_transaction_mode(context.mode),
         format_read_isolation(context.isolation),
         context.staged_writes,
-        staged_overlay
+        staged_overlay,
+        context.ownership_epoch
     )
 }
 
@@ -72,11 +85,12 @@ pub(crate) fn format_tx_list(infos: Vec<TransactionInfo>) -> String {
         .iter()
         .map(|info| {
             format!(
-                "{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}",
                 info.tx_id,
                 format_transaction_mode(info.mode),
                 format_read_isolation(info.isolation),
-                info.staged_writes
+                info.staged_writes,
+                info.ownership_epoch
             )
         })
         .collect::<Vec<_>>()
@@ -86,11 +100,12 @@ pub(crate) fn format_tx_list(infos: Vec<TransactionInfo>) -> String {
 
 pub(crate) fn format_tx_status(info: TransactionInfo) -> String {
     format!(
-        "OK\tTX_STATUS\t{}\t{}\t{}\t{}",
+        "OK\tTX_STATUS\t{}\t{}\t{}\t{}\townership_epoch={}",
         info.tx_id,
         format_transaction_mode(info.mode),
         format_read_isolation(info.isolation),
-        info.staged_writes
+        info.staged_writes,
+        info.ownership_epoch
     )
 }
 
@@ -99,12 +114,13 @@ pub(crate) fn format_tx_list_all(infos: Vec<TransactionInfo>) -> String {
         .iter()
         .map(|info| {
             format!(
-                "{}:{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}:{}",
                 info.session_id,
                 info.tx_id,
                 format_transaction_mode(info.mode),
                 format_read_isolation(info.isolation),
-                info.staged_writes
+                info.staged_writes,
+                info.ownership_epoch
             )
         })
         .collect::<Vec<_>>()

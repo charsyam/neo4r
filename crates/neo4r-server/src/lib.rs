@@ -5,23 +5,28 @@ mod protocol;
 mod tenant;
 mod web_auth;
 
-use neo4r_core::{Properties, Value};
+use neo4r_core::{Properties, ShardRole, Value};
 use neo4r_db::{
     catch_up_from_tcp_primary, catch_up_from_tcp_primary_batched, create_node_routing_key,
-    handle_tcp_replication_stream, merge_node_routing_key, CreateNodeRoutingKey, DatabaseConfig,
-    Neo4rDatabaseHandle, Neo4rReadTransaction, QueryOptions, ReadIsolation, ReplicationChannelKind,
-    ReplicationEndpoint,
+    handle_tcp_replication_stream, merge_node_routing_key, request_tcp_replication_hello,
+    CreateNodeRoutingKey, DatabaseConfig, Neo4rDatabaseHandle, Neo4rReadTransaction,
+    NodeMembershipState, QueryOptions, ReadConsistency, ReadIsolation, ReplicationChannelKind,
+    ReplicationEndpoint, ReplicationNodeIdentity,
 };
 use neo4r_query::{QueryCursor, QueryParams, QueryRow, QueryValue, VecQueryCursor};
 use neo4r_storage::{
     TransactionDecision, TransactionDecisionRecord, TransactionDecisionStore,
     TransactionParticipantRecord,
 };
-use peer_store::{format_query_peers, QueryPeerStore, QUERY_PEERS_FILE, REPLICATION_PEERS_FILE};
+use peer_store::{
+    format_query_peers, QueryPeerStore, ReplicationPeerIdentity, ReplicationPeerIdentityStore,
+    QUERY_PEERS_FILE, REPLICATION_PEERS_FILE, REPLICATION_PEER_IDENTITIES_FILE,
+};
 use protocol::{
     decode_index_catalog, decode_query_batch_payload, decode_query_rows,
-    encode_query_batch_payload, encode_query_rows, execute_request, format_query_plan,
-    format_response, parse_query_payload, parse_request, write_response, BackendResponse,
+    encode_query_batch_payload, encode_query_rows, execute_request, format_protocol_capabilities,
+    format_query_plan, format_response, format_routing_table, parse_query_payload, parse_request,
+    write_response, BackendRedirect, BackendResponse, RedirectKind,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
@@ -58,6 +63,7 @@ pub struct TcpBackend {
     prepared_queries: PreparedQueryStore,
     query_peers: QueryPeerStore,
     replication_peers: QueryPeerStore,
+    replication_peer_identities: ReplicationPeerIdentityStore,
     read_preference: QueryReadPreference,
     catch_up_connect_timeout: Duration,
     pending_requests: PendingRequestStore,
@@ -104,6 +110,9 @@ struct WebMetrics {
     queries: Arc<AtomicU64>,
     query_errors: Arc<AtomicU64>,
     slow_queries: Arc<AtomicU64>,
+    registry_requests: Arc<AtomicU64>,
+    stale_epoch_rejections: Arc<AtomicU64>,
+    redirects: Arc<AtomicU64>,
 }
 
 #[derive(Clone, Default)]

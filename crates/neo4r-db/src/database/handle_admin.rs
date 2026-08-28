@@ -45,6 +45,29 @@ impl Neo4rDatabaseHandle {
         Ok(self.lock()?.cluster_status())
     }
 
+    pub fn replication_node_identity(&self) -> DatabaseResult<ReplicationNodeIdentity> {
+        let database = self.lock()?;
+        let data_dir = database.data_dir();
+        let cluster_id = data_dir
+            .parent()
+            .map(|parent| parent.display().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "default-cluster".to_string());
+        Ok(ReplicationNodeIdentity {
+            server_id: database.cluster_status().server_id,
+            node_id: database.cluster_status().server_id,
+            cluster_id,
+            database_id: "default".to_string(),
+            transports: vec![crate::ReplicationChannelKind::Tcp],
+        })
+    }
+
+    pub fn replication_channel_metrics(
+        &self,
+    ) -> DatabaseResult<Option<ReplicationChannelMetricsSnapshot>> {
+        Ok(self.lock()?.replication_channel_metrics())
+    }
+
     pub fn install_routing_table(&self, routing_table: ShardRoutingTable) -> DatabaseResult<()> {
         self.lock()?.install_routing_table(routing_table)
     }

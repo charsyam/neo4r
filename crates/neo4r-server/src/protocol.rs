@@ -1,4 +1,6 @@
-use neo4r_core::{Properties, ShardId, ShardPlacement, ShardReplica, ShardRoutingTable, Value};
+use neo4r_core::{
+    Properties, ShardId, ShardPlacement, ShardReplica, ShardRole, ShardRoutingTable, Value,
+};
 use neo4r_db::{
     ClusterManagementStatus, ClusterMembership, ClusterMetadataState, ClusterStatus,
     DatabaseResult, DistributedQueryPlan, IndexCatalog, IndexDefinition, IndexKind,
@@ -63,12 +65,20 @@ pub enum BackendRequest {
         node_id: Option<u64>,
         transport: Option<ReplicationChannelKind>,
     },
+    NegotiateReplicationPeer {
+        server_id: u64,
+        address: String,
+        node_id: Option<u64>,
+    },
     UnregisterReplicationPeer(u64),
     ListReplicationPeers,
     ReplicationPeerStatus {
         server_id: Option<u64>,
     },
     ReplicationStatus,
+    RoutingTable,
+    ClusterRegistry,
+    Capabilities,
     CatchUpFromPrimaries {
         max_entries_per_request: Option<usize>,
     },
@@ -229,6 +239,9 @@ pub enum BackendResponse {
     OkReplicationPeers(String),
     OkReplicationPeerStatus(String),
     OkReplicationStatus(String),
+    OkRoutingTable(String),
+    OkClusterRegistry(String),
+    OkCapabilities(String),
     OkCatchUp(String),
     OkCatchUpPlan(String),
     OkTransactionDecisions(String),
@@ -246,7 +259,27 @@ pub enum BackendResponse {
     OkRebalancePlan(String),
     OkRebalanceExecution(String),
     OkClusterManagementStatus(String),
+    Redirect(BackendRedirect),
     Err(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackendRedirect {
+    pub kind: RedirectKind,
+    pub shard_id: ShardId,
+    pub target_server_id: Option<u64>,
+    pub address: Option<String>,
+    pub routing_version: u64,
+    pub database: String,
+    pub retryable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub enum RedirectKind {
+    Moved,
+    NotLeader,
+    StaleRouting,
 }
 
 pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
@@ -394,6 +427,30 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
                 return Err("REGISTER_REPLICATION_PEER got extra fields".to_string());
             }
             Ok(request)
+        }
+        "NEGOTIATE_REPLICATION_PEER" => {
+            let mut parts = rest.split('\t');
+            let server_id = parse_u64(
+                parts.next(),
+                "NEGOTIATE_REPLICATION_PEER requires server id",
+            )?;
+            let address =
+                parse_address(parts.next(), "NEGOTIATE_REPLICATION_PEER requires address")?;
+            let node_id = match parts.next() {
+                Some(value) if !value.trim().is_empty() => Some(parse_u64(
+                    Some(value),
+                    "NEGOTIATE_REPLICATION_PEER node id must be numeric",
+                )?),
+                _ => None,
+            };
+            if parts.next().is_some() {
+                return Err("NEGOTIATE_REPLICATION_PEER got extra fields".to_string());
+            }
+            Ok(BackendRequest::NegotiateReplicationPeer {
+                server_id,
+                address,
+                node_id,
+            })
         }
         "UNREGISTER_REPLICATION_PEER" => Ok(BackendRequest::UnregisterReplicationPeer(
             parse_single_id(rest, "UNREGISTER_REPLICATION_PEER requires server id")?,
@@ -752,7 +809,7 @@ mod parse_helpers;
 mod row_codec;
 
 pub use execute::{execute_request, format_response, write_response};
-pub(crate) use format::format_query_plan;
+pub(crate) use format::{format_protocol_capabilities, format_query_plan, format_routing_table};
 pub use parse_helpers::decode_index_catalog;
 use parse_helpers::*;
 use row_codec::*;

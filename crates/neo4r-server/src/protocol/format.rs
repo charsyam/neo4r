@@ -1,5 +1,34 @@
 use super::*;
 
+pub(crate) fn format_protocol_capabilities() -> String {
+    [
+        "native_protocol=1",
+        "native_protocol_min=1",
+        "native_protocol_max=1",
+        "http_protocol=1",
+        "http_protocol_min=1",
+        "http_protocol_max=1",
+        "server_version=0.1",
+        "routing_table=true",
+        "cluster_registry=true",
+        "ownership_epoch=true",
+        "registry_ttl=true",
+        "redirect_loop_safe=true",
+        "redirect_kinds=MOVED|NOT_LEADER|STALE_ROUTING|STALE_EPOCH",
+        "raft_metadata=true",
+        "write_authority=shard_primary_and_raft_leader",
+        "snapshot_bootstrap=true",
+        "read_index=true",
+        "bounded_staleness=true",
+        "transaction_epoch=true",
+        "typed_epoch_conflict=true",
+        "storage_invariants=true",
+        "storage_atomic_batch=true",
+        "token_expiry=true",
+    ]
+    .join(" ")
+}
+
 pub(super) fn format_cluster_status(status: &ClusterStatus) -> String {
     let shards = status
         .shards
@@ -14,6 +43,55 @@ pub(super) fn format_cluster_status(status: &ClusterStatus) -> String {
         status.shard_count,
         status.local_partition_count,
         shards
+    )
+}
+
+pub(crate) fn format_routing_table(routing_table: &ShardRoutingTable) -> String {
+    let placements = routing_table
+        .placements
+        .iter()
+        .map(|placement| {
+            let replicas = placement
+                .replicas
+                .iter()
+                .map(|replica| {
+                    let role = match replica.role {
+                        ShardRole::Primary => "primary",
+                        ShardRole::Replica => "replica",
+                    };
+                    format!("{}:{}", replica.server_id, role)
+                })
+                .collect::<Vec<_>>()
+                .join("|");
+            format!("shard={}:replicas={}", placement.shard_id, replicas)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "version={} ownership_epoch={} [{}]",
+        routing_table.version, routing_table.version, placements
+    )
+}
+
+pub(super) fn format_redirect_response(redirect: &BackendRedirect) -> String {
+    let kind = match redirect.kind {
+        RedirectKind::Moved => "MOVED",
+        RedirectKind::NotLeader => "NOT_LEADER",
+        RedirectKind::StaleRouting => "STALE_ROUTING",
+    };
+    format!(
+        "ERR\t{}\tshard={}\tleader={}\taddress={}\trouting_version={}\townership_epoch={}\tdatabase={}\tretryable={}",
+        kind,
+        redirect.shard_id,
+        redirect
+            .target_server_id
+            .map(|server_id| server_id.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        redirect.address.as_deref().unwrap_or("missing"),
+        redirect.routing_version,
+        redirect.routing_version,
+        redirect.database,
+        redirect.retryable
     )
 }
 
@@ -117,9 +195,17 @@ pub(super) fn format_cluster_metadata(metadata: &ClusterMetadataState) -> String
 }
 
 pub(super) fn format_cluster_management_status(status: &ClusterManagementStatus) -> String {
+    let migration_state = status
+        .rebalance_execution
+        .as_ref()
+        .map(|execution| format!("{:?}", execution.state))
+        .unwrap_or_else(|| "idle".to_string());
     format!(
-        "{{\"routing_version\":{},\"metadata\":\"{}\",\"membership\":\"{}\",\"rebalance_plan\":\"{}\",\"rebalance_execution\":\"{}\",\"rebalance_automation\":\"{}\"}}",
+        "{{\"routing_version\":{},\"ownership_epoch\":{},\"membership_index\":{},\"migration_state\":\"{}\",\"metadata\":\"{}\",\"membership\":\"{}\",\"rebalance_plan\":\"{}\",\"rebalance_execution\":\"{}\",\"rebalance_automation\":\"{}\"}}",
         status.routing_version,
+        status.routing_version,
+        status.membership.version,
+        migration_state,
         escape_json_fragment(&format_cluster_metadata(&status.metadata)),
         escape_json_fragment(&format_cluster_membership(&status.membership)),
         escape_json_fragment(

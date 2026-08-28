@@ -34,6 +34,10 @@ pub fn handle_tcp_replication_stream(
 ) -> DatabaseResult<()> {
     let magic = read_magic_bytes(stream)?;
     match magic.as_slice() {
+        TCP_REPLICATION_HELLO_MAGIC => {
+            write_tcp_replication_hello_response(stream, &db.replication_node_identity())?;
+            Ok(())
+        }
         TCP_REPLICATION_REQUEST_MAGIC => {
             let entries = read_tcp_replication_request_after_magic(stream)?;
             let ack_positions = replication_ack_positions(&entries);
@@ -132,6 +136,27 @@ pub fn request_tcp_raft_vote(
         .flush()
         .map_err(|err| DatabaseError::Replication(format!("flush raft vote request: {err}")))?;
     read_tcp_raft_vote_response(&mut stream)
+}
+
+pub fn request_tcp_replication_hello(
+    address: &str,
+    connect_timeout: Duration,
+) -> DatabaseResult<ReplicationNodeIdentity> {
+    let mut addrs = address
+        .to_socket_addrs()
+        .map_err(|err| DatabaseError::Replication(format!("resolve {address}: {err}")))?;
+    let addr = addrs
+        .next()
+        .ok_or_else(|| DatabaseError::Replication(format!("no socket address for {address}")))?;
+    let mut stream = TcpStream::connect_timeout(&addr, connect_timeout)
+        .map_err(|err| DatabaseError::Replication(format!("connect {address}: {err}")))?;
+    stream
+        .write_all(TCP_REPLICATION_HELLO_MAGIC)
+        .map_err(|err| DatabaseError::Replication(format!("write replication hello: {err}")))?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush replication hello: {err}")))?;
+    read_tcp_replication_hello_response(&mut stream)
 }
 
 pub fn request_tcp_install_snapshot(

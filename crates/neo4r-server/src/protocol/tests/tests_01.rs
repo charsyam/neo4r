@@ -323,6 +323,24 @@ pub(super) fn writes_single_line_error_response() {
     assert_eq!(String::from_utf8(output).unwrap(), "ERR\tbad\\trequest\n");
 }
 
+#[test]
+pub(super) fn formats_redirect_response() {
+    let response = BackendResponse::Redirect(BackendRedirect {
+        kind: RedirectKind::Moved,
+        shard_id: 3,
+        target_server_id: Some(2),
+        address: Some("127.0.0.1:17688".to_string()),
+        routing_version: 17,
+        database: "tenant_a".to_string(),
+        retryable: true,
+    });
+
+    assert_eq!(
+        format_response(&response),
+        "ERR\tMOVED\tshard=3\tleader=2\taddress=127.0.0.1:17688\trouting_version=17\townership_epoch=17\tdatabase=tenant_a\tretryable=true"
+    );
+}
+
 pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
     let nanos = SystemTime::now()

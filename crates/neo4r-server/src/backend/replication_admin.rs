@@ -90,6 +90,7 @@ pub(crate) fn format_shard_id_list(shards: &[u64]) -> String {
 pub(crate) fn replication_status(
     db: &Neo4rDatabaseHandle,
     replication_peers: &QueryPeerStore,
+    replication_peer_identities: &ReplicationPeerIdentityStore,
 ) -> Result<String, String> {
     let status = db.cluster_status().map_err(|err| err.to_string())?;
     let peers = replication_peers.list().map_err(|err| err.to_string())?;
@@ -104,10 +105,159 @@ pub(crate) fn replication_status(
         .map(format_replication_shard_status)
         .collect::<Vec<_>>()
         .join(",");
+    let metrics = db
+        .replication_channel_metrics()
+        .map_err(|err| err.to_string())?
+        .map(|metrics| {
+            format!(
+                "sent_batches:{}|acked_batches:{}|failed_batches:{}|sent_entries:{}|sent_bytes:{}",
+                metrics.sent_batches,
+                metrics.acked_batches,
+                metrics.failed_batches,
+                metrics.sent_entries,
+                metrics.sent_bytes
+            )
+        })
+        .unwrap_or_else(|| "unavailable".to_string());
+    let identities = replication_peer_identities
+        .list()
+        .map_err(|err| err.to_string())?;
+    let identities = if identities.is_empty() {
+        "none".to_string()
+    } else {
+        identities
+            .iter()
+            .map(|identity| {
+                format!(
+                    "{}:{}:{}:{}",
+                    identity.server_id,
+                    identity.node_id.unwrap_or(0),
+                    identity.cluster_id,
+                    identity.database_id
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    };
     Ok(format!(
-        "server={} routing_version={} peers={} shards={}",
-        status.server_id, status.routing_version, peers, shards
+        "server={} routing_version={} peers={} identities={} shards={} metrics={}",
+        status.server_id, status.routing_version, peers, identities, shards, metrics
     ))
+}
+
+pub(crate) fn cluster_registry(
+    db: &Neo4rDatabaseHandle,
+    query_peers: &QueryPeerStore,
+    database: &str,
+) -> Result<String, String> {
+    let status = db.cluster_status().map_err(|err| err.to_string())?;
+    let routing_table = db.routing_table().map_err(|err| err.to_string())?;
+    let generated_at = unix_millis_now();
+    let ttl_ms = 5_000_u64;
+    let peers = query_peers
+        .list()
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let management = db.cluster_management_status().ok();
+    let membership_index = management
+        .as_ref()
+        .map(|management| management.membership.version)
+        .unwrap_or(routing_table.version);
+    let metadata_index = db
+        .metadata_operations()
+        .map(|records| {
+            records
+                .last()
+                .map(|record| record.index)
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    let migration_state = management
+        .as_ref()
+        .and_then(|management| management.rebalance_execution.as_ref())
+        .map(|execution| format!("{:?}:step={}", execution.state, execution.current_step))
+        .unwrap_or_else(|| "idle".to_string());
+    let raft = db
+        .raft_status()
+        .map(|shards| {
+            shards
+                .iter()
+                .map(|shard| {
+                    format!(
+                        "{}:term={}:role={:?}:leader={}",
+                        shard.shard_id,
+                        shard.term,
+                        shard.role,
+                        shard
+                            .leader_id
+                            .map(|leader| leader.to_string())
+                            .unwrap_or_else(|| "none".to_string())
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("|")
+        })
+        .unwrap_or_else(|_| "unknown".to_string());
+    let nodes = management
+        .map(|management| management.membership.nodes)
+        .unwrap_or_default();
+    let nodes = nodes
+        .iter()
+        .map(|node| {
+            let address = if node.address.is_empty() {
+                peers.get(&node.server_id).cloned().unwrap_or_default()
+            } else {
+                node.address.clone()
+            };
+            format!(
+                "{}:{}:{}",
+                node.server_id,
+                registry_node_state(node.state),
+                address
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    let query_peers = if peers.is_empty() {
+        "none".to_string()
+    } else {
+        peers
+            .iter()
+            .map(|(server_id, address)| format!("{server_id}:{address}"))
+            .collect::<Vec<_>>()
+            .join("|")
+    };
+    Ok(format!(
+        "database={} local_server={} routing_version={} ownership_epoch={} membership_index={} metadata_index={} generated_at={} ttl_ms={} migration={} raft={} write_authority={} query_peers={} nodes={} routing={}",
+        database,
+        status.server_id,
+        routing_table.version,
+        routing_table.version,
+        membership_index,
+        metadata_index,
+        generated_at,
+        ttl_ms,
+        migration_state,
+        raft,
+        "shard_primary_and_raft_leader",
+        query_peers,
+        nodes,
+        format_routing_table(&routing_table)
+    ))
+}
+
+fn registry_node_state(state: NodeMembershipState) -> &'static str {
+    match state {
+        NodeMembershipState::Negotiating => "negotiating",
+        NodeMembershipState::Joining => "joining",
+        NodeMembershipState::Active => "active",
+        NodeMembershipState::Draining => "draining",
+        NodeMembershipState::Leaving => "leaving",
+        NodeMembershipState::Removed => "removed",
+        NodeMembershipState::Dead => "dead",
+        NodeMembershipState::Rejected => "rejected",
+    }
 }
 
 pub(crate) fn format_replication_shard_status(status: &neo4r_db::ShardStatus) -> String {

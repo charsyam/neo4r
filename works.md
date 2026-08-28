@@ -155,6 +155,81 @@ Verification:
 - [2026-08 part 1](docs/worklog/2026-08-part1.md)
 - [2026-08 part 2](docs/worklog/2026-08-part2.md)
 
+## Replication Identity, Negotiation, SDK/API Goal 1-10
+
+Requested scope: set items 1 through 10 as a goal and complete them in order.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Persisted replication peer identity separately from address-only peer state.
+2. Extended replication topology cycle detection beyond direct self loops.
+3. Added explicit `NEGOTIATE_REPLICATION_PEER` endpoint handshake before
+   negotiated peer add.
+4. Introduced cluster/database identity in TCP replication hello metadata.
+5. Connected negotiated peer registration to routing membership validation.
+6. Strengthened durable apply crash-point/atomicity coverage with a dedicated
+   storage atomicity script.
+7. Expanded WriteBatch-backed graph mutation verification through the same
+   script.
+8. Added Rust and Python SDK helpers for tenant/database/auth administration
+   flows.
+9. Exposed replication channel metrics through the database handle and
+   `REPLICATION_STATUS`.
+10. Added CI matrix entrypoints for SDK/live, storage atomicity, and replication
+    negotiation checks.
+
+Verification:
+
+- `cargo test -p neo4r-server replication_peer --quiet`
+- `scripts/sdk-api-parity.sh`
+- `scripts/storage-atomicity.sh`
+
+## Client Redirect And Routing Discovery
+
+Requested scope: add a broker-like routing/discovery protocol and make clients
+handle redirects automatically.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+- Added typed backend redirect responses with `MOVED`, `NOT_LEADER`, and
+  `STALE_ROUTING` wire names.
+- Added `ROUTING_TABLE` native command and `/api/cluster/routing-table` HTTP
+  discovery endpoint.
+- Added `CLUSTER_REGISTRY` native command and `/api/cluster/registry` HTTP
+  broker-style discovery endpoint for routing plus peer address metadata.
+- Added registry freshness metadata: `ownership_epoch`, membership index,
+  generated timestamp, TTL, and migration state.
+- Changed missing-primary-address shard forwarding failures to return a
+  structured `ERR MOVED` redirect payload.
+- Added Rust SDK redirect parsing, bounded automatic reconnect/retry, redirect
+  loop detection, and topology cache updates.
+- Added Python SDK redirect parsing, bounded automatic reconnect/retry, public
+  `RedirectError`, and native/HTTP topology cache updates.
+- Added protocol/SDK tests for redirect formatting, parsing, Rust automatic
+  retry, redirect loop detection, HTTP stale epoch rejection, and registry
+  freshness metadata.
+
+## Ownership Epoch And Cluster Topology
+
+Completed changes:
+
+- Exposed shard ownership epoch as the routing version alias across native
+  routing output, redirect payloads, HTTP routing JSON, and registry JSON.
+- Added HTTP stale ownership epoch rejection for query/graph data-path
+  endpoints using `x-neo4r-ownership-epoch` or `x-neo4r-routing-epoch`.
+- Surfaced rebalance execution state as migration state in cluster management
+  and registry responses.
+- Added a web console topology action that loads registry and raft status
+  together for cluster operations.
+
 ## Replication Channel Abstraction
 
 Requested scope: make DB replication transport pluggable so TCP, UDP, RDMA, or
@@ -291,3 +366,99 @@ Verification:
 - `cargo test -p neo4r-server --quiet`
 - `NEO4R_RUN_SDK_LIVE=1 NEO4R_SDK_COMPAT_PORT=17698 scripts/sdk-compat.sh`
 - `cargo test --workspace --quiet`
+
+## Cluster Metadata, Migration, And Capability Hardening
+
+Requested scope: implement follow-up items 1 through 10 for shard migration,
+metadata consensus linkage, snapshot bootstrap, read consistency, transaction
+epoch validation, failure simulation, admin API cleanup, protocol negotiation,
+metrics, and storage crash-point coverage.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Exposed recoverable migration state through cluster management, registry JSON,
+   and metrics using the existing rebalance execution state machine.
+2. Linked cluster metadata visibility to routing ownership by adding
+   `metadata_index`, membership index, routing version, and ownership epoch to
+   registry/control-plane responses.
+3. Strengthened snapshot bootstrap coverage by retrying an install snapshot after
+   an injected payload-before-metadata crash point.
+4. Exposed HTTP read consistency options for read queries:
+   `strong`, `follower_stale`, and `bounded_staleness`.
+5. Added transaction ownership epoch capture at `BEGIN_TX` and stale epoch
+   rejection at `COMMIT_TX`.
+6. Added failure simulation tests for HTTP stale ownership epoch rejection,
+   registry freshness metadata, capability discovery, bounded-staleness query
+   options, redirect loop detection, and snapshot crash-point retry.
+7. Added admin cluster operation aliases under `/api/admin/cluster/*` for
+   snapshot and migration/rebalance operations.
+8. Added native `CAPABILITIES`, HTTP `/api/capabilities`, and Rust/Python SDK
+   capability helpers.
+9. Added HTTP metrics for registry requests, stale epoch rejections, redirect
+   surface, and migration state.
+10. Updated README/API documentation and SDK parity checks for the new surfaces.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo test -p neo4r-server capabilities --quiet`
+- `cargo test -p neo4r-server stale_ownership_epoch --quiet`
+- `cargo test -p neo4r-server http_query_accepts_bounded_staleness_read_consistency --quiet`
+- `cargo test -p neo4r-server native_read_write_transaction_rejects_stale_ownership_epoch_on_commit --quiet`
+- `cargo test -p neo4r-db raft_snapshot_fault_injection_persists_payload_before_metadata --quiet`
+- `cargo test -p neo4r-client --quiet`
+- `PYTHONPATH=sdks/python python3 -m unittest discover -s sdks/python/tests`
+- `scripts/sdk-api-parity.sh`
+
+## Protocol, SDK Routing, And Regression Harness Hardening
+
+Requested scope: implement follow-up items 1 through 10 covering shard migration
+snapshot transfer wiring, multi-node harnesses, Raft metadata/routing policy,
+typed transaction epoch conflicts, SDK topology-cache use, storage atomicity
+regression, protocol versioning, security hardening, and benchmark regression.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Added a migration action that reports `snapshot_bootstrap_required` when a
+   joining replica has no observed match index while the shard already has
+   committed data.
+2. Added `scripts/multi-node-integration.sh` to run snapshot/catch-up/control
+   plane checks, with an opt-in `NEO4R_RUN_MULTI_NODE=1` live server harness.
+3. Exposed Raft-aware metadata/write policy through native/HTTP capabilities and
+   cluster registry responses as `shard_primary_and_raft_leader`.
+4. Changed stale transaction ownership conflicts to a typed native
+   `ERR	STALE_EPOCH`-style protocol response with current routing epoch and
+   retryability metadata.
+5. Added Rust/Python SDK `connect_to_cached_target` APIs and parity checks so
+   clients can explicitly reconnect using fresh topology-cache targets.
+6. Documented the write authority policy and typed epoch conflict behavior in
+   README.
+7. Added `scripts/storage-atomicity.sh` to the integration pipeline and kept
+   relationship/property/label WriteBatch invariants independently runnable.
+8. Added protocol min/max capability fields for native and HTTP protocol
+   version negotiation.
+9. Added `scripts/security-regression.sh` for admin auth, tenant scoping, token
+   invoke/revoke, and token expiry regression tests.
+10. Added `scripts/bench-regression.sh` to combine smoke performance checks with
+    the 1000+ assertion data correctness suite.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo test -p neo4r-db cluster_rebalance_reports_snapshot_bootstrap_before_catch_up --quiet`
+- `cargo test -p neo4r-server native_read_write_transaction_rejects_stale_ownership_epoch_on_commit --quiet`
+- `cargo test -p neo4r-client client_parses_typed_stale_epoch_response --quiet`
+- `PYTHONPATH=sdks/python python3 -m unittest sdks/python/tests/test_protocol.py`
+- `scripts/sdk-api-parity.sh`
+- `scripts/multi-node-integration.sh`
+- `scripts/storage-atomicity.sh`
+- `scripts/security-regression.sh`
+- `scripts/bench-regression.sh`

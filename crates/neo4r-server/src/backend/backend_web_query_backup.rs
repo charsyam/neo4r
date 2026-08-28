@@ -55,10 +55,15 @@ impl TcpBackend {
         db: &Neo4rDatabaseHandle,
         query: &str,
         params: QueryParams,
+        options: QueryOptions,
     ) -> Result<String, String> {
         self.metrics.queries.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
-        let rows = match db.execute_cypher_with_params(query, params) {
+        let rows = match if is_write_cypher(query) {
+            db.execute_cypher_with_params(query, params)
+        } else {
+            db.query_with_params_and_options(query, params, options)
+        } {
             Ok(rows) => rows,
             Err(err) => {
                 self.metrics.query_errors.fetch_add(1, Ordering::Relaxed);
@@ -134,6 +139,136 @@ impl TcpBackend {
         format!("{{\"raft_shards\":[{shards_json}]}}")
     }
 
+    pub(crate) fn routing_table_json(db: &Neo4rDatabaseHandle) -> String {
+        let Ok(routing_table) = db.routing_table() else {
+            return "{\"version\":0,\"ownership_epoch\":0,\"shards\":[]}".to_string();
+        };
+        let shards = routing_table
+            .placements
+            .iter()
+            .map(|placement| {
+                let replicas = placement
+                    .replicas
+                    .iter()
+                    .map(|replica| {
+                        let role = match replica.role {
+                            ShardRole::Primary => "primary",
+                            ShardRole::Replica => "replica",
+                        };
+                        format!(
+                            "{{\"server_id\":{},\"role\":\"{}\"}}",
+                            replica.server_id, role
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    "{{\"shard_id\":{},\"primary_server_id\":{},\"replicas\":[{}]}}",
+                    placement.shard_id,
+                    placement
+                        .primary_server_id()
+                        .map(|server_id| server_id.to_string())
+                        .unwrap_or_else(|| "null".to_string()),
+                    replicas
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{{\"version\":{},\"ownership_epoch\":{},\"shards\":[{}]}}",
+            routing_table.version, routing_table.version, shards
+        )
+    }
+
+    pub(crate) fn cluster_registry_json(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        database_name: &str,
+    ) -> String {
+        let status = db.cluster_status().ok();
+        let generated_at_ms = unix_millis_now();
+        let ttl_ms = 5_000_u64;
+        let management = db.cluster_management_status().ok();
+        let membership_index = management
+            .as_ref()
+            .map(|management| management.membership.version)
+            .unwrap_or_default();
+        let metadata_index = db
+            .metadata_operations()
+            .map(|records| {
+                records
+                    .last()
+                    .map(|record| record.index)
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        let migration_state = management
+            .as_ref()
+            .and_then(|management| management.rebalance_execution.as_ref())
+            .map(|execution| format!("{:?}", execution.state))
+            .unwrap_or_else(|| "idle".to_string());
+        let raft_shards_json = db
+            .raft_status()
+            .unwrap_or_default()
+            .iter()
+            .map(|shard| {
+                format!(
+                    "{{\"shard_id\":{},\"term\":{},\"role\":\"{:?}\",\"leader_id\":{}}}",
+                    shard.shard_id,
+                    shard.term,
+                    shard.role,
+                    shard
+                        .leader_id
+                        .map(|leader| leader.to_string())
+                        .unwrap_or_else(|| "null".to_string())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let peers = self.query_peers.list().unwrap_or_default();
+        let peers_json = peers
+            .iter()
+            .map(|(server_id, address)| {
+                format!(
+                    "{{\"server_id\":{},\"address\":\"{}\"}}",
+                    server_id,
+                    json_escape(address)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let routing_json = Self::routing_table_json(db);
+        let routing_version = db
+            .routing_table()
+            .map(|routing_table| routing_table.version)
+            .unwrap_or_default();
+        format!(
+            "{{\"database\":\"{}\",\"local_server_id\":{},\"routing_version\":{},\"ownership_epoch\":{},\"membership_index\":{},\"metadata_index\":{},\"generated_at_ms\":{},\"ttl_ms\":{},\"migration_state\":\"{}\",\"write_authority\":\"shard_primary_and_raft_leader\",\"routing\":{},\"raft_shards\":[{}],\"query_peers\":[{}]}}",
+            json_escape(database_name),
+            status.map(|status| status.server_id).unwrap_or_default(),
+            routing_version,
+            routing_version,
+            membership_index,
+            metadata_index,
+            generated_at_ms,
+            ttl_ms,
+            json_escape(&migration_state),
+            routing_json,
+            raft_shards_json,
+            peers_json
+        )
+    }
+
+    pub(crate) fn capabilities_json(&self) -> String {
+        let capabilities = format_protocol_capabilities()
+            .split_whitespace()
+            .filter_map(|part| part.split_once('='))
+            .map(|(key, value)| format!("\"{}\":\"{}\"", json_escape(key), json_escape(value)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("{{\"capabilities\":{{{capabilities}}}}}")
+    }
+
     pub(crate) fn metrics_json(&self, db: &Neo4rDatabaseHandle) -> String {
         let statistics = db.statistics_catalog().ok();
         let committed_indexes = db.committed_indexes().unwrap_or_default();
@@ -190,6 +325,12 @@ impl TcpBackend {
             .iter()
             .filter(|status| status.joint_consensus)
             .count();
+        let migration_state = db
+            .cluster_management_status()
+            .ok()
+            .and_then(|status| status.rebalance_execution)
+            .map(|execution| format!("{:?}", execution.state))
+            .unwrap_or_else(|| "idle".to_string());
         let web_user_token_count = self
             .web_user_tokens
             .as_ref()
@@ -203,13 +344,17 @@ impl TcpBackend {
             .map(|events| events.len())
             .unwrap_or_default();
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
             self.metrics.http_requests.load(Ordering::Relaxed),
             self.metrics.http_errors.load(Ordering::Relaxed),
             self.metrics.queries.load(Ordering::Relaxed),
             self.metrics.query_errors.load(Ordering::Relaxed),
             self.metrics.slow_queries.load(Ordering::Relaxed),
             self.slow_query_threshold.as_millis(),
+            self.metrics.registry_requests.load(Ordering::Relaxed),
+            self.metrics.stale_epoch_rejections.load(Ordering::Relaxed),
+            self.metrics.redirects.load(Ordering::Relaxed),
+            json_escape(&migration_state),
             statistics
                 .as_ref()
                 .map(|statistics| statistics.node_count)

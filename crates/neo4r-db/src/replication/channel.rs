@@ -98,6 +98,15 @@ pub struct ReplicationChannelAgreement {
     pub endpoint: ReplicationEndpoint,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplicationNodeIdentity {
+    pub server_id: ServerId,
+    pub node_id: ServerId,
+    pub cluster_id: String,
+    pub database_id: String,
+    pub transports: Vec<ReplicationChannelKind>,
+}
+
 pub fn negotiate_replication_channel(
     preferred: &[ReplicationChannelKind],
     offer: ReplicationChannelOffer,

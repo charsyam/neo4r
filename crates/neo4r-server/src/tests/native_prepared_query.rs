@@ -112,7 +112,7 @@ pub(super) fn native_prepared_query_rejects_missing_params_before_execution() {
         &mut stream,
         NativeMessageType::Response,
         7,
-        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tSNAPSHOT\t0"),
+        &format!("OK\tTX_STATUS\t{tx_id}\tREAD_WRITE\tSNAPSHOT\t0\townership_epoch=1"),
     );
 
     write_frame(

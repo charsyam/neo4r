@@ -8,6 +8,11 @@ impl NativeExecutionContext {
     ) -> Result<String, String> {
         match command {
             TransactionCommand::Begin { mode, isolation } => {
+                let ownership_epoch = self
+                    .db
+                    .cluster_status()
+                    .map_err(|err| err.to_string())?
+                    .routing_version;
                 let tx = match mode {
                     TransactionMode::ReadOnly => {
                         let tx = self
@@ -20,13 +25,14 @@ impl NativeExecutionContext {
                     }
                     TransactionMode::ReadWrite => NativeTransaction::ReadWrite {
                         isolation,
+                        ownership_epoch,
                         staged_writes: Vec::new(),
                         conflict_keys: BTreeSet::new(),
                     },
                 };
                 let tx_id = self.transactions.insert(session_id, tx);
                 Ok(format!(
-                    "OK\tTX_BEGIN\t{tx_id}\t{}\t{}",
+                    "OK\tTX_BEGIN\t{tx_id}\t{}\t{}\townership_epoch={ownership_epoch}",
                     format_transaction_mode(mode),
                     format_read_isolation(isolation)
                 ))
@@ -168,7 +174,20 @@ impl NativeExecutionContext {
                 }
                 let tx = self.transactions.close(session_id, tx_id)?;
                 let write_count = staged_writes.len();
-                if matches!(tx, NativeTransaction::ReadWrite { .. }) {
+                if let NativeTransaction::ReadWrite {
+                    ownership_epoch, ..
+                } = tx
+                {
+                    let current_epoch = self
+                        .db
+                        .cluster_status()
+                        .map_err(|err| err.to_string())?
+                        .routing_version;
+                    if ownership_epoch != current_epoch {
+                        return Err(format!(
+                            "ERR\tSTALE_EPOCH\ttx_epoch={ownership_epoch}\tcurrent_epoch={current_epoch}\trouting_version={current_epoch}\townership_epoch={current_epoch}\tretryable=true"
+                        ));
+                    }
                     if !self.try_execute_staged_writes_as_local_batch(
                         tx_id,
                         &transaction_writes,

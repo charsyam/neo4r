@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 
 pub(super) const QUERY_PEERS_FILE: &str = "query-peers.txt";
 pub(super) const REPLICATION_PEERS_FILE: &str = "replication-peers.txt";
+pub(super) const REPLICATION_PEER_IDENTITIES_FILE: &str = "replication-peer-identities.txt";
 
 const PEER_STORE_MAGIC: &str = "N4RPEERS1";
+const REPLICATION_PEER_IDENTITY_MAGIC: &str = "N4RREPLPEERS2";
 
 #[derive(Clone, Default)]
 pub(super) struct QueryPeerStore {
@@ -148,4 +150,331 @@ pub(super) fn format_query_peers(peers: &[(u64, String)]) -> String {
         .map(|(server_id, address)| format!("{server_id}={address}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ReplicationPeerIdentity {
+    pub(super) server_id: u64,
+    pub(super) address: String,
+    pub(super) node_id: Option<u64>,
+    pub(super) transport: String,
+    pub(super) cluster_id: String,
+    pub(super) database_id: String,
+}
+
+impl ReplicationPeerIdentity {
+    pub(super) fn tcp(
+        server_id: u64,
+        address: impl Into<String>,
+        node_id: Option<u64>,
+        cluster_id: impl Into<String>,
+        database_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            server_id,
+            address: address.into(),
+            node_id,
+            transport: "tcp".to_string(),
+            cluster_id: cluster_id.into(),
+            database_id: database_id.into(),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub(super) struct ReplicationPeerIdentityStore {
+    identities: Arc<Mutex<BTreeMap<u64, ReplicationPeerIdentity>>>,
+    path: Option<Arc<PathBuf>>,
+}
+
+impl ReplicationPeerIdentityStore {
+    pub(super) fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        Ok(Self {
+            identities: Arc::new(Mutex::new(load_replication_peer_identities(&path)?)),
+            path: Some(Arc::new(path)),
+        })
+    }
+
+    pub(super) fn register(&self, identity: ReplicationPeerIdentity) -> io::Result<()> {
+        validate_replication_peer_identity_record(&identity)?;
+        let snapshot = {
+            let mut identities = self
+                .identities
+                .lock()
+                .map_err(|_| io::Error::other("replication peer identity lock poisoned"))?;
+            identities.insert(identity.server_id, identity);
+            identities.clone()
+        };
+        self.save(&snapshot)
+    }
+
+    pub(super) fn unregister(&self, server_id: u64) -> io::Result<()> {
+        let snapshot = {
+            let mut identities = self
+                .identities
+                .lock()
+                .map_err(|_| io::Error::other("replication peer identity lock poisoned"))?;
+            identities.remove(&server_id);
+            identities.clone()
+        };
+        self.save(&snapshot)
+    }
+
+    pub(super) fn list(&self) -> io::Result<Vec<ReplicationPeerIdentity>> {
+        Ok(self
+            .identities
+            .lock()
+            .map_err(|_| io::Error::other("replication peer identity lock poisoned"))?
+            .values()
+            .cloned()
+            .collect())
+    }
+
+    pub(super) fn get(&self, server_id: u64) -> io::Result<Option<ReplicationPeerIdentity>> {
+        Ok(self
+            .identities
+            .lock()
+            .map_err(|_| io::Error::other("replication peer identity lock poisoned"))?
+            .get(&server_id)
+            .cloned())
+    }
+
+    pub(super) fn would_create_cycle(
+        &self,
+        server_id: u64,
+        node_id: Option<u64>,
+    ) -> io::Result<bool> {
+        let Some(mut current) = node_id else {
+            return Ok(false);
+        };
+        if current == server_id {
+            return Ok(false);
+        }
+        let identities = self
+            .identities
+            .lock()
+            .map_err(|_| io::Error::other("replication peer identity lock poisoned"))?;
+        let mut seen = BTreeMap::<u64, ()>::new();
+        seen.insert(server_id, ());
+        loop {
+            if seen.contains_key(&current) {
+                return Ok(true);
+            }
+            seen.insert(current, ());
+            let Some(identity) = identities.get(&current) else {
+                return Ok(false);
+            };
+            let Some(next) = identity.node_id else {
+                return Ok(false);
+            };
+            current = next;
+        }
+    }
+
+    fn save(&self, identities: &BTreeMap<u64, ReplicationPeerIdentity>) -> io::Result<()> {
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
+        save_replication_peer_identities(path, identities)
+    }
+}
+
+fn load_replication_peer_identities(
+    path: &Path,
+) -> io::Result<BTreeMap<u64, ReplicationPeerIdentity>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(err) => return Err(err),
+    };
+    let mut lines = BufReader::new(file).lines();
+    let header = lines.next().transpose()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "missing replication peer identity header",
+        )
+    })?;
+    if header != REPLICATION_PEER_IDENTITY_MAGIC {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid replication peer identity header",
+        ));
+    }
+    let mut identities = BTreeMap::new();
+    for line in lines {
+        let line = line?;
+        if line.is_empty() {
+            continue;
+        }
+        let identity = decode_replication_peer_identity(&line)?;
+        identities.insert(identity.server_id, identity);
+    }
+    Ok(identities)
+}
+
+fn save_replication_peer_identities(
+    path: &Path,
+    identities: &BTreeMap<u64, ReplicationPeerIdentity>,
+) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp_path = path.with_extension("tmp");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&tmp_path)?;
+    writeln!(file, "{REPLICATION_PEER_IDENTITY_MAGIC}")?;
+    for identity in identities.values() {
+        writeln!(file, "{}", encode_replication_peer_identity(identity))?;
+    }
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&tmp_path, path)?;
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+fn encode_replication_peer_identity(identity: &ReplicationPeerIdentity) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        identity.server_id,
+        identity.address,
+        identity
+            .node_id
+            .map(|node_id| node_id.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        identity.transport,
+        identity.cluster_id,
+        identity.database_id
+    )
+}
+
+fn decode_replication_peer_identity(line: &str) -> io::Result<ReplicationPeerIdentity> {
+    let parts = line.split('\t').collect::<Vec<_>>();
+    if parts.len() != 6 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid replication peer identity record",
+        ));
+    }
+    let server_id = parts[0].parse::<u64>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid replication peer identity server id",
+        )
+    })?;
+    let node_id = if parts[2] == "-" {
+        None
+    } else {
+        Some(parts[2].parse::<u64>().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid replication peer identity node id",
+            )
+        })?)
+    };
+    let identity = ReplicationPeerIdentity {
+        server_id,
+        address: parts[1].to_string(),
+        node_id,
+        transport: parts[3].to_string(),
+        cluster_id: parts[4].to_string(),
+        database_id: parts[5].to_string(),
+    };
+    validate_replication_peer_identity_record(&identity)?;
+    Ok(identity)
+}
+
+fn validate_replication_peer_identity_record(identity: &ReplicationPeerIdentity) -> io::Result<()> {
+    for value in [
+        identity.address.as_str(),
+        identity.transport.as_str(),
+        identity.cluster_id.as_str(),
+        identity.database_id.as_str(),
+    ] {
+        if value.is_empty() || value.contains(['\t', '\n', '\r']) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid replication peer identity field",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("neo4r-{name}-{suffix}.txt"))
+    }
+
+    #[test]
+    fn replication_peer_identity_store_persists_records() {
+        let path = temp_path("replication-peer-identity");
+        let store = ReplicationPeerIdentityStore::open(&path).unwrap();
+        store
+            .register(ReplicationPeerIdentity::tcp(
+                2,
+                "127.0.0.1:17688",
+                Some(2),
+                "cluster-a",
+                "default",
+            ))
+            .unwrap();
+
+        let reopened = ReplicationPeerIdentityStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.get(2).unwrap(),
+            Some(ReplicationPeerIdentity::tcp(
+                2,
+                "127.0.0.1:17688",
+                Some(2),
+                "cluster-a",
+                "default",
+            ))
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn replication_peer_identity_store_detects_indirect_cycles() {
+        let store = ReplicationPeerIdentityStore::default();
+        store
+            .register(ReplicationPeerIdentity::tcp(
+                2,
+                "127.0.0.1:17688",
+                Some(3),
+                "cluster-a",
+                "default",
+            ))
+            .unwrap();
+        store
+            .register(ReplicationPeerIdentity::tcp(
+                3,
+                "127.0.0.1:17689",
+                Some(4),
+                "cluster-a",
+                "default",
+            ))
+            .unwrap();
+
+        assert!(store.would_create_cycle(4, Some(2)).unwrap());
+        assert!(!store.would_create_cycle(5, Some(2)).unwrap());
+    }
 }

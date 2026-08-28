@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::protocol::{decode_query_rows, parse_request, BackendResponse};
 
+mod cluster_control_plane;
 mod distributed_query;
 mod multi_shard_commit;
 mod multi_shard_prepare;
@@ -32,9 +33,11 @@ mod prepared_transaction_store;
 mod raft_replication_rpc;
 mod replication_quorum;
 mod tcp_web_console;
+mod transaction_epoch;
 mod transaction_protocol;
 mod worker_cancellation;
 
+use cluster_control_plane::*;
 use distributed_query::*;
 use multi_shard_commit::*;
 use multi_shard_prepare::*;
@@ -48,5 +51,6 @@ use prepared_transaction_store::*;
 use raft_replication_rpc::*;
 use replication_quorum::*;
 use tcp_web_console::*;
+use transaction_epoch::*;
 use transaction_protocol::*;
 use worker_cancellation::*;

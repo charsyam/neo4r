@@ -10,6 +10,7 @@ impl TcpBackend {
             config,
             QueryPeerStore::default(),
             QueryPeerStore::default(),
+            ReplicationPeerIdentityStore::default(),
         )
     }
 
@@ -21,20 +22,35 @@ impl TcpBackend {
         let query_peers = QueryPeerStore::open(data_dir.join("cluster").join(QUERY_PEERS_FILE))?;
         let replication_peers =
             QueryPeerStore::open(data_dir.join("cluster").join(REPLICATION_PEERS_FILE))?;
+        let replication_peer_identities = ReplicationPeerIdentityStore::open(
+            data_dir
+                .join("cluster")
+                .join(REPLICATION_PEER_IDENTITIES_FILE),
+        )?;
         let prepared_transactions = PreparedTransactionStore::open(
             data_dir
                 .join("transactions")
                 .join(PREPARED_TRANSACTIONS_FILE),
         )?;
         for (server_id, address) in replication_peers.list()? {
-            db.register_replication_peer_endpoint(server_id, ReplicationEndpoint::tcp(address))
+            let identity = replication_peer_identities
+                .get(server_id)?
+                .unwrap_or_else(|| local_peer_identity(&db, server_id, address, None, None));
+            validate_replication_peer_identity(&db, identity.server_id, identity.node_id)
                 .map_err(io::Error::other)?;
+            db.register_replication_peer_endpoint(
+                identity.server_id,
+                replication_endpoint(identity.address, parse_transport_name(&identity.transport))
+                    .map_err(io::Error::other)?,
+            )
+            .map_err(io::Error::other)?;
         }
         let backend = Self::with_stores(
             db,
             config,
             query_peers,
             replication_peers,
+            replication_peer_identities,
             prepared_transactions,
         );
         backend
@@ -48,12 +64,14 @@ impl TcpBackend {
         config: TcpBackendConfig,
         query_peers: QueryPeerStore,
         replication_peers: QueryPeerStore,
+        replication_peer_identities: ReplicationPeerIdentityStore,
     ) -> Self {
         Self::with_stores(
             db,
             config,
             query_peers,
             replication_peers,
+            replication_peer_identities,
             PreparedTransactionStore::default(),
         )
     }
@@ -63,6 +81,7 @@ impl TcpBackend {
         config: TcpBackendConfig,
         query_peers: QueryPeerStore,
         replication_peers: QueryPeerStore,
+        replication_peer_identities: ReplicationPeerIdentityStore,
         prepared_transactions: PreparedTransactionStore,
     ) -> Self {
         let cursors = CursorStore::default();
@@ -88,6 +107,7 @@ impl TcpBackend {
                     prepared_queries: prepared_queries.clone(),
                     query_peers: query_peers.clone(),
                     replication_peers: replication_peers.clone(),
+                    replication_peer_identities: replication_peer_identities.clone(),
                     default_page_size: config.default_page_size.max(1),
                     read_preference: config.read_preference,
                     catch_up_connect_timeout: config.catch_up_connect_timeout,
@@ -103,6 +123,7 @@ impl TcpBackend {
             prepared_queries,
             query_peers,
             replication_peers,
+            replication_peer_identities,
             read_preference: config.read_preference,
             catch_up_connect_timeout: config.catch_up_connect_timeout,
             pending_requests,
@@ -169,19 +190,78 @@ impl TcpBackend {
         let address = address.into();
         validate_replication_peer_identity(&self.db, server_id, node_id)
             .map_err(io::Error::other)?;
+        if self
+            .replication_peer_identities
+            .would_create_cycle(server_id, node_id)?
+        {
+            return Err(io::Error::other(format!(
+                "replication peer identity cycle detected for server {server_id}"
+            )));
+        }
         let endpoint =
             replication_endpoint(address.clone(), transport).map_err(io::Error::other)?;
         self.db
             .register_replication_peer_endpoint(server_id, endpoint)
             .map_err(io::Error::other)?;
-        self.replication_peers.register(server_id, address)
+        self.replication_peers
+            .register(server_id, address.clone())?;
+        self.replication_peer_identities
+            .register(local_peer_identity(
+                &self.db, server_id, address, node_id, transport,
+            ))
+    }
+
+    pub fn negotiate_replication_peer(
+        &self,
+        server_id: u64,
+        address: impl Into<String>,
+        node_id: Option<u64>,
+    ) -> io::Result<()> {
+        let address = address.into();
+        validate_replication_peer_membership(&self.db, server_id).map_err(io::Error::other)?;
+        let remote = request_tcp_replication_hello(&address, self.catch_up_connect_timeout)
+            .map_err(io::Error::other)?;
+        validate_remote_replication_identity(&self.db, server_id, node_id, &remote)
+            .map_err(io::Error::other)?;
+        validate_replication_peer_identity(&self.db, server_id, Some(remote.node_id))
+            .map_err(io::Error::other)?;
+        if self
+            .replication_peer_identities
+            .would_create_cycle(server_id, Some(remote.node_id))?
+        {
+            return Err(io::Error::other(format!(
+                "replication peer identity cycle detected for server {server_id}"
+            )));
+        }
+        let transport = remote
+            .transports
+            .iter()
+            .find(|kind| matches!(kind, ReplicationChannelKind::Tcp))
+            .copied()
+            .ok_or_else(|| io::Error::other("remote peer does not offer tcp replication"))?;
+        let endpoint =
+            replication_endpoint(address.clone(), Some(transport)).map_err(io::Error::other)?;
+        self.db
+            .register_replication_peer_endpoint(server_id, endpoint)
+            .map_err(io::Error::other)?;
+        self.replication_peers
+            .register(server_id, address.clone())?;
+        self.replication_peer_identities
+            .register(ReplicationPeerIdentity::tcp(
+                server_id,
+                address,
+                Some(remote.node_id),
+                remote.cluster_id,
+                remote.database_id,
+            ))
     }
 
     pub fn unregister_replication_peer(&self, server_id: u64) -> io::Result<()> {
         self.db
             .unregister_replication_peer(server_id)
             .map_err(io::Error::other)?;
-        self.replication_peers.unregister(server_id)
+        self.replication_peers.unregister(server_id)?;
+        self.replication_peer_identities.unregister(server_id)
     }
 
     pub fn list_replication_peers(&self) -> io::Result<Vec<(u64, String)>> {
@@ -189,7 +269,11 @@ impl TcpBackend {
     }
 
     pub fn replication_status(&self) -> Result<String, String> {
-        replication_status(&self.db, &self.replication_peers)
+        replication_status(
+            &self.db,
+            &self.replication_peers,
+            &self.replication_peer_identities,
+        )
     }
 
     pub fn catch_up_from_primaries(&self) -> Result<Vec<neo4r_db::TcpCatchUpResult>, String> {
@@ -334,6 +418,55 @@ pub(crate) fn replication_endpoint(
     }
 }
 
+pub(crate) fn parse_transport_name(input: &str) -> Option<ReplicationChannelKind> {
+    match input.to_ascii_lowercase().as_str() {
+        "tcp" => Some(ReplicationChannelKind::Tcp),
+        "udp" => Some(ReplicationChannelKind::Udp),
+        "rdma" => Some(ReplicationChannelKind::Rdma),
+        "custom" => Some(ReplicationChannelKind::Custom),
+        _ => None,
+    }
+}
+
+pub(crate) fn local_peer_identity(
+    db: &Neo4rDatabaseHandle,
+    server_id: u64,
+    address: String,
+    node_id: Option<u64>,
+    transport: Option<ReplicationChannelKind>,
+) -> ReplicationPeerIdentity {
+    ReplicationPeerIdentity {
+        server_id,
+        address,
+        node_id,
+        transport: transport_name(transport.unwrap_or(ReplicationChannelKind::Tcp)).to_string(),
+        cluster_id: local_cluster_id(db),
+        database_id: local_database_id(db),
+    }
+}
+
+fn transport_name(kind: ReplicationChannelKind) -> &'static str {
+    match kind {
+        ReplicationChannelKind::Tcp => "tcp",
+        ReplicationChannelKind::Udp => "udp",
+        ReplicationChannelKind::Rdma => "rdma",
+        ReplicationChannelKind::Custom => "custom",
+    }
+}
+
+fn local_cluster_id(db: &Neo4rDatabaseHandle) -> String {
+    db.data_dir()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.display().to_string()))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "default-cluster".to_string())
+}
+
+fn local_database_id(db: &Neo4rDatabaseHandle) -> String {
+    let _ = db;
+    DEFAULT_DATABASE.to_string()
+}
+
 pub(crate) fn validate_replication_peer_identity(
     db: &Neo4rDatabaseHandle,
     server_id: u64,
@@ -354,4 +487,59 @@ pub(crate) fn validate_replication_peer_identity(
         ));
     }
     Ok(())
+}
+
+pub(crate) fn validate_remote_replication_identity(
+    db: &Neo4rDatabaseHandle,
+    server_id: u64,
+    node_id: Option<u64>,
+    remote: &ReplicationNodeIdentity,
+) -> Result<(), String> {
+    if remote.server_id != server_id {
+        return Err(format!(
+            "replication hello server id mismatch: requested {server_id}, remote {}",
+            remote.server_id
+        ));
+    }
+    if let Some(expected_node_id) = node_id {
+        if remote.node_id != expected_node_id {
+            return Err(format!(
+                "replication hello node id mismatch: requested {expected_node_id}, remote {}",
+                remote.node_id
+            ));
+        }
+    }
+    let local_cluster = local_cluster_id(db);
+    if remote.cluster_id != local_cluster {
+        return Err(format!(
+            "replication hello cluster id mismatch: local {local_cluster}, remote {}",
+            remote.cluster_id
+        ));
+    }
+    if remote.database_id != local_database_id(db) {
+        return Err(format!(
+            "replication hello database id mismatch: local {}, remote {}",
+            local_database_id(db),
+            remote.database_id
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_replication_peer_membership(
+    db: &Neo4rDatabaseHandle,
+    server_id: u64,
+) -> Result<(), String> {
+    let routing_table = db.routing_table().map_err(|err| err.to_string())?;
+    if routing_table
+        .placements
+        .iter()
+        .any(|placement| placement.has_server(server_id))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "replication peer {server_id} is not present in the routing table"
+        ))
+    }
 }

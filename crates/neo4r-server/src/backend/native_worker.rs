@@ -238,7 +238,10 @@ pub(crate) fn format_rows(rows: &[QueryRow]) -> String {
 }
 
 pub(crate) fn native_response_frame(request_id: u64, response: BackendResponse) -> NativeFrame {
-    let message_type = if matches!(response, BackendResponse::Err(_)) {
+    let message_type = if matches!(
+        response,
+        BackendResponse::Err(_) | BackendResponse::Redirect(_)
+    ) {
         NativeMessageType::Error
     } else {
         NativeMessageType::Response

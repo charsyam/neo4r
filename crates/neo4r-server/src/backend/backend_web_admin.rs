@@ -11,8 +11,37 @@ impl TcpBackend {
             return HttpResponse::json_status(401, json_error("unauthorized"));
         };
         let selected_db = || self.database_for_name(&database_name);
+        if matches!(
+            request.path.as_str(),
+            "/api/query" | "/api/query-plan" | "/api/profile" | "/api/graph"
+        ) {
+            if let Some(client_epoch) = request
+                .header("x-neo4r-ownership-epoch")
+                .or_else(|| request.header("x-neo4r-routing-epoch"))
+                .and_then(|value| value.parse::<u64>().ok())
+            {
+                match selected_db().and_then(|db| db.routing_table().map_err(|err| err.to_string()))
+                {
+                    Ok(routing_table) if client_epoch < routing_table.version => {
+                        self.metrics
+                            .stale_epoch_rejections
+                            .fetch_add(1, Ordering::Relaxed);
+                        return HttpResponse::json_status(
+                            409,
+                            format!(
+                                "{{\"error\":\"stale ownership epoch\",\"routing_version\":{},\"ownership_epoch\":{},\"retryable\":true}}",
+                                routing_table.version, routing_table.version
+                            ),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(err) => return HttpResponse::json_status(500, json_error(&err)),
+                }
+            }
+        }
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/") | ("GET", "/index.html") => HttpResponse::html(WEB_INDEX_HTML),
+            ("GET", "/api/capabilities") => HttpResponse::json(self.capabilities_json()),
             ("GET", "/api/graph") => {
                 match selected_db()
                     .and_then(|db| self.graph_json(&db, request.query_value("limit")))
@@ -53,6 +82,19 @@ impl TcpBackend {
                     self.execute_backend_request(BackendRequest::ClusterManagementStatus);
                 HttpResponse::json(management_response_json(&response))
             }
+            ("GET", "/api/cluster/routing-table") => match selected_db() {
+                Ok(db) => HttpResponse::json(Self::routing_table_json(&db)),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
+            ("GET", "/api/cluster/registry") => match selected_db() {
+                Ok(db) => {
+                    self.metrics
+                        .registry_requests
+                        .fetch_add(1, Ordering::Relaxed);
+                    HttpResponse::json(self.cluster_registry_json(&db, &database_name))
+                }
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
             ("GET", "/api/admin/users") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -81,16 +123,20 @@ impl TcpBackend {
                 Ok(db) => HttpResponse::json(self.raft_status_json(&db)),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("POST", "/api/admin/snapshot-now") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/snapshot-now" | "/api/admin/cluster/snapshot")
+                if !role.allows(WebRole::Admin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
-            ("POST", "/api/admin/snapshot-now") => match selected_db() {
-                Ok(db) => match db.snapshot_now() {
-                    Ok(result) => HttpResponse::json(storage_maintenance_json(&result)),
-                    Err(err) => HttpResponse::json_status(500, json_error(&err.to_string())),
-                },
-                Err(err) => HttpResponse::json_status(500, json_error(&err)),
-            },
+            ("POST", "/api/admin/snapshot-now" | "/api/admin/cluster/snapshot") => {
+                match selected_db() {
+                    Ok(db) => match db.snapshot_now() {
+                        Ok(result) => HttpResponse::json(storage_maintenance_json(&result)),
+                        Err(err) => HttpResponse::json_status(500, json_error(&err.to_string())),
+                    },
+                    Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                }
+            }
             ("POST", "/api/admin/verify-invariants") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -196,18 +242,32 @@ impl TcpBackend {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/cluster/advance-rebalance") => {
+            ("POST", "/api/cluster/advance-rebalance" | "/api/admin/cluster/migration/advance") => {
                 if !role.allows(WebRole::Admin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::AdvanceRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
-            ("POST", "/api/cluster/plan-rebalance") => {
+            ("POST", "/api/cluster/plan-rebalance" | "/api/admin/cluster/migration/plan") => {
                 if !role.allows(WebRole::Admin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::PlanRebalance);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/admin/cluster/migration/start") => {
+                if !role.allows(WebRole::Admin) {
+                    return HttpResponse::json_status(403, json_error("forbidden"));
+                }
+                let response = self.execute_backend_request(BackendRequest::StartRebalance);
+                HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/admin/cluster/migration/cancel") => {
+                if !role.allows(WebRole::Admin) {
+                    return HttpResponse::json_status(403, json_error("forbidden"));
+                }
+                let response = self.execute_backend_request(BackendRequest::CancelRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
             ("POST", "/api/backup") if !role.allows(WebRole::Admin) => {
@@ -240,7 +300,10 @@ impl TcpBackend {
             ("POST", "/api/query") => match extract_json_string_field(&request.body, "query") {
                 Ok(query) => match strip_database_use_clause(&query).and_then(|query| {
                     parse_json_params_field(&request.body).and_then(|params| {
-                        selected_db().and_then(|db| self.query_json(&db, &query, params))
+                        parse_query_options(request).and_then(|options| {
+                            selected_db()
+                                .and_then(|db| self.query_json(&db, &query, params, options))
+                        })
                     })
                 }) {
                     Ok(body) => HttpResponse::json(body),
@@ -585,4 +648,39 @@ impl TcpBackend {
         );
         Ok(format!("{{\"removed\":{removed}}}"))
     }
+}
+
+fn parse_query_options(request: &HttpRequest) -> Result<QueryOptions, String> {
+    let consistency = request
+        .header("x-neo4r-read-consistency")
+        .map(str::to_string)
+        .or_else(|| {
+            extract_optional_json_string_field(&request.body, "read_consistency")
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(|| "strong".to_string());
+    let normalized = consistency.trim().to_ascii_lowercase().replace('-', "_");
+    let read_consistency = match normalized.as_str() {
+        "strong" => ReadConsistency::Strong,
+        "follower_stale" | "stale" => ReadConsistency::FollowerStale,
+        "bounded_staleness" | "bounded" => {
+            let max_staleness_ms = request
+                .header("x-neo4r-max-staleness-ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .or_else(|| {
+                    extract_optional_json_u64_field(&request.body, "max_staleness_ms")
+                        .ok()
+                        .flatten()
+                })
+                .unwrap_or(1_000);
+            ReadConsistency::BoundedStaleness { max_staleness_ms }
+        }
+        other => {
+            return Err(format!(
+                "unsupported read_consistency {other}; expected strong, follower_stale, or bounded_staleness"
+            ));
+        }
+    };
+    Ok(QueryOptions::default().with_consistency(read_consistency))
 }

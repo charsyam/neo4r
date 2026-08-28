@@ -154,6 +154,14 @@ impl TcpBackend {
                     Err(err) => BackendResponse::Err(err.to_string()),
                 }
             }
+            BackendRequest::NegotiateReplicationPeer {
+                server_id,
+                address,
+                node_id,
+            } => match self.negotiate_replication_peer(server_id, address, node_id) {
+                Ok(()) => BackendResponse::OkUnit,
+                Err(err) => BackendResponse::Err(err.to_string()),
+            },
             BackendRequest::UnregisterReplicationPeer(server_id) => {
                 match self.unregister_replication_peer(server_id) {
                     Ok(()) => BackendResponse::OkUnit,
@@ -176,6 +184,21 @@ impl TcpBackend {
                 Ok(status) => BackendResponse::OkReplicationStatus(status),
                 Err(err) => BackendResponse::Err(err),
             },
+            BackendRequest::RoutingTable => match self.db.routing_table() {
+                Ok(routing_table) => {
+                    BackendResponse::OkRoutingTable(format_routing_table(&routing_table))
+                }
+                Err(err) => BackendResponse::Err(err.to_string()),
+            },
+            BackendRequest::Capabilities => {
+                BackendResponse::OkCapabilities(format_protocol_capabilities())
+            }
+            BackendRequest::ClusterRegistry => {
+                match cluster_registry(&self.db, &self.query_peers, DEFAULT_DATABASE) {
+                    Ok(registry) => BackendResponse::OkClusterRegistry(registry),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
             BackendRequest::SyncIndexCatalogFromPeer(server_id) => {
                 match self.sync_index_catalog_from_peer(server_id) {
                     Ok(()) => BackendResponse::OkUnit,

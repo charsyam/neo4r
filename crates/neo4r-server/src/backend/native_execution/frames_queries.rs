@@ -12,7 +12,11 @@ impl NativeExecutionContext {
             Err(err) => NativeFrame::new(
                 NativeMessageType::Error,
                 request_id,
-                format!("ERR\t{}", escape_payload(&err)).into_bytes(),
+                if err.starts_with("ERR\t") {
+                    err.into_bytes()
+                } else {
+                    format!("ERR\t{}", escape_payload(&err)).into_bytes()
+                },
             ),
         }
     }
@@ -132,6 +136,15 @@ impl NativeExecutionContext {
                 transport,
             } => {
                 validate_replication_peer_identity(&self.db, server_id, node_id)?;
+                if self
+                    .replication_peer_identities
+                    .would_create_cycle(server_id, node_id)
+                    .map_err(|err| err.to_string())?
+                {
+                    return Err(format!(
+                        "replication peer identity cycle detected for server {server_id}"
+                    ));
+                }
                 self.db
                     .register_replication_peer_endpoint(
                         server_id,
@@ -139,7 +152,51 @@ impl NativeExecutionContext {
                     )
                     .map_err(|err| err.to_string())?;
                 self.replication_peers
-                    .register(server_id, address)
+                    .register(server_id, address.clone())
+                    .map_err(|err| err.to_string())?;
+                self.replication_peer_identities
+                    .register(local_peer_identity(
+                        &self.db, server_id, address, node_id, transport,
+                    ))
+                    .map_err(|err| err.to_string())?;
+                Ok(format_response(&BackendResponse::OkUnit))
+            }
+            BackendRequest::NegotiateReplicationPeer {
+                server_id,
+                address,
+                node_id,
+            } => {
+                validate_replication_peer_membership(&self.db, server_id)?;
+                let remote = request_tcp_replication_hello(&address, self.catch_up_connect_timeout)
+                    .map_err(|err| err.to_string())?;
+                validate_remote_replication_identity(&self.db, server_id, node_id, &remote)?;
+                validate_replication_peer_identity(&self.db, server_id, Some(remote.node_id))?;
+                if self
+                    .replication_peer_identities
+                    .would_create_cycle(server_id, Some(remote.node_id))
+                    .map_err(|err| err.to_string())?
+                {
+                    return Err(format!(
+                        "replication peer identity cycle detected for server {server_id}"
+                    ));
+                }
+                self.db
+                    .register_replication_peer_endpoint(
+                        server_id,
+                        replication_endpoint(address.clone(), Some(ReplicationChannelKind::Tcp))?,
+                    )
+                    .map_err(|err| err.to_string())?;
+                self.replication_peers
+                    .register(server_id, address.clone())
+                    .map_err(|err| err.to_string())?;
+                self.replication_peer_identities
+                    .register(ReplicationPeerIdentity::tcp(
+                        server_id,
+                        address,
+                        Some(remote.node_id),
+                        remote.cluster_id,
+                        remote.database_id,
+                    ))
                     .map_err(|err| err.to_string())?;
                 Ok(format_response(&BackendResponse::OkUnit))
             }
@@ -148,6 +205,9 @@ impl NativeExecutionContext {
                     .unregister_replication_peer(server_id)
                     .map_err(|err| err.to_string())?;
                 self.replication_peers
+                    .unregister(server_id)
+                    .map_err(|err| err.to_string())?;
+                self.replication_peer_identities
                     .unregister(server_id)
                     .map_err(|err| err.to_string())?;
                 Ok(format_response(&BackendResponse::OkUnit))
@@ -167,9 +227,23 @@ impl NativeExecutionContext {
                     format_replication_peer_status(&status),
                 )))
             }
-            BackendRequest::ReplicationStatus => {
-                Ok(format_response(&BackendResponse::OkReplicationStatus(
-                    replication_status(&self.db, &self.replication_peers)?,
+            BackendRequest::ReplicationStatus => Ok(format_response(
+                &BackendResponse::OkReplicationStatus(replication_status(
+                    &self.db,
+                    &self.replication_peers,
+                    &self.replication_peer_identities,
+                )?),
+            )),
+            BackendRequest::RoutingTable => Ok(format_response(&execute_request(
+                &self.db,
+                BackendRequest::RoutingTable,
+            ))),
+            BackendRequest::Capabilities => Ok(format_response(&BackendResponse::OkCapabilities(
+                format_protocol_capabilities(),
+            ))),
+            BackendRequest::ClusterRegistry => {
+                Ok(format_response(&BackendResponse::OkClusterRegistry(
+                    cluster_registry(&self.db, &self.query_peers, DEFAULT_DATABASE)?,
                 )))
             }
             BackendRequest::SyncIndexCatalogFromPeer(server_id) => {
@@ -247,11 +321,19 @@ impl NativeExecutionContext {
         let primary = shard
             .primary_server_id
             .ok_or_else(|| format!("missing primary for write shard {shard_id}"))?;
-        let address = self.query_peers.address(primary)?.ok_or_else(|| {
-            format!(
-                "missing query peer address for primary server {primary} on write shard {shard_id}"
-            )
-        })?;
+        let Some(address) = self.query_peers.address(primary)? else {
+            return Ok(Some(format_response(&BackendResponse::Redirect(
+                BackendRedirect {
+                    kind: RedirectKind::Moved,
+                    shard_id,
+                    target_server_id: Some(primary),
+                    address: None,
+                    routing_version: status.routing_version,
+                    database: DEFAULT_DATABASE.to_string(),
+                    retryable: true,
+                },
+            ))));
+        };
         let payload = format_command_request_payload(request)?;
         Ok(Some(request_remote_command(&address, &payload)?))
     }

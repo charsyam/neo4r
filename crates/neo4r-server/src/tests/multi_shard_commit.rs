@@ -426,7 +426,7 @@ pub(super) fn native_transaction_lists_and_cleans_up_session_transactions() {
         &mut stream,
         NativeMessageType::Response,
         3,
-        &format!("OK\tTX_LIST\t1\t{tx_id}:READ_WRITE:READ_COMMITTED:1"),
+        &format!("OK\tTX_LIST\t1\t{tx_id}:READ_WRITE:READ_COMMITTED:1:1"),
     );
 
     drop(stream);
@@ -521,7 +521,7 @@ pub(super) fn native_transaction_lists_all_sessions() {
         &mut first,
         NativeMessageType::Response,
         3,
-        &format!("OK\tTX_LIST\t1\t{first_tx}:READ_WRITE:READ_COMMITTED:1"),
+        &format!("OK\tTX_LIST\t1\t{first_tx}:READ_WRITE:READ_COMMITTED:1:1"),
     );
 
     write_frame(
@@ -532,8 +532,8 @@ pub(super) fn native_transaction_lists_all_sessions() {
     let list_all = read_native_payload(&mut first, NativeMessageType::Response, 4);
     let parts = list_all.split('\t').collect::<Vec<_>>();
     assert_eq!(parts[0..3], ["OK", "TX_LIST_ALL", "2"]);
-    assert!(parts[3].contains(&format!(":{first_tx}:READ_WRITE:READ_COMMITTED:1")));
-    assert!(parts[3].contains(&format!(":{second_tx}:READ_WRITE:SNAPSHOT:0")));
+    assert!(parts[3].contains(&format!(":{first_tx}:READ_WRITE:READ_COMMITTED:1:1")));
+    assert!(parts[3].contains(&format!(":{second_tx}:READ_WRITE:SNAPSHOT:0:1")));
 
     write_frame(
         &mut first,
@@ -686,7 +686,7 @@ pub(super) fn native_read_write_transaction_rejects_schema_ddl() {
         &mut stream,
         NativeMessageType::Response,
         3,
-        &format!("OK\tTX_LIST\t1\t{tx_id}:READ_WRITE:SNAPSHOT:0"),
+        &format!("OK\tTX_LIST\t1\t{tx_id}:READ_WRITE:SNAPSHOT:0:1"),
     );
 
     write_frame(

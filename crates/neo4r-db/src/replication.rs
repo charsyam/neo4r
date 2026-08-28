@@ -13,6 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 const TCP_REPLICATION_REQUEST_MAGIC: &[u8] = b"N4RRP1\n";
+const TCP_REPLICATION_HELLO_MAGIC: &[u8] = b"N4RRH1\n";
 const TCP_RAFT_APPEND_REQUEST_MAGIC: &[u8] = b"N4RRAE\n";
 const TCP_RAFT_APPEND_RESPONSE_MAGIC: &[u8] = b"N4RRA2\n";
 const TCP_RAFT_VOTE_REQUEST_MAGIC: &[u8] = b"N4RRV1\n";
@@ -68,6 +69,10 @@ pub trait ShardReplicator: Send + Sync {
 
     fn unregister_peer_address(&self, _server_id: ServerId) -> DatabaseResult<()> {
         Ok(())
+    }
+
+    fn channel_metrics_snapshot(&self) -> Option<ReplicationChannelMetricsSnapshot> {
+        None
     }
 
     fn publish_batch(&self, entries: &[LogEntry]) -> DatabaseResult<Vec<ReplicationOutcome>> {
@@ -643,6 +648,10 @@ impl ShardReplicator for TcpShardReplicator {
 
     fn unregister_peer_address(&self, server_id: ServerId) -> DatabaseResult<()> {
         self.unregister_peer(server_id)
+    }
+
+    fn channel_metrics_snapshot(&self) -> Option<ReplicationChannelMetricsSnapshot> {
+        Some(self.channel_metrics())
     }
 
     fn publish(&self, entry: &LogEntry) -> DatabaseResult<ReplicationOutcome> {

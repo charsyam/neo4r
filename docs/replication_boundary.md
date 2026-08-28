@@ -34,6 +34,8 @@ native command keeps the legacy form and also accepts endpoint identity fields:
 ```text
 REGISTER_REPLICATION_PEER server_id address
 REGISTER_REPLICATION_PEER server_id address node_id transport
+NEGOTIATE_REPLICATION_PEER server_id address
+NEGOTIATE_REPLICATION_PEER server_id address node_id
 ```
 
 `node_id` identifies the remote node that owns the endpoint. It lets the receiver
@@ -43,6 +45,12 @@ cases where a different `server_id` is accidentally mapped to the local node.
 usable for raft delivery. UDP is a negotiated prototype boundary and RDMA/custom
 require provider implementations.
 
+`NEGOTIATE_REPLICATION_PEER` opens the TCP replication endpoint first, reads the
+remote hello identity, verifies server id, optional node id, cluster id,
+database id, and routing-table membership, then persists the accepted identity.
+Persisted identities are stored separately from the legacy address list so a
+restart can rebuild typed endpoints and reject indirect identity cycles.
+
 The endpoint identity check is intentionally local and conservative. It prevents
-obvious cycles at registration time; full topology-cycle detection still belongs
-in cluster membership consensus and routing-table validation.
+direct and persisted indirect cycles at registration time; richer topology
+validation still belongs in committed cluster membership changes.

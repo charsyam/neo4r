@@ -1,7 +1,8 @@
 # neo4r
 
-`neo4r` is an experimental Rust property graph database designed around a
-replicated state machine.
+`neo4r` is an experimental Rust property graph database. The current cluster
+path uses a Raft-backed shard replication path for server cluster mode, with
+static routing primaries during bootstrap.
 
 The first milestone is intentionally small:
 
@@ -11,12 +12,27 @@ The first milestone is intentionally small:
 - adjacency-list traversal
 - snapshot-friendly graph state
 
-The cluster layer should replicate `Command` values through Raft and apply them
-to `GraphState` in the same committed order on every node.
+The target cluster layer is a Raft-style replicated state machine that
+replicates `Command` values and applies them to `GraphState` in the same
+committed order on every node.
 
 ```text
 client -> leader -> raft log -> followers -> GraphState::apply(command)
 ```
+
+The implementation now persists Raft term/voted-for, handles RequestVote and
+AppendEntries over the replication port, performs AppendEntries log consistency
+checks, repairs divergent suffixes in the RaftCore, records follower match
+indexes, tracks follower leader-contact timestamps to suppress unnecessary
+elections, runs jittered election rounds that collect peer RequestVote responses
+and promote candidates after quorum, and applies graph state only after the Raft
+commit index advances. Strong reads in Raft mode use a local leader lease when
+available and fall back to quorum-confirmed read-index validation, and routing
+membership changes pass through a joint quorum model in RaftCore. Routing table
+installs also append a durable `ClusterConfigChange` command to the shard log.
+The remaining limitations are production-grade lease clock-bound validation and
+fully applying replicated configuration-change commands as cluster metadata
+state transitions.
 
 Replay is shard-local, not cluster-global. A node only replays log entries for
 shards it hosts.
@@ -68,7 +84,10 @@ Snapshots are written through a temporary file and atomically renamed into place
 
 Storage has a separate key-value abstraction for query lookup paths. Tests use
 `MemoryKvStore`, and the disk backend is `RocksKvStore`, a small wrapper around
-the system RocksDB C API.
+the system RocksDB C API. Logical graph commands are applied through a key-value
+write batch so node/relationship records and secondary index updates are written
+atomically by RocksDB. The graph store also exposes invariant verification and
+index repair helpers for materialized label/property/adjacency indexes.
 
 Current graph key families:
 
@@ -180,11 +199,40 @@ cargo run -p neo4r-server -- --bind 127.0.0.1:7687 --web-bind 127.0.0.1:7474 --d
 
 Open `http://127.0.0.1:7474/` to inspect nodes and relationships in a Three.js
 scene. Add `--web-auth-token TOKEN` to require `Authorization: Bearer TOKEN`
-or `?token=TOKEN` on web/API requests. `--slow-query-threshold-ms MS` controls
-the in-memory slow query log threshold. The web console also exposes JSON
-endpoints for automation and external tools:
+or `?token=TOKEN` on web/API requests. The browser console also has a login
+token field that stores the bearer token in local storage for subsequent API
+calls. Bootstrap tokens may be prefixed with
+`reader:`, `writer:`, or `admin:`; an unprefixed bootstrap token is treated as
+admin. Admin users can manage persistent RocksDB-backed web users under
+`DATA_DIR/system/web-auth-rocksdb`; each user may have multiple named tokens with
+`expired_at` unix-second expiry (`0` means no expiry). Tokens can also be scoped
+to database roles, for example `database_roles:"tenant_a=writer,tenant_b=reader"`.
+Expired, revoked, or non-authorized database tokens cannot authorize requests.
+The server exposes multi-tenant databases under `DATA_DIR/databases/{name}` and
+system metadata under `DATA_DIR/system`.
+The existing root data directory remains the `default` database for compatibility.
+HTTP clients select a database with `X-Neo4r-Database`, `?db=name`, or a JSON
+`"database":"name"` field. Query APIs also accept a leading `USE database_name`
+or ``USE `database_name`;`` clause; the clause selects the database for that
+request and is stripped before the query is planned or executed.
+`--slow-query-threshold-ms MS` controls the in-memory slow query log threshold.
+The web console also exposes JSON endpoints for automation and external tools:
 
 ![neo4r web console screenshot](images/neo4r.png)
+
+See [docs/operations.md](docs/operations.md) for local cluster bootstrap,
+snapshot backup/restore, tenant auth, and recovery checks. See
+[docs/read_consistency.md](docs/read_consistency.md) for the read freshness
+contract.
+
+Additional operator and contributor contracts:
+
+- [Replication boundary](docs/replication_boundary.md)
+- [Atomic apply audit](docs/atomic_apply_audit.md)
+- [Fault injection matrix](docs/fault_injection_matrix.md)
+- [API compatibility](docs/api_compatibility.md)
+- [Security notes](docs/security.md)
+- [Backup/restore contract](docs/backup_restore.md)
 
 ```text
 GET  /api/graph?limit=1000
@@ -198,6 +246,19 @@ GET  /api/statistics
 GET  /api/storage
 GET  /api/metadata-log
 GET  /api/cluster
+GET  /api/database
+GET  /api/admin/users
+GET  /api/admin/databases
+POST /api/use-database
+POST /api/admin/users
+POST /api/admin/databases
+POST /api/admin/disable-database
+POST /api/admin/enable-database
+POST /api/admin/delete-database
+POST /api/admin/invoke-token
+POST /api/admin/revoke-token
+POST /api/admin/cleanup-expired-tokens
+POST /api/admin/delete-user
 POST /api/cluster/plan-rebalance
 POST /api/cluster/advance-rebalance
 POST /api/backup
@@ -206,9 +267,19 @@ POST /api/restore
 
 `POST /api/query`, `/api/query-plan`, and `/api/profile` accept a JSON body like
 `{"query":"MATCH (n:Person) WHERE n.name = $name RETURN n","params":{"name":"Alice"}}`.
-Backup and restore requests accept `{"path":"/path/to/backup"}`. Restore copies
-files into the live data directory, so it is intended for local development and
-controlled maintenance windows.
+For tenant selection, include `"database":"tenant_a"` or send
+`X-Neo4r-Database: tenant_a`, or write
+`{"query":"USE tenant_a MATCH (n) RETURN n"}`. `GET /api/database?db=tenant_a`
+and `POST /api/use-database` with `{"database":"tenant_a"}` validate the selected
+database and return `{"database":"tenant_a"}`. `POST /api/admin/databases`
+accepts `{"name":"tenant_a"}`.
+`POST /api/admin/invoke-token` accepts
+`{"name":"operator","token_id":"main","role":"writer","token":"writer:operator-token","expired_at":"0"}`.
+Backup and restore requests accept `{"path":"/path/to/backup"}`. Snapshot
+maintenance responses include a versioned safety manifest with shard, term,
+index, byte size, and checksum fields. Restore copies files into the live data
+directory, so it is intended for local development and controlled maintenance
+windows.
 
 The default wire protocol is a native length-prefixed frame:
 

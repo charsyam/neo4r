@@ -1,5 +1,9 @@
 use neo4r_core::{Command, GraphState, Properties, Value};
-use neo4r_query::{CypherEngine, QueryEngine, QueryParams, QueryValue};
+use neo4r_query::{
+    classify_statement, classify_write_statement, CypherEngine, CypherStatementKind,
+    LogicalOperator, Pattern, PhysicalOperator, QueryEngine, QueryParams, QueryValue, VariableKind,
+    WriteStatementKind,
+};
 use neo4r_storage::{KvGraphStore, MemoryKvStore, RocksKvStore};
 use std::fs;
 use std::path::PathBuf;
@@ -61,6 +65,92 @@ fn filters_nodes_by_parameterized_property() {
         rows[0].get("n.name"),
         Some(&QueryValue::Scalar(Value::String("Alice".to_string())))
     );
+}
+
+#[test]
+fn exposes_parsed_semantic_logical_and_physical_plans() {
+    let engine = CypherEngine::new();
+    let params = QueryParams::new();
+    let parsed = engine
+        .parse(
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.name = \"Alice\" RETURN b.name ORDER BY b.name LIMIT 1",
+            &params,
+        )
+        .unwrap();
+    assert!(matches!(parsed.pattern, Pattern::Outgoing { .. }));
+
+    let semantic = engine
+        .analyze(
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.name = \"Alice\" RETURN b.name",
+            &params,
+        )
+        .unwrap();
+    assert_eq!(semantic.bound_variables[0].name, "a");
+    assert_eq!(semantic.bound_variables[0].kind, VariableKind::Node);
+    assert_eq!(semantic.bound_variables[1].name, "r");
+    assert_eq!(semantic.bound_variables[1].kind, VariableKind::Relationship);
+
+    let logical = engine
+        .logical_plan(
+            "MATCH (n:Person) WHERE n.name = \"Alice\" RETURN n.name",
+            &params,
+        )
+        .unwrap();
+    assert!(matches!(logical.root, LogicalOperator::Project { .. }));
+
+    let physical = engine
+        .physical_plan(
+            "MATCH (n:Person) WHERE n.name = \"Alice\" RETURN n.name",
+            &params,
+        )
+        .unwrap();
+    assert!(matches!(
+        physical.root,
+        PhysicalOperator::Materialize { .. }
+    ));
+
+    let physical = engine
+        .physical_plan(
+            "MATCH (n:Person) WHERE n.age >= 18 RETURN n.status, count(*) ORDER BY count(*) DESC LIMIT 5",
+            &params,
+        )
+        .unwrap();
+    let names = physical.operator_names();
+    assert!(names.contains(&"Materialize"));
+    assert!(names.contains(&"Top"));
+    assert!(names.contains(&"Sort"));
+    assert!(names.contains(&"HashAggregate"));
+    assert!(names.contains(&"PredicateFilter"));
+    assert!(physical.operator_count() >= 5);
+}
+
+#[test]
+fn classifies_read_write_and_ddl_statements() {
+    assert_eq!(
+        classify_statement("MATCH (n) RETURN n").unwrap(),
+        Some(CypherStatementKind::Read)
+    );
+    assert_eq!(
+        classify_write_statement("MATCH (n:Person) SET n.name = \"Alice\"").unwrap(),
+        Some(WriteStatementKind::MatchSet)
+    );
+    assert_eq!(
+        classify_write_statement("CREATE INDEX person_name FOR (n:Person) ON (n.name)").unwrap(),
+        Some(WriteStatementKind::CreateIndex)
+    );
+    assert_eq!(
+        classify_write_statement("MATCH (n) RETURN n").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn rejects_unbound_variables_before_execution() {
+    let err = CypherEngine::new()
+        .execute(&graph(), "MATCH (n:Person) RETURN m.name")
+        .unwrap_err();
+
+    assert!(err.to_string().contains("variable \"m\" is not bound"));
 }
 
 #[test]

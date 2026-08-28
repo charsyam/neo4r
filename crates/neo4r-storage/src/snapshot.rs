@@ -110,6 +110,29 @@ impl SnapshotStore {
         Ok(())
     }
 
+    pub fn save_payload(&self, payload: &[u8]) -> StorageResult<()> {
+        let tmp_path = self.path.with_extension("bin.tmp");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp_path)?;
+        file.write_all(payload)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp_path, &self.path)?;
+        sync_parent_dir(&self.path)?;
+        Ok(())
+    }
+
+    pub fn load_payload(&self) -> StorageResult<Option<Vec<u8>>> {
+        match fs::read(&self.path) {
+            Ok(payload) => Ok(Some(payload)),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(StorageError::Io(err)),
+        }
+    }
+
     pub fn load(&self) -> StorageResult<Option<LoadedSnapshot>> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,

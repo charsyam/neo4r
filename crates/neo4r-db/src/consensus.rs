@@ -42,7 +42,7 @@ impl Default for InProcessShardState {
     }
 }
 
-pub struct InProcessShardConsensus {
+pub struct StaticPrimaryShardReplication {
     server_id: ServerId,
     routing_table: ShardRoutingTable,
     replicator: Arc<dyn ShardReplicator>,
@@ -50,7 +50,9 @@ pub struct InProcessShardConsensus {
     states: Mutex<BTreeMap<ShardId, InProcessShardState>>,
 }
 
-impl InProcessShardConsensus {
+pub type InProcessShardConsensus = StaticPrimaryShardReplication;
+
+impl StaticPrimaryShardReplication {
     pub fn new(
         server_id: ServerId,
         routing_table: ShardRoutingTable,
@@ -181,7 +183,7 @@ impl InProcessShardConsensus {
     }
 }
 
-impl ShardConsensus for InProcessShardConsensus {
+impl ShardConsensus for StaticPrimaryShardReplication {
     fn propose(&self, command: ProposedCommand) -> DatabaseResult<LogEntry> {
         let entry = self.allocate_entry(command)?;
         match self.replicator.publish(&entry) {
@@ -268,7 +270,7 @@ mod tests {
     #[test]
     fn propose_requires_local_primary() {
         let replicator = Arc::new(RecordingReplicator::default());
-        let consensus = InProcessShardConsensus::new(11, routing_table(), replicator);
+        let consensus = StaticPrimaryShardReplication::new(11, routing_table(), replicator);
 
         let err = consensus
             .propose(ProposedCommand {
@@ -290,7 +292,7 @@ mod tests {
     #[test]
     fn propose_allocates_index_and_replicates() {
         let replicator = Arc::new(RecordingReplicator::default());
-        let consensus = InProcessShardConsensus::new(10, routing_table(), replicator.clone());
+        let consensus = StaticPrimaryShardReplication::new(10, routing_table(), replicator.clone());
 
         let entry = consensus
             .propose(ProposedCommand {
@@ -319,7 +321,7 @@ mod tests {
     #[test]
     fn append_entries_rejects_gaps() {
         let replicator = Arc::new(RecordingReplicator::default());
-        let consensus = InProcessShardConsensus::new(11, routing_table(), replicator);
+        let consensus = StaticPrimaryShardReplication::new(11, routing_table(), replicator);
         let entry =
             LogEntry::new_with_metadata(0, 1, 2, 10, 7, HybridClock::new().tick(), create_node(2));
 
@@ -338,7 +340,7 @@ mod tests {
     #[test]
     fn append_entries_advances_term_and_commit_state() {
         let replicator = Arc::new(RecordingReplicator::default());
-        let consensus = InProcessShardConsensus::new(11, routing_table(), replicator);
+        let consensus = StaticPrimaryShardReplication::new(11, routing_table(), replicator);
         let entry =
             LogEntry::new_with_metadata(0, 3, 1, 10, 7, HybridClock::new().tick(), create_node(1));
 

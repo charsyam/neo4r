@@ -19,15 +19,15 @@ pub use checkpoint::{CheckpointStore, LoadedCheckpoint};
 pub use cluster::ShardMetadataStore;
 pub use codec::{decode_log_entry, encode_log_entry};
 pub use commit::{CommitStore, LoadedCommit};
-pub use graph_store::KvGraphStore;
-pub use kv::{KeyValueStore, MemoryKvStore};
+pub use graph_store::{GraphInvariantReport, KvGraphStore};
+pub use kv::{KeyValueStore, KvWrite, KvWriteBatch, MemoryKvStore};
 pub use log::{CommandLog, SegmentedShardLog, ShardLog, StorageError, StorageResult};
 pub use membership::{
     ClusterMembership, ClusterMembershipStore, ClusterNode, ClusterShardAssignment,
     NodeMembershipState, ShardAssignmentState,
 };
 pub use partition::{LocalPartitionId, LocalPartitionMap, PartitionedGraphStore};
-pub use rocks::{RocksKvSnapshot, RocksKvStore};
+pub use rocks::{RocksKvOptions, RocksKvSnapshot, RocksKvStore};
 pub use snapshot::{LoadedSnapshot, SnapshotStore};
 pub use transaction::{
     TransactionDecision, TransactionDecisionRecord, TransactionDecisionStore,

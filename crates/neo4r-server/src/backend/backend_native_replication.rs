@@ -1,0 +1,234 @@
+impl TcpBackend {
+    pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
+        let (stream, _) = listener.accept()?;
+        self.handle_replication_stream(stream)
+    }
+
+    pub fn serve_replication_addr(&self, addr: impl ToSocketAddrs) -> io::Result<SocketAddr> {
+        let listener = TcpListener::bind(addr)?;
+        let local_addr = listener.local_addr()?;
+        self.serve_replication_listener(listener)?;
+        Ok(local_addr)
+    }
+
+    pub fn serve_replication_listener(&self, listener: TcpListener) -> io::Result<()> {
+        let backend = Arc::new(self.clone());
+        for stream in listener.incoming() {
+            let stream = stream?;
+            let backend = backend.clone();
+            thread::spawn(move || {
+                let _ = backend.handle_replication_stream(stream);
+            });
+        }
+        Ok(())
+    }
+
+    pub fn serve_replication_listener_until(
+        &self,
+        listener: TcpListener,
+        shutdown: Receiver<()>,
+    ) -> io::Result<()> {
+        listener.set_nonblocking(true)?;
+        let backend = Arc::new(self.clone());
+        loop {
+            if shutdown.try_recv().is_ok() {
+                break;
+            }
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let backend = backend.clone();
+                    thread::spawn(move || {
+                        let _ = backend.handle_replication_stream(stream);
+                    });
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn handle_native_stream(&self, stream: TcpStream) -> io::Result<()> {
+        let session_id = self.transactions.next_session_id();
+        let reader_stream = stream.try_clone()?;
+        let mut reader = BufReader::new(reader_stream);
+        let (response_tx, response_rx) = mpsc::channel::<NativeFrame>();
+        let writer = thread::spawn(move || write_native_responses(stream, response_rx));
+
+        while let Some(frame) = read_frame(&mut reader)? {
+            if matches!(frame.message_type, NativeMessageType::Quit) {
+                send_native_response(
+                    &response_tx,
+                    native_response_frame(
+                        frame.request_id,
+                        execute_request(&self.db, BackendRequest::Quit),
+                    ),
+                )?;
+                break;
+            }
+            if matches!(frame.message_type, NativeMessageType::Cancel) {
+                let response = match frame
+                    .payload_text()
+                    .map_err(|err| err.to_string())
+                    .and_then(parse_cancel_payload)
+                    .and_then(|target_request_id| {
+                        self.cancel_pending_request(session_id, target_request_id)
+                            .map(|cancelled| (target_request_id, cancelled))
+                    }) {
+                    Ok((target_request_id, true)) => NativeFrame::new(
+                        NativeMessageType::Response,
+                        frame.request_id,
+                        format!("OK\tCANCELLED\t{target_request_id}").into_bytes(),
+                    ),
+                    Ok((target_request_id, false)) => NativeFrame::new(
+                        NativeMessageType::Response,
+                        frame.request_id,
+                        format!("OK\tCANCEL_MISSED\t{target_request_id}").into_bytes(),
+                    ),
+                    Err(err) => NativeFrame::new(
+                        NativeMessageType::Error,
+                        frame.request_id,
+                        format!("ERR\t{}", escape_payload(&err)).into_bytes(),
+                    ),
+                };
+                send_native_response(&response_tx, response)?;
+                continue;
+            }
+
+            self.workers
+                .submit(session_id, frame, response_tx.clone())?;
+        }
+        drop(response_tx);
+        writer
+            .join()
+            .map_err(|_| io::Error::other("native response writer thread panicked"))??;
+        let _ = self.cursors.close_session(session_id);
+        let _ = self.transactions.close_session(session_id);
+        let _ = self.prepared_queries.close_session(session_id);
+        let _ = self.pending_requests.close_session(session_id);
+        Ok(())
+    }
+
+    fn cancel_pending_request(&self, session_id: u64, request_id: u64) -> Result<bool, String> {
+        self.pending_requests.cancel(session_id, request_id)
+    }
+
+    fn execute_backend_request(&self, request: BackendRequest) -> BackendResponse {
+        match request {
+            BackendRequest::QueryDistributed { query, params } => {
+                self.execute_distributed_query(&query, params)
+            }
+            BackendRequest::RegisterQueryPeer { server_id, address } => {
+                match self.register_query_peer(server_id, address) {
+                    Ok(()) => BackendResponse::OkUnit,
+                    Err(err) => BackendResponse::Err(err.to_string()),
+                }
+            }
+            BackendRequest::UnregisterQueryPeer(server_id) => {
+                match self.unregister_query_peer(server_id) {
+                    Ok(()) => BackendResponse::OkUnit,
+                    Err(err) => BackendResponse::Err(err.to_string()),
+                }
+            }
+            BackendRequest::ListQueryPeers => match self.list_query_peers() {
+                Ok(peers) => BackendResponse::OkQueryPeers(format_query_peers(&peers)),
+                Err(err) => BackendResponse::Err(err.to_string()),
+            },
+            BackendRequest::RegisterReplicationPeer { server_id, address } => {
+                match self.register_replication_peer(server_id, address) {
+                    Ok(()) => BackendResponse::OkUnit,
+                    Err(err) => BackendResponse::Err(err.to_string()),
+                }
+            }
+            BackendRequest::UnregisterReplicationPeer(server_id) => {
+                match self.unregister_replication_peer(server_id) {
+                    Ok(()) => BackendResponse::OkUnit,
+                    Err(err) => BackendResponse::Err(err.to_string()),
+                }
+            }
+            BackendRequest::ListReplicationPeers => match self.list_replication_peers() {
+                Ok(peers) => BackendResponse::OkReplicationPeers(format_query_peers(&peers)),
+                Err(err) => BackendResponse::Err(err.to_string()),
+            },
+            BackendRequest::ReplicationPeerStatus { server_id } => {
+                match replication_peer_status(&self.db, &self.replication_peers, server_id) {
+                    Ok(status) => BackendResponse::OkReplicationPeerStatus(
+                        format_replication_peer_status(&status),
+                    ),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
+            BackendRequest::ReplicationStatus => match self.replication_status() {
+                Ok(status) => BackendResponse::OkReplicationStatus(status),
+                Err(err) => BackendResponse::Err(err),
+            },
+            BackendRequest::SyncIndexCatalogFromPeer(server_id) => {
+                match self.sync_index_catalog_from_peer(server_id) {
+                    Ok(()) => BackendResponse::OkUnit,
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
+            BackendRequest::CatchUpFromPrimaries {
+                max_entries_per_request,
+            } => match self.catch_up_from_primaries_with_limit(max_entries_per_request) {
+                Ok(results) => BackendResponse::OkCatchUp(format_catch_up_results(&results)),
+                Err(err) => BackendResponse::Err(err),
+            },
+            BackendRequest::CatchUpFromPrimary {
+                server_id,
+                max_entries_per_request,
+            } => match self.catch_up_from_primary_with_limit(server_id, max_entries_per_request) {
+                Ok(results) => BackendResponse::OkCatchUp(format_catch_up_results(&results)),
+                Err(err) => BackendResponse::Err(err),
+            },
+            BackendRequest::CatchUpPlan { server_id } => {
+                match catch_up_plan(&self.db, &self.replication_peers, server_id) {
+                    Ok(plan) => BackendResponse::OkCatchUpPlan(format_catch_up_plan(&plan)),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
+            BackendRequest::ListTransactionDecisions => {
+                match list_transaction_decisions(&self.db) {
+                    Ok(decisions) => BackendResponse::OkTransactionDecisions(
+                        format_transaction_decisions(&decisions),
+                    ),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
+            BackendRequest::RecoverTransactionDecisions => {
+                match self.recover_transaction_decisions() {
+                    Ok(count) => BackendResponse::OkTransactionRecovery(count),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
+            request => execute_request(&self.db, request),
+        }
+    }
+
+    fn execute_distributed_query(
+        &self,
+        query: &str,
+        params: neo4r_query::QueryParams,
+    ) -> BackendResponse {
+        if is_write_cypher(query) {
+            return BackendResponse::Err(
+                "QUERY_DISTRIBUTED only supports read queries".to_string(),
+            );
+        }
+        match execute_distributed_query(
+            &self.db,
+            &self.query_peers,
+            self.read_preference,
+            query,
+            &params,
+        ) {
+            Ok(rows) => BackendResponse::OkRows {
+                count: rows.len(),
+                debug_rows: encode_query_rows(&rows),
+            },
+            Err(err) => BackendResponse::Err(err),
+        }
+    }
+}

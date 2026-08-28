@@ -1,5 +1,8 @@
 use crate::{StorageError, StorageResult};
-use neo4r_core::{Command, HybridTimestamp, LogEntry, Properties, Value};
+use neo4r_core::{
+    Command, HybridTimestamp, LogEntry, Properties, ShardPlacement, ShardReplica, ShardRole,
+    ShardRoutingTable, Value,
+};
 
 const CREATE_NODE: u8 = 1;
 const CREATE_RELATIONSHIP: u8 = 2;
@@ -12,6 +15,7 @@ const REMOVE_NODE_PROPERTY: u8 = 8;
 const REMOVE_RELATIONSHIP_PROPERTY: u8 = 9;
 const ADD_NODE_LABEL: u8 = 10;
 const REMOVE_NODE_LABEL: u8 = 11;
+const CLUSTER_CONFIG_CHANGE: u8 = 12;
 
 const VALUE_NULL: u8 = 0;
 const VALUE_BOOL: u8 = 1;
@@ -105,6 +109,21 @@ pub fn encode_command(command: &Command) -> Vec<u8> {
             write_u8(&mut out, DELETE_NODE);
             write_u64(&mut out, *id);
         }
+        Command::ClusterConfigChange {
+            phase,
+            description,
+            voters,
+            routing_table,
+        } => {
+            write_u8(&mut out, CLUSTER_CONFIG_CHANGE);
+            write_string(&mut out, phase);
+            write_string(&mut out, description);
+            write_u32(&mut out, voters.len() as u32);
+            for voter in voters {
+                write_u64(&mut out, *voter);
+            }
+            write_routing_table(&mut out, routing_table);
+        }
     }
     out
 }
@@ -180,6 +199,21 @@ pub fn decode_command(input: &[u8]) -> StorageResult<Command> {
         DELETE_NODE => Command::DeleteNode {
             id: reader.read_u64()?,
         },
+        CLUSTER_CONFIG_CHANGE => {
+            let phase = reader.read_string()?;
+            let description = reader.read_string()?;
+            let count = reader.read_u32()? as usize;
+            let mut voters = Vec::with_capacity(count);
+            for _ in 0..count {
+                voters.push(reader.read_u64()?);
+            }
+            Command::ClusterConfigChange {
+                phase,
+                description,
+                voters,
+                routing_table: reader.read_routing_table()?,
+            }
+        }
         _ => {
             return Err(StorageError::CorruptLog(format!(
                 "unknown command tag {tag}"
@@ -284,6 +318,25 @@ fn write_properties(out: &mut Vec<u8>, properties: &Properties) {
     for (key, value) in entries {
         write_string(out, key);
         write_value(out, value);
+    }
+}
+
+fn write_routing_table(out: &mut Vec<u8>, routing_table: &ShardRoutingTable) {
+    write_u64(out, routing_table.version);
+    write_u32(out, routing_table.placements.len() as u32);
+    for placement in &routing_table.placements {
+        write_u64(out, placement.shard_id);
+        write_u32(out, placement.replicas.len() as u32);
+        for replica in &placement.replicas {
+            write_u64(out, replica.server_id);
+            write_u8(
+                out,
+                match replica.role {
+                    ShardRole::Primary => 1,
+                    ShardRole::Replica => 2,
+                },
+            );
+        }
     }
 }
 
@@ -402,6 +455,35 @@ impl<'a> Reader<'a> {
             VALUE_MAP => Ok(Value::Map(self.read_properties()?)),
             tag => Err(StorageError::CorruptLog(format!("unknown value tag {tag}"))),
         }
+    }
+
+    fn read_routing_table(&mut self) -> StorageResult<ShardRoutingTable> {
+        let version = self.read_u64()?;
+        let placement_count = self.read_u32()? as usize;
+        let mut placements = Vec::with_capacity(placement_count);
+        for _ in 0..placement_count {
+            let shard_id = self.read_u64()?;
+            let replica_count = self.read_u32()? as usize;
+            let mut replicas = Vec::with_capacity(replica_count);
+            for _ in 0..replica_count {
+                let server_id = self.read_u64()?;
+                let role = match self.read_u8()? {
+                    1 => ShardRole::Primary,
+                    2 => ShardRole::Replica,
+                    tag => {
+                        return Err(StorageError::CorruptLog(format!(
+                            "unknown shard replica role tag {tag}"
+                        )))
+                    }
+                };
+                replicas.push(ShardReplica { server_id, role });
+            }
+            placements.push(ShardPlacement { shard_id, replicas });
+        }
+        Ok(ShardRoutingTable {
+            version,
+            placements,
+        })
     }
 
     fn read_exact(&mut self, len: usize) -> StorageResult<&'a [u8]> {
@@ -556,6 +638,25 @@ mod tests {
             labels: vec!["Person".to_string()],
             properties: properties(&[("name", Value::String("Bob".to_string()))]),
             version: 42,
+        };
+
+        assert_eq!(decode_command(&encode_command(&command)).unwrap(), command);
+    }
+
+    #[test]
+    fn cluster_config_change_command_round_trip() {
+        let routing_table = ShardRoutingTable {
+            version: 4,
+            placements: vec![ShardPlacement::new(
+                0,
+                vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+            )],
+        };
+        let command = Command::ClusterConfigChange {
+            phase: "install".to_string(),
+            description: "install_routing_table:version=4".to_string(),
+            voters: vec![1, 2, 3],
+            routing_table,
         };
 
         assert_eq!(decode_command(&encode_command(&command)).unwrap(), command);

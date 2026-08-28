@@ -226,6 +226,7 @@ impl GraphState {
             }
             Command::DeleteRelationship { id } => self.delete_relationship(id),
             Command::DeleteNode { id } => self.delete_node(id),
+            Command::ClusterConfigChange { .. } => Ok(()),
         }
     }
 

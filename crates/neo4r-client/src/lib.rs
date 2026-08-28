@@ -8,6 +8,7 @@ use neo4r_protocol::{
 pub use neo4r_query::{QueryParams, QueryRow, QueryValue};
 use std::io;
 use std::net::{TcpStream, ToSocketAddrs};
+use std::thread;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -40,12 +41,20 @@ pub type ClientResult<T> = Result<T, ClientError>;
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
     pub connect_timeout: Option<Duration>,
+    pub read_timeout: Option<Duration>,
+    pub write_timeout: Option<Duration>,
+    pub retry_attempts: usize,
+    pub retry_backoff: Duration,
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             connect_timeout: Some(Duration::from_secs(3)),
+            read_timeout: Some(Duration::from_secs(30)),
+            write_timeout: Some(Duration::from_secs(30)),
+            retry_attempts: 0,
+            retry_backoff: Duration::from_millis(50),
         }
     }
 }
@@ -70,10 +79,9 @@ impl Client {
                 "address did not resolve to a socket address".to_string(),
             ));
         };
-        let stream = match config.connect_timeout {
-            Some(timeout) => TcpStream::connect_timeout(&address, timeout)?,
-            None => TcpStream::connect(address)?,
-        };
+        let stream = connect_with_retry(&address, &config)?;
+        stream.set_read_timeout(config.read_timeout)?;
+        stream.set_write_timeout(config.write_timeout)?;
         Ok(Self {
             stream,
             next_request_id: 1,
@@ -238,6 +246,30 @@ impl Client {
         let request_id = self.next_request_id;
         self.next_request_id = self.next_request_id.saturating_add(1);
         request_id
+    }
+}
+
+fn connect_with_retry(
+    address: &std::net::SocketAddr,
+    config: &ClientConfig,
+) -> ClientResult<TcpStream> {
+    let mut attempt = 0;
+    loop {
+        let result = match config.connect_timeout {
+            Some(timeout) => TcpStream::connect_timeout(address, timeout),
+            None => TcpStream::connect(address),
+        };
+        match result {
+            Ok(stream) => return Ok(stream),
+            Err(err) if attempt < config.retry_attempts => {
+                attempt += 1;
+                thread::sleep(config.retry_backoff);
+                if attempt > config.retry_attempts {
+                    return Err(ClientError::Io(err));
+                }
+            }
+            Err(err) => return Err(ClientError::Io(err)),
+        }
     }
 }
 

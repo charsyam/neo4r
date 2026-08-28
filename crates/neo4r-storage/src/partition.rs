@@ -1,5 +1,6 @@
 use crate::{
-    KeyValueStore, KvGraphStore, RocksKvSnapshot, RocksKvStore, StorageError, StorageResult,
+    GraphInvariantReport, KeyValueStore, KvGraphStore, RocksKvSnapshot, RocksKvStore, StorageError,
+    StorageResult,
 };
 use neo4r_core::{
     BoundaryNode, Command, GraphRead, GraphReadError, GraphReadResult, Node, NodeId, Relationship,
@@ -128,6 +129,30 @@ impl<KV: KeyValueStore> PartitionedGraphStore<KV> {
         self.partition_for_shard_mut(shard_id)?.apply(command)
     }
 
+    pub fn verify_invariants(&self) -> StorageResult<GraphInvariantReport> {
+        let mut merged = GraphInvariantReport::default();
+        for partition in &self.partitions {
+            let report = partition.verify_invariants()?;
+            merged.missing_index_keys.extend(report.missing_index_keys);
+            merged
+                .unexpected_index_keys
+                .extend(report.unexpected_index_keys);
+        }
+        Ok(merged)
+    }
+
+    pub fn repair_indexes(&mut self) -> StorageResult<GraphInvariantReport> {
+        let mut merged = GraphInvariantReport::default();
+        for partition in &mut self.partitions {
+            let report = partition.repair_indexes()?;
+            merged.missing_index_keys.extend(report.missing_index_keys);
+            merged
+                .unexpected_index_keys
+                .extend(report.unexpected_index_keys);
+        }
+        Ok(merged)
+    }
+
     pub fn partitions(&self) -> &[KvGraphStore<KV>] {
         &self.partitions
     }
@@ -142,6 +167,14 @@ impl<KV: KeyValueStore> PartitionedGraphStore<KV> {
             relationships.extend(partition.relationships()?);
         }
         Ok(relationships)
+    }
+
+    pub fn boundary_nodes(&self) -> StorageResult<Vec<BoundaryNode>> {
+        let mut nodes = Vec::new();
+        for partition in &self.partitions {
+            nodes.extend(partition.boundary_nodes()?);
+        }
+        Ok(nodes)
     }
 
     fn partition_index_for_shard(&self, shard_id: ShardId) -> usize {

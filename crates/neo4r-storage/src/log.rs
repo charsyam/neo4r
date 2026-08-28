@@ -253,6 +253,36 @@ impl SegmentedShardLog {
             .find(|entry| entry.index == index))
     }
 
+    pub fn truncate_from(&self, index: LogIndex) -> StorageResult<()> {
+        let retained = self
+            .replay()?
+            .into_iter()
+            .filter(|entry| entry.index < index)
+            .collect::<Vec<_>>();
+        let tmp_dir = self.segments_dir.with_extension("segments.tmp");
+        if tmp_dir.exists() {
+            fs::remove_dir_all(&tmp_dir)?;
+        }
+        fs::create_dir_all(&tmp_dir)?;
+        let tmp_log = SegmentedShardLog {
+            shard_id: self.shard_id,
+            entries_per_segment: self.entries_per_segment,
+            segments_dir: tmp_dir.clone(),
+        };
+        for entry in &retained {
+            tmp_log.append(entry)?;
+        }
+        let old_dir = self.segments_dir.with_extension("segments.old");
+        if old_dir.exists() {
+            fs::remove_dir_all(&old_dir)?;
+        }
+        fs::rename(&self.segments_dir, &old_dir)?;
+        fs::rename(&tmp_dir, &self.segments_dir)?;
+        sync_parent_dir(&self.segments_dir)?;
+        fs::remove_dir_all(old_dir)?;
+        Ok(())
+    }
+
     fn segment_paths_from(&self, start_index: LogIndex) -> StorageResult<Vec<PathBuf>> {
         let start_segment = self.segment_start_for_index(start_index);
         let mut paths = Vec::new();
@@ -384,6 +414,13 @@ fn read_entry_len(file: &mut File) -> StorageResult<Option<u32>> {
         })?;
     }
     Ok(Some(u32::from_be_bytes(len)))
+}
+
+fn sync_parent_dir(path: &Path) -> StorageResult<()> {
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -642,6 +679,51 @@ mod tests {
         assert_eq!(
             replayed.iter().map(|entry| entry.index).collect::<Vec<_>>(),
             vec![4, 5]
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn segmented_shard_log_truncates_suffix_durably() {
+        let dir = temp_dir("neo4r-segmented-shard-log-truncate");
+        let log = SegmentedShardLog::open(&dir, 3, 2).unwrap();
+
+        for index in 1..=5 {
+            log.append(&LogEntry::new(
+                3,
+                index,
+                index,
+                Command::SetNodeProperty {
+                    id: 1,
+                    key: "position".to_string(),
+                    value: Value::Int(index as i64),
+                },
+            ))
+            .unwrap();
+        }
+
+        log.truncate_from(4).unwrap();
+        log.append(&LogEntry::new(
+            3,
+            9,
+            4,
+            Command::SetNodeProperty {
+                id: 1,
+                key: "position".to_string(),
+                value: Value::Int(99),
+            },
+        ))
+        .unwrap();
+
+        let reopened = SegmentedShardLog::open(&dir, 3, 2).unwrap();
+        let replayed = reopened.replay().unwrap();
+        assert_eq!(
+            replayed
+                .iter()
+                .map(|entry| (entry.index, entry.term))
+                .collect::<Vec<_>>(),
+            vec![(1, 1), (2, 2), (3, 3), (4, 9)]
         );
 
         let _ = std::fs::remove_dir_all(dir);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from typing import Any
 
 from .protocol import (
@@ -41,8 +42,25 @@ class Client:
         self._next_request_id = 1
 
     @classmethod
-    def connect(cls, host: str = "127.0.0.1", port: int = 7687, timeout: float = 3.0) -> "Client":
-        return cls(socket.create_connection((host, port), timeout=timeout))
+    def connect(
+        cls,
+        host: str = "127.0.0.1",
+        port: int = 7687,
+        timeout: float = 3.0,
+        retry_attempts: int = 0,
+        retry_backoff: float = 0.05,
+    ) -> "Client":
+        attempt = 0
+        while True:
+            try:
+                sock = socket.create_connection((host, port), timeout=timeout)
+                sock.settimeout(timeout)
+                return cls(sock)
+            except OSError:
+                if attempt >= retry_attempts:
+                    raise
+                attempt += 1
+                time.sleep(retry_backoff)
 
     def ping(self) -> None:
         self._expect(PING, b"", "OK\tPONG")

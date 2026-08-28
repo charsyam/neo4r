@@ -1,15 +1,28 @@
 use crate::codec::{decode_command, encode_command};
-use crate::{KeyValueStore, StorageError, StorageResult};
+use crate::{KeyValueStore, KvWriteBatch, StorageError, StorageResult};
 use crate::{RocksKvSnapshot, RocksKvStore};
 use neo4r_core::{
     BoundaryNode, Command, GraphRead, GraphReadError, GraphReadResult, Node, NodeId, Properties,
     Relationship, RelationshipId, Value,
 };
+use std::collections::BTreeSet;
 
 const EMPTY: &[u8] = &[];
 
 pub struct KvGraphStore<KV> {
     kv: KV,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GraphInvariantReport {
+    pub missing_index_keys: Vec<Vec<u8>>,
+    pub unexpected_index_keys: Vec<Vec<u8>>,
+}
+
+impl GraphInvariantReport {
+    pub fn is_clean(&self) -> bool {
+        self.missing_index_keys.is_empty() && self.unexpected_index_keys.is_empty()
+    }
 }
 
 impl<KV: KeyValueStore> KvGraphStore<KV> {
@@ -54,7 +67,105 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             }
             Command::DeleteRelationship { id } => self.delete_relationship(*id),
             Command::DeleteNode { id } => self.delete_node(*id),
+            Command::ClusterConfigChange { .. } => Ok(()),
         }
+    }
+
+    pub fn verify_invariants(&self) -> StorageResult<GraphInvariantReport> {
+        let expected = self.expected_index_keys()?;
+        let actual = self.actual_index_keys()?;
+        Ok(GraphInvariantReport {
+            missing_index_keys: expected.difference(&actual).cloned().collect(),
+            unexpected_index_keys: actual.difference(&expected).cloned().collect(),
+        })
+    }
+
+    pub fn repair_indexes(&mut self) -> StorageResult<GraphInvariantReport> {
+        let before = self.verify_invariants()?;
+        if before.is_clean() {
+            return Ok(before);
+        }
+
+        let mut batch = KvWriteBatch::new();
+        for key in self.actual_index_keys()? {
+            batch.delete(key);
+        }
+        for key in self.expected_index_keys()? {
+            batch.put(key, EMPTY.to_vec());
+        }
+        self.kv.write_batch(batch)?;
+        Ok(before)
+    }
+
+    fn expected_index_keys(&self) -> StorageResult<BTreeSet<Vec<u8>>> {
+        let mut keys = BTreeSet::new();
+        for node in self.nodes()? {
+            self.expected_node_index_keys(&mut keys, &node);
+        }
+        for boundary in self.boundary_nodes()? {
+            self.expected_boundary_node_index_keys(&mut keys, &boundary);
+        }
+        for relationship in self.relationships()? {
+            self.expected_relationship_index_keys(&mut keys, &relationship)?;
+        }
+        Ok(keys)
+    }
+
+    fn expected_node_index_keys(&self, keys: &mut BTreeSet<Vec<u8>>, node: &Node) {
+        for label in &node.labels {
+            keys.insert(label_key(label, node.id));
+            for (property_key, property_value) in &node.properties {
+                keys.insert(label_property_key(
+                    label,
+                    property_key,
+                    property_value,
+                    node.id,
+                ));
+            }
+        }
+    }
+
+    fn expected_boundary_node_index_keys(&self, keys: &mut BTreeSet<Vec<u8>>, node: &BoundaryNode) {
+        for label in &node.labels {
+            for (property_key, property_value) in &node.properties {
+                keys.insert(boundary_label_property_key(
+                    label,
+                    property_key,
+                    property_value,
+                    node.id,
+                ));
+            }
+        }
+    }
+
+    fn expected_relationship_index_keys(
+        &self,
+        keys: &mut BTreeSet<Vec<u8>>,
+        relationship: &Relationship,
+    ) -> StorageResult<()> {
+        keys.insert(outgoing_key(relationship.from, relationship.id));
+        keys.insert(outgoing_type_key(
+            relationship.from,
+            &relationship.rel_type,
+            relationship.id,
+        ));
+        if self.node(relationship.to)?.is_some() {
+            keys.insert(incoming_key(relationship.to, relationship.id));
+            keys.insert(incoming_type_key(
+                relationship.to,
+                &relationship.rel_type,
+                relationship.id,
+            ));
+        }
+        Ok(())
+    }
+
+    fn actual_index_keys(&self) -> StorageResult<BTreeSet<Vec<u8>>> {
+        let mut keys = BTreeSet::new();
+        for prefix in index_prefixes() {
+            keys.extend(self.kv.scan_prefix(prefix)?.into_iter().map(|(key, _)| key));
+        }
+        Ok(keys)
     }
 
     pub fn node(&self, id: NodeId) -> StorageResult<Option<Node>> {
@@ -78,6 +189,14 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             .get(&boundary_node_key(id))?
             .map(decode_boundary_node)
             .transpose()
+    }
+
+    pub fn boundary_nodes(&self) -> StorageResult<Vec<BoundaryNode>> {
+        self.kv
+            .scan_prefix(&boundary_node_prefix())?
+            .into_iter()
+            .map(|(_, value)| decode_boundary_node(value))
+            .collect()
     }
 
     pub fn relationship(&self, id: RelationshipId) -> StorageResult<Option<Relationship>> {
@@ -155,13 +274,25 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         labels: &[String],
         properties: &Properties,
     ) -> StorageResult<()> {
+        let mut batch = KvWriteBatch::new();
+        self.put_node_into_batch(&mut batch, id, labels, properties);
+        self.index_node_into_batch(&mut batch, id, labels, properties);
+        self.kv.write_batch(batch)
+    }
+
+    fn put_node_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        id: NodeId,
+        labels: &[String],
+        properties: &Properties,
+    ) {
         let command = Command::CreateNode {
             id,
             labels: labels.to_vec(),
             properties: properties.clone(),
         };
-        self.kv.put(&node_key(id), &encode_command(&command))?;
-        self.index_node(id, labels, properties)
+        batch.put(node_key(id), encode_command(&command));
     }
 
     fn upsert_boundary_node(
@@ -172,8 +303,9 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         properties: &Properties,
         version: u64,
     ) -> StorageResult<()> {
+        let mut batch = KvWriteBatch::new();
         if let Some(old) = self.boundary_node(id)? {
-            self.remove_boundary_node_indexes(&old)?;
+            self.remove_boundary_node_indexes_into_batch(&mut batch, &old);
         }
         let command = Command::UpsertBoundaryNode {
             id,
@@ -182,13 +314,27 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             properties: properties.clone(),
             version,
         };
-        self.kv
-            .put(&boundary_node_key(id), &encode_command(&command))?;
-        self.index_boundary_node(id, labels, properties)
+        batch.put(boundary_node_key(id), encode_command(&command));
+        self.index_boundary_node_into_batch(&mut batch, id, labels, properties);
+        self.kv.write_batch(batch)
     }
 
     fn create_relationship(
         &mut self,
+        id: RelationshipId,
+        from: NodeId,
+        to: NodeId,
+        rel_type: &str,
+        properties: &Properties,
+    ) -> StorageResult<()> {
+        let mut batch = KvWriteBatch::new();
+        self.create_relationship_into_batch(&mut batch, id, from, to, rel_type, properties)?;
+        self.kv.write_batch(batch)
+    }
+
+    fn create_relationship_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
         id: RelationshipId,
         from: NodeId,
         to: NodeId,
@@ -202,13 +348,12 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             rel_type: rel_type.to_string(),
             properties: properties.clone(),
         };
-        self.kv
-            .put(&relationship_key(id), &encode_command(&command))?;
-        self.kv.put(&outgoing_key(from, id), EMPTY)?;
-        self.kv.put(&outgoing_type_key(from, rel_type, id), EMPTY)?;
+        batch.put(relationship_key(id), encode_command(&command));
+        batch.put(outgoing_key(from, id), EMPTY.to_vec());
+        batch.put(outgoing_type_key(from, rel_type, id), EMPTY.to_vec());
         if self.node(to)?.is_some() {
-            self.kv.put(&incoming_key(to, id), EMPTY)?;
-            self.kv.put(&incoming_type_key(to, rel_type, id), EMPTY)?;
+            batch.put(incoming_key(to, id), EMPTY.to_vec());
+            batch.put(incoming_type_key(to, rel_type, id), EMPTY.to_vec());
         }
         Ok(())
     }
@@ -217,18 +362,24 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         let Some(mut node) = self.node(id)? else {
             return Ok(());
         };
-        self.remove_node_indexes(&node)?;
+        let mut batch = KvWriteBatch::new();
+        self.remove_node_indexes_into_batch(&mut batch, &node);
         node.properties.insert(key.to_string(), value.clone());
-        self.create_node(node.id, &node.labels, &node.properties)
+        self.put_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.index_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.kv.write_batch(batch)
     }
 
     fn remove_node_property(&mut self, id: NodeId, key: &str) -> StorageResult<()> {
         let Some(mut node) = self.node(id)? else {
             return Ok(());
         };
-        self.remove_node_indexes(&node)?;
+        let mut batch = KvWriteBatch::new();
+        self.remove_node_indexes_into_batch(&mut batch, &node);
         node.properties.remove(key);
-        self.create_node(node.id, &node.labels, &node.properties)
+        self.put_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.index_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.kv.write_batch(batch)
     }
 
     fn add_node_label(&mut self, id: NodeId, label: &str) -> StorageResult<()> {
@@ -238,9 +389,12 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         if node.labels.iter().any(|existing| existing == label) {
             return Ok(());
         }
-        self.remove_node_indexes(&node)?;
+        let mut batch = KvWriteBatch::new();
+        self.remove_node_indexes_into_batch(&mut batch, &node);
         node.labels.push(label.to_string());
-        self.create_node(node.id, &node.labels, &node.properties)
+        self.put_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.index_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.kv.write_batch(batch)
     }
 
     fn remove_node_label(&mut self, id: NodeId, label: &str) -> StorageResult<()> {
@@ -250,9 +404,12 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         if !node.labels.iter().any(|existing| existing == label) {
             return Ok(());
         }
-        self.remove_node_indexes(&node)?;
+        let mut batch = KvWriteBatch::new();
+        self.remove_node_indexes_into_batch(&mut batch, &node);
         node.labels.retain(|existing| existing != label);
-        self.create_node(node.id, &node.labels, &node.properties)
+        self.put_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.index_node_into_batch(&mut batch, node.id, &node.labels, &node.properties);
+        self.kv.write_batch(batch)
     }
 
     fn set_relationship_property(
@@ -274,8 +431,9 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             rel_type: relationship.rel_type,
             properties: relationship.properties,
         };
-        self.kv
-            .put(&relationship_key(id), &encode_command(&command))
+        let mut batch = KvWriteBatch::new();
+        batch.put(relationship_key(id), encode_command(&command));
+        self.kv.write_batch(batch)
     }
 
     fn remove_relationship_property(&mut self, id: RelationshipId, key: &str) -> StorageResult<()> {
@@ -290,27 +448,38 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             rel_type: relationship.rel_type,
             properties: relationship.properties,
         };
-        self.kv
-            .put(&relationship_key(id), &encode_command(&command))
+        let mut batch = KvWriteBatch::new();
+        batch.put(relationship_key(id), encode_command(&command));
+        self.kv.write_batch(batch)
     }
 
     fn delete_relationship(&mut self, id: RelationshipId) -> StorageResult<()> {
+        let mut batch = KvWriteBatch::new();
+        self.delete_relationship_into_batch(&mut batch, id)?;
+        self.kv.write_batch(batch)
+    }
+
+    fn delete_relationship_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        id: RelationshipId,
+    ) -> StorageResult<()> {
         let Some(relationship) = self.relationship(id)? else {
             return Ok(());
         };
-        self.kv.delete(&relationship_key(id))?;
-        self.kv.delete(&outgoing_key(relationship.from, id))?;
-        self.kv.delete(&outgoing_type_key(
+        batch.delete(relationship_key(id));
+        batch.delete(outgoing_key(relationship.from, id));
+        batch.delete(outgoing_type_key(
             relationship.from,
             &relationship.rel_type,
             id,
-        ))?;
-        self.kv.delete(&incoming_key(relationship.to, id))?;
-        self.kv.delete(&incoming_type_key(
+        ));
+        batch.delete(incoming_key(relationship.to, id));
+        batch.delete(incoming_type_key(
             relationship.to,
             &relationship.rel_type,
             id,
-        ))?;
+        ));
         Ok(())
     }
 
@@ -323,76 +492,80 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         relationship_ids.extend(ids_from_keys(self.kv.scan_prefix(&incoming_prefix(id))?)?);
         relationship_ids.sort_unstable();
         relationship_ids.dedup();
+        let mut batch = KvWriteBatch::new();
         for relationship_id in relationship_ids {
-            self.delete_relationship(relationship_id)?;
+            self.delete_relationship_into_batch(&mut batch, relationship_id)?;
         }
 
-        self.remove_node_indexes(&node)?;
-        self.kv.delete(&node_key(id))
+        self.remove_node_indexes_into_batch(&mut batch, &node);
+        batch.delete(node_key(id));
+        self.kv.write_batch(batch)
     }
 
-    fn index_node(
-        &mut self,
+    fn index_node_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
         id: NodeId,
         labels: &[String],
         properties: &Properties,
-    ) -> StorageResult<()> {
+    ) {
         for label in labels {
-            self.kv.put(&label_key(label, id), EMPTY)?;
+            batch.put(label_key(label, id), EMPTY.to_vec());
             for (property_key, property_value) in properties {
-                self.kv.put(
-                    &label_property_key(label, property_key, property_value, id),
-                    EMPTY,
-                )?;
+                batch.put(
+                    label_property_key(label, property_key, property_value, id),
+                    EMPTY.to_vec(),
+                );
             }
         }
-        Ok(())
     }
 
-    fn remove_node_indexes(&mut self, node: &Node) -> StorageResult<()> {
+    fn remove_node_indexes_into_batch(&self, batch: &mut KvWriteBatch, node: &Node) {
         for label in &node.labels {
-            self.kv.delete(&label_key(label, node.id))?;
+            batch.delete(label_key(label, node.id));
             for (property_key, property_value) in &node.properties {
-                self.kv.delete(&label_property_key(
+                batch.delete(label_property_key(
                     label,
                     property_key,
                     property_value,
                     node.id,
-                ))?;
+                ));
             }
         }
-        Ok(())
     }
 
-    fn index_boundary_node(
-        &mut self,
+    fn index_boundary_node_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
         id: NodeId,
         labels: &[String],
         properties: &Properties,
-    ) -> StorageResult<()> {
+    ) {
         for label in labels {
             for (property_key, property_value) in properties {
-                self.kv.put(
-                    &boundary_label_property_key(label, property_key, property_value, id),
-                    EMPTY,
-                )?;
+                batch.put(
+                    boundary_label_property_key(label, property_key, property_value, id),
+                    EMPTY.to_vec(),
+                );
             }
         }
-        Ok(())
     }
 
-    fn remove_boundary_node_indexes(&mut self, node: &BoundaryNode) -> StorageResult<()> {
+    fn remove_boundary_node_indexes_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        node: &BoundaryNode,
+    ) {
         for label in &node.labels {
             for (property_key, property_value) in &node.properties {
-                self.kv.delete(&boundary_label_property_key(
+                batch.delete(boundary_label_property_key(
                     label,
                     property_key,
                     property_value,
                     node.id,
-                ))?;
+                ));
             }
         }
-        Ok(())
     }
 
     fn relationships_from_index(&self, prefix: &[u8]) -> StorageResult<Vec<Relationship>> {
@@ -565,6 +738,10 @@ fn boundary_node_key(id: NodeId) -> Vec<u8> {
     key_with_id(b"bn", id)
 }
 
+fn boundary_node_prefix() -> Vec<u8> {
+    Vec::from(&b"bn/"[..])
+}
+
 fn relationship_key(id: RelationshipId) -> Vec<u8> {
     key_with_id(b"r", id)
 }
@@ -615,6 +792,18 @@ fn incoming_type_key(node_id: NodeId, rel_type: &str, relationship_id: Relations
     let mut key = incoming_type_prefix(node_id, rel_type);
     key.extend_from_slice(&relationship_id.to_be_bytes());
     key
+}
+
+fn index_prefixes() -> [&'static [u8]; 7] {
+    [
+        b"l/" as &[u8],
+        b"lp/",
+        b"blp/",
+        b"out/",
+        b"outt/",
+        b"in/",
+        b"int/",
+    ]
 }
 
 fn label_prefix(label: &str) -> Vec<u8> {
@@ -735,203 +924,4 @@ fn encode_value_for_key(value: &Value) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MemoryKvStore;
-
-    #[test]
-    fn stores_and_finds_nodes_by_label_property_index() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        store
-            .apply(&Command::CreateNode {
-                id: 1,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("name", Value::String("Alice".to_string()))]),
-            })
-            .unwrap();
-        store
-            .apply(&Command::CreateNode {
-                id: 2,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("name", Value::String("Bob".to_string()))]),
-            })
-            .unwrap();
-
-        assert_eq!(store.node_ids_by_label("Person").unwrap(), vec![1, 2]);
-        assert_eq!(
-            store
-                .node_ids_by_label_property("Person", "name", &Value::String("Alice".to_string()))
-                .unwrap(),
-            vec![1]
-        );
-    }
-
-    #[test]
-    fn updates_property_index_when_node_property_changes() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        store
-            .apply(&Command::CreateNode {
-                id: 1,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("name", Value::String("Alice".to_string()))]),
-            })
-            .unwrap();
-        store
-            .apply(&Command::SetNodeProperty {
-                id: 1,
-                key: "name".to_string(),
-                value: Value::String("Alicia".to_string()),
-            })
-            .unwrap();
-
-        assert!(store
-            .node_ids_by_label_property("Person", "name", &Value::String("Alice".to_string()))
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            store
-                .node_ids_by_label_property("Person", "name", &Value::String("Alicia".to_string()))
-                .unwrap(),
-            vec![1]
-        );
-    }
-
-    #[test]
-    fn removes_node_property_and_property_index() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        store
-            .apply(&Command::CreateNode {
-                id: 1,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("name", Value::String("Alice".to_string()))]),
-            })
-            .unwrap();
-
-        store
-            .apply(&Command::RemoveNodeProperty {
-                id: 1,
-                key: "name".to_string(),
-            })
-            .unwrap();
-
-        assert_eq!(store.node_ids_by_label("Person").unwrap(), vec![1]);
-        assert!(store
-            .node_ids_by_label_property("Person", "name", &Value::String("Alice".to_string()))
-            .unwrap()
-            .is_empty());
-        assert!(!store
-            .node(1)
-            .unwrap()
-            .unwrap()
-            .properties
-            .contains_key("name"));
-    }
-
-    #[test]
-    fn updates_indexes_when_node_labels_change() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        store
-            .apply(&Command::CreateNode {
-                id: 1,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("name", Value::String("Alice".to_string()))]),
-            })
-            .unwrap();
-
-        store
-            .apply(&Command::AddNodeLabel {
-                id: 1,
-                label: "Employee".to_string(),
-            })
-            .unwrap();
-
-        assert_eq!(store.node_ids_by_label("Employee").unwrap(), vec![1]);
-        assert_eq!(
-            store
-                .node_ids_by_label_property("Employee", "name", &Value::String("Alice".to_string()))
-                .unwrap(),
-            vec![1]
-        );
-
-        store
-            .apply(&Command::RemoveNodeLabel {
-                id: 1,
-                label: "Person".to_string(),
-            })
-            .unwrap();
-
-        assert!(store.node_ids_by_label("Person").unwrap().is_empty());
-        assert!(store
-            .node_ids_by_label_property("Person", "name", &Value::String("Alice".to_string()))
-            .unwrap()
-            .is_empty());
-        assert_eq!(store.node_ids_by_label("Employee").unwrap(), vec![1]);
-    }
-
-    #[test]
-    fn stores_relationship_type_adjacency_index() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        for id in [1, 2, 3] {
-            store
-                .apply(&Command::CreateNode {
-                    id,
-                    labels: vec![],
-                    properties: Properties::new(),
-                })
-                .unwrap();
-        }
-        store
-            .apply(&Command::CreateRelationship {
-                id: 10,
-                from: 1,
-                to: 2,
-                rel_type: "KNOWS".to_string(),
-                properties: Properties::new(),
-            })
-            .unwrap();
-        store
-            .apply(&Command::CreateRelationship {
-                id: 11,
-                from: 1,
-                to: 3,
-                rel_type: "LIKES".to_string(),
-                properties: Properties::new(),
-            })
-            .unwrap();
-
-        assert_eq!(store.outgoing_by_type(1, "KNOWS").unwrap()[0].id, 10);
-        assert_eq!(store.incoming_by_type(2, "KNOWS").unwrap()[0].id, 10);
-    }
-
-    #[test]
-    fn stores_boundary_node_property_index() {
-        let mut store = KvGraphStore::new(MemoryKvStore::new());
-        store
-            .apply(&Command::UpsertBoundaryNode {
-                id: 20,
-                owner_shard: 2,
-                labels: vec!["Person".to_string()],
-                properties: properties(&[("status", Value::String("active".to_string()))]),
-                version: 1,
-            })
-            .unwrap();
-
-        assert_eq!(
-            store
-                .boundary_node_ids_by_label_property(
-                    "Person",
-                    "status",
-                    &Value::String("active".to_string())
-                )
-                .unwrap(),
-            vec![20]
-        );
-    }
-
-    fn properties(entries: &[(&str, Value)]) -> Properties {
-        entries
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), value.clone()))
-            .collect()
-    }
-}
+mod tests;

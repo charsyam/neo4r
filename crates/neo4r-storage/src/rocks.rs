@@ -1,4 +1,4 @@
-use crate::{KeyValueStore, StorageError, StorageResult};
+use crate::{KeyValueStore, KvWrite, KvWriteBatch, StorageError, StorageResult};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_uchar, c_void};
 use std::os::unix::ffi::OsStrExt;
@@ -36,6 +36,11 @@ struct rocksdb_snapshot_t {
     _private: [u8; 0],
 }
 
+#[repr(C)]
+struct rocksdb_writebatch_t {
+    _private: [u8; 0],
+}
+
 #[link(name = "rocksdb")]
 unsafe extern "C" {
     fn rocksdb_options_create() -> *mut rocksdb_options_t;
@@ -58,6 +63,7 @@ unsafe extern "C" {
     );
     fn rocksdb_writeoptions_create() -> *mut rocksdb_writeoptions_t;
     fn rocksdb_writeoptions_destroy(options: *mut rocksdb_writeoptions_t);
+    fn rocksdb_writeoptions_set_sync(options: *mut rocksdb_writeoptions_t, value: c_uchar);
     fn rocksdb_create_snapshot(db: *mut rocksdb_t) -> *const rocksdb_snapshot_t;
     fn rocksdb_release_snapshot(db: *mut rocksdb_t, snapshot: *const rocksdb_snapshot_t);
 
@@ -85,6 +91,26 @@ unsafe extern "C" {
         keylen: usize,
         errptr: *mut *mut c_char,
     );
+    fn rocksdb_write(
+        db: *mut rocksdb_t,
+        options: *const rocksdb_writeoptions_t,
+        batch: *mut rocksdb_writebatch_t,
+        errptr: *mut *mut c_char,
+    );
+    fn rocksdb_writebatch_create() -> *mut rocksdb_writebatch_t;
+    fn rocksdb_writebatch_destroy(batch: *mut rocksdb_writebatch_t);
+    fn rocksdb_writebatch_put(
+        batch: *mut rocksdb_writebatch_t,
+        key: *const c_char,
+        keylen: usize,
+        value: *const c_char,
+        valuelen: usize,
+    );
+    fn rocksdb_writebatch_delete(
+        batch: *mut rocksdb_writebatch_t,
+        key: *const c_char,
+        keylen: usize,
+    );
 
     fn rocksdb_create_iterator(
         db: *mut rocksdb_t,
@@ -103,6 +129,12 @@ pub struct RocksKvStore {
     db: *mut rocksdb_t,
     read_options: *mut rocksdb_readoptions_t,
     write_options: *mut rocksdb_writeoptions_t,
+    options: RocksKvOptions,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RocksKvOptions {
+    pub sync_writes: bool,
 }
 
 // RocksDB's C handle can be moved across threads. neo4r currently serializes
@@ -111,22 +143,29 @@ unsafe impl Send for RocksKvStore {}
 
 impl RocksKvStore {
     pub fn open(path: impl AsRef<Path>) -> StorageResult<Self> {
+        Self::open_with_options(path, RocksKvOptions::default())
+    }
+
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        options: RocksKvOptions,
+    ) -> StorageResult<Self> {
         let path = CString::new(path.as_ref().as_os_str().as_bytes()).map_err(|_| {
             StorageError::CorruptStore("rocksdb path contains nul byte".to_string())
         })?;
 
         unsafe {
-            let options = rocksdb_options_create();
-            if options.is_null() {
+            let db_options = rocksdb_options_create();
+            if db_options.is_null() {
                 return Err(StorageError::CorruptStore(
                     "failed to create rocksdb options".to_string(),
                 ));
             }
-            rocksdb_options_set_create_if_missing(options, 1);
+            rocksdb_options_set_create_if_missing(db_options, 1);
 
             let mut err = ptr::null_mut();
-            let db = rocksdb_open(options, path.as_ptr(), &mut err);
-            rocksdb_options_destroy(options);
+            let db = rocksdb_open(db_options, path.as_ptr(), &mut err);
+            rocksdb_options_destroy(db_options);
             check_error(err, "rocksdb open")?;
             if db.is_null() {
                 return Err(StorageError::CorruptStore(
@@ -148,13 +187,19 @@ impl RocksKvStore {
                     "failed to create rocksdb read/write options".to_string(),
                 ));
             }
+            rocksdb_writeoptions_set_sync(write_options, u8::from(options.sync_writes));
 
             Ok(Self {
                 db,
                 read_options,
                 write_options,
+                options,
             })
         }
+    }
+
+    pub fn options(&self) -> RocksKvOptions {
+        self.options
     }
 
     pub fn snapshot(&self) -> StorageResult<RocksKvSnapshot> {
@@ -220,6 +265,12 @@ impl KeyValueStore for RocksKvSnapshot {
         ))
     }
 
+    fn write_batch(&mut self, _batch: KvWriteBatch) -> StorageResult<()> {
+        Err(StorageError::CorruptStore(
+            "rocksdb snapshot is read-only".to_string(),
+        ))
+    }
+
     fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         rocks_scan_prefix(self.db, self.read_options, prefix)
     }
@@ -267,6 +318,42 @@ impl KeyValueStore for RocksKvStore {
                 &mut err,
             );
             check_error(err, "rocksdb delete")
+        }
+    }
+
+    fn write_batch(&mut self, batch: KvWriteBatch) -> StorageResult<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        unsafe {
+            let rocks_batch = rocksdb_writebatch_create();
+            if rocks_batch.is_null() {
+                return Err(StorageError::CorruptStore(
+                    "failed to create rocksdb write batch".to_string(),
+                ));
+            }
+
+            for operation in batch.operations() {
+                match operation {
+                    KvWrite::Put { key, value } => rocksdb_writebatch_put(
+                        rocks_batch,
+                        key.as_ptr().cast::<c_char>(),
+                        key.len(),
+                        value.as_ptr().cast::<c_char>(),
+                        value.len(),
+                    ),
+                    KvWrite::Delete { key } => rocksdb_writebatch_delete(
+                        rocks_batch,
+                        key.as_ptr().cast::<c_char>(),
+                        key.len(),
+                    ),
+                }
+            }
+
+            let mut err = ptr::null_mut();
+            rocksdb_write(self.db, self.write_options, rocks_batch, &mut err);
+            rocksdb_writebatch_destroy(rocks_batch);
+            check_error(err, "rocksdb write batch")
         }
     }
 
@@ -408,6 +495,17 @@ mod tests {
             );
             assert_eq!(store.outgoing_by_type(1, "KNOWS").unwrap()[0].to, 2);
         }
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn opens_rocksdb_with_sync_write_durability_option() {
+        let dir = temp_dir("neo4r-rocksdb-sync-writes");
+        let rocks =
+            RocksKvStore::open_with_options(&dir, RocksKvOptions { sync_writes: true }).unwrap();
+
+        assert_eq!(rocks.options(), RocksKvOptions { sync_writes: true });
 
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -1,5 +1,5 @@
 use crate::model::{NodeId, Properties, RelationshipId, Value};
-use crate::shard::ShardId;
+use crate::shard::{ServerId, ShardId, ShardRoutingTable};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -53,5 +53,11 @@ pub enum Command {
     },
     DeleteNode {
         id: NodeId,
+    },
+    ClusterConfigChange {
+        phase: String,
+        description: String,
+        voters: Vec<ServerId>,
+        routing_table: ShardRoutingTable,
     },
 }

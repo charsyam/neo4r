@@ -699,6 +699,39 @@ mod tests {
     }
 
     #[test]
+    fn native_frame_encoding_matches_golden_header() {
+        let frame = NativeFrame {
+            message_type: NativeMessageType::Command,
+            flags: 0x0102,
+            request_id: 0x0102_0304_0506_0708,
+            payload: b"PING".to_vec(),
+        };
+        let mut bytes = Vec::new();
+
+        write_frame(&mut bytes, &frame).unwrap();
+
+        assert_eq!(
+            bytes,
+            vec![
+                b'N', b'4', b'R', b'1', 1, 4, 1, 2, 0, 0, 0, 4, 1, 2, 3, 4, 5, 6, 7, 8, b'P', b'I',
+                b'N', b'G',
+            ]
+        );
+    }
+
+    #[test]
+    fn native_frame_rejects_legacy_or_unknown_magic() {
+        let bytes = vec![
+            b'N', b'4', b'R', b'0', 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+
+        let err = read_frame(&mut bytes.as_slice()).unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid native protocol magic"));
+    }
+
+    #[test]
     fn query_payload_round_trips_typed_params() {
         let mut params = QueryParams::new();
         params.insert("name".to_string(), Value::String("Alice".to_string()));

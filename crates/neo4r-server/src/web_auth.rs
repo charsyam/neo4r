@@ -160,8 +160,9 @@ impl WebUserTokenStore {
             .kv
             .lock()
             .map_err(|_| "web token store lock poisoned".to_string())?;
+        let digest = web_token_digest(token);
         let Some(user_key) = kv
-            .get(&web_token_digest_lookup_key(token))
+            .get(&web_token_digest_key(&digest))
             .map_err(|err| err.to_string())?
             .or_else(|| {
                 kv.get(&web_token_lookup_key(token))
@@ -186,15 +187,19 @@ impl WebUserTokenStore {
         let user_key = web_user_token_key(&record.name, &record.token_id);
         if let Some(old) = kv.get(&user_key).map_err(|err| err.to_string())? {
             let old = decode_web_user_token(&old)?;
+            kv.delete(&web_token_digest_key(&old.token))
+                .map_err(|err| err.to_string())?;
             kv.delete(&web_token_digest_lookup_key(&old.token))
                 .map_err(|err| err.to_string())?;
             kv.delete(&web_token_lookup_key(&old.token))
                 .map_err(|err| err.to_string())?;
         }
-        kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+        let mut stored = record;
+        stored.token = web_token_digest(&stored.token);
+        kv.put(&user_key, encode_web_user_token(&stored).as_bytes())
             .map_err(|err| err.to_string())?;
-        if !record.revoked {
-            kv.put(&web_token_digest_lookup_key(&record.token), &user_key)
+        if !stored.revoked {
+            kv.put(&web_token_digest_key(&stored.token), &user_key)
                 .map_err(|err| err.to_string())?;
         }
         Ok(())
@@ -212,6 +217,8 @@ impl WebUserTokenStore {
         let mut record = decode_web_user_token(&value)?;
         record.revoked = true;
         kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+            .map_err(|err| err.to_string())?;
+        kv.delete(&web_token_digest_key(&record.token))
             .map_err(|err| err.to_string())?;
         kv.delete(&web_token_digest_lookup_key(&record.token))
             .map_err(|err| err.to_string())?;
@@ -257,6 +264,8 @@ impl WebUserTokenStore {
             record.revoked = true;
             kv.put(&key, encode_web_user_token(&record).as_bytes())
                 .map_err(|err| err.to_string())?;
+            kv.delete(&web_token_digest_key(&record.token))
+                .map_err(|err| err.to_string())?;
             kv.delete(&web_token_digest_lookup_key(&record.token))
                 .map_err(|err| err.to_string())?;
             kv.delete(&web_token_lookup_key(&record.token))
@@ -280,6 +289,8 @@ impl WebUserTokenStore {
             if record.expired_at == 0 || record.expired_at > now_unix_seconds {
                 continue;
             }
+            kv.delete(&web_token_digest_key(&record.token))
+                .map_err(|err| err.to_string())?;
             kv.delete(&web_token_digest_lookup_key(&record.token))
                 .map_err(|err| err.to_string())?;
             kv.delete(&web_token_lookup_key(&record.token))
@@ -303,6 +314,8 @@ impl WebUserTokenStore {
         }
         for (key, value) in records {
             let record = decode_web_user_token(&value)?;
+            kv.delete(&web_token_digest_key(&record.token))
+                .map_err(|err| err.to_string())?;
             kv.delete(&web_token_digest_lookup_key(&record.token))
                 .map_err(|err| err.to_string())?;
             kv.delete(&web_token_lookup_key(&record.token))
@@ -510,8 +523,12 @@ fn web_token_lookup_key(token: &str) -> Vec<u8> {
 }
 
 fn web_token_digest_lookup_key(token: &str) -> Vec<u8> {
+    web_token_digest_key(&web_token_digest(token))
+}
+
+fn web_token_digest_key(digest: &str) -> Vec<u8> {
     let mut key = Vec::from(WEB_AUTH_TOKEN_PREFIX);
-    key.extend_from_slice(web_token_digest(token).as_bytes());
+    key.extend_from_slice(digest.as_bytes());
     key
 }
 
@@ -622,6 +639,35 @@ mod tests {
             Some(WebRole::Reader)
         );
         assert_eq!(store.list().unwrap()[0].last_used_at, 21);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn web_user_token_store_keeps_digest_instead_of_plaintext_token() {
+        let dir = temp_dir("digest-only-token");
+        let store = WebUserTokenStore::open(dir.clone()).unwrap();
+        store
+            .put(WebUserToken {
+                name: "alice".to_string(),
+                token_id: "main".to_string(),
+                role: WebRole::Writer,
+                token: "secret-token".to_string(),
+                expired_at: 0,
+                revoked: false,
+                database_roles: BTreeMap::new(),
+                created_at: 10,
+                last_used_at: 0,
+            })
+            .unwrap();
+
+        assert_eq!(
+            store.find_role_by_token("secret-token", "default", 20),
+            Some(WebRole::Writer)
+        );
+        let stored = store.list().unwrap().remove(0);
+        assert_ne!(stored.token, "secret-token");
+        assert_eq!(stored.token, web_token_digest("secret-token"));
 
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -50,6 +50,16 @@ class HttpAdminClient:
             {"name": name, "token_id": token_id},
         )
 
+    def maintenance_mode(
+        self,
+        enabled: bool,
+        database: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"enabled": enabled}
+        if database is not None:
+            payload["database"] = database
+        return self._json("POST", "/api/admin/maintenance-mode", payload)
+
     def query(
         self,
         query: str,

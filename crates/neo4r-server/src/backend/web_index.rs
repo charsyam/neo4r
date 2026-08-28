@@ -83,6 +83,10 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
         <button class="secondary" id="restoreApply">Restore</button>
       </div>
       <div class="row">
+        <button class="secondary" id="maintenanceOn">Maintenance On</button>
+        <button class="secondary" id="maintenanceOff">Maintenance Off</button>
+      </div>
+      <div class="row">
         <button class="secondary" id="raftStatus">Raft</button>
         <button class="secondary" id="snapshotNow">Snapshot</button>
         <button class="secondary" id="verifyInvariants">Verify</button>
@@ -153,7 +157,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     const nodeMeshes = [];
     const graphLabels = [];
     const history = JSON.parse(localStorage.getItem('neo4r.queryHistory') || '[]');
-    const savedAuthToken = localStorage.getItem('neo4r.authToken') || new URLSearchParams(window.location.search).get('token') || '';
+    const savedAuthToken = localStorage.getItem('neo4r.authToken') || sessionCookieToken() || new URLSearchParams(window.location.search).get('token') || '';
     let graph = { nodes: [], relationships: [] };
     let selected = null;
     let dragging = false;
@@ -183,6 +187,12 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       return document.getElementById('authToken').value.trim();
     }
 
+    function sessionCookieToken() {
+      const prefix = 'neo4r.session=';
+      const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
+      return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : '';
+    }
+
     function selectedDatabase() {
       return document.getElementById('database').value || 'default';
     }
@@ -197,6 +207,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
 
     function saveLogin() {
       localStorage.setItem('neo4r.authToken', authToken());
+      document.cookie = 'neo4r.session=' + encodeURIComponent(authToken()) + '; SameSite=Strict; path=/';
       setStatus('Login saved.');
     }
 
@@ -347,6 +358,13 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       });
       document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
       setStatus(result.response.ok ? 'Restore complete.' : 'Restore failed.');
+    }
+
+    async function setMaintenanceMode(enabled) {
+      setStatus(enabled ? 'Maintenance on...' : 'Maintenance off...');
+      const result = await postJson('/api/admin/maintenance-mode', { database: selectedDatabase(), enabled });
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? 'Maintenance updated.' : 'Maintenance update failed.');
     }
 
     function userPayload() {
@@ -554,6 +572,8 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     document.getElementById('backup').addEventListener('click', runBackup);
     document.getElementById('restoreDryRun').addEventListener('click', runRestoreDryRun);
     document.getElementById('restoreApply').addEventListener('click', runRestoreApply);
+    document.getElementById('maintenanceOn').addEventListener('click', () => setMaintenanceMode(true));
+    document.getElementById('maintenanceOff').addEventListener('click', () => setMaintenanceMode(false));
     document.getElementById('raftStatus').addEventListener('click', () => showManagement('/api/admin/raft-status'));
     document.getElementById('snapshotNow').addEventListener('click', () => runClusterAction('/api/admin/snapshot-now', 'Snapshot'));
     document.getElementById('verifyInvariants').addEventListener('click', () => runClusterAction('/api/admin/verify-invariants', 'Verify invariants'));

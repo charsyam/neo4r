@@ -28,3 +28,9 @@ Store each release's observed values with the git SHA and compare:
 - reopen/replay latency
 
 Any threshold tightening should happen in code and in this document together.
+
+`docs/performance_thresholds.txt` is the machine-readable threshold registry
+checked by `scripts/bench-thresholds.sh` during the release gate. CI artifacts
+include `target/neo4r-release/metadata.txt` so a release run can be tied back
+to the git SHA, result contract, and benchmark threshold file used for that
+run.

@@ -130,6 +130,8 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"restoreDryRun\""));
     assert!(index.contains("id=\"restoreConfirm\""));
     assert!(index.contains("id=\"restoreApply\""));
+    assert!(index.contains("id=\"maintenanceOn\""));
+    assert!(index.contains("id=\"maintenanceOff\""));
     assert!(index.contains("id=\"raftStatus\""));
     assert!(index.contains("id=\"snapshotNow\""));
     assert!(index.contains("id=\"verifyInvariants\""));
@@ -162,7 +164,10 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         ),
     );
     assert!(query.contains("HTTP/1.1 200 OK"));
+    assert!(query.contains("\"columns\""));
     assert!(query.contains("\"rows\""));
+    assert!(query.contains("\"plan\":null"));
+    assert!(query.contains("\"database\":\"default\""));
     assert!(query.contains("\"Alice\""));
 
     let plan = web_request(
@@ -208,6 +213,10 @@ pub(super) fn web_console_serves_index_and_graph_api() {
             "\"raft_term_max\"",
             "\"web_user_token_count\"",
             "\"web_audit_event_count\"",
+            "\"replication_sent_batches\"",
+            "\"raft_election_rounds\"",
+            "\"raft_append_conflicts\"",
+            "\"raft_snapshot_installs\"",
         ],
     );
 
@@ -228,6 +237,11 @@ pub(super) fn web_console_serves_index_and_graph_api() {
             "neo4r_index_ready",
             "neo4r_raft_term_max",
             "neo4r_web_audit_events",
+            "neo4r_replication_channel_sent_batches_total",
+            "neo4r_raft_election_rounds_total",
+            "neo4r_raft_append_conflicts_total",
+            "neo4r_raft_snapshot_install_duration_ms_total",
+            "neo4r_database_shard_lag",
             "neo4r_database_db_nodes{database=\"default\"}",
             "neo4r_database_shard_committed_index{database=\"default\",shard=\"0\",server=\"0\",role=\"unknown\"}",
         ],
@@ -282,9 +296,6 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         1
     );
 
-    let restore_lock = dir.join("system").join("restore.lock");
-    fs::create_dir_all(restore_lock.parent().unwrap()).unwrap();
-    fs::write(&restore_lock, b"held").unwrap();
     let restore_without_confirm_body = format!(
         "{{\"path\":\"{}\",\"dry_run\":false}}",
         backup_dir.display()
@@ -304,6 +315,32 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         "{{\"path\":\"{}\",\"dry_run\":false,\"confirm\":\"RESTORE\"}}",
         backup_dir.display()
     );
+    let restore_without_maintenance = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/restore HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            restore_locked_body.len(),
+            restore_locked_body
+        ),
+    );
+    assert!(restore_without_maintenance.contains("HTTP/1.1 500 Internal Server Error"));
+    assert!(restore_without_maintenance.contains("maintenance mode"));
+
+    let maintenance_on_body = "{\"enabled\":true}";
+    let maintenance_on = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/admin/maintenance-mode HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            maintenance_on_body.len(),
+            maintenance_on_body
+        ),
+    );
+    assert!(maintenance_on.contains("HTTP/1.1 200 OK"));
+    assert!(maintenance_on.contains("\"maintenance_mode\":true"));
+
+    let restore_lock = dir.join("system").join("restore.lock");
+    fs::create_dir_all(restore_lock.parent().unwrap()).unwrap();
+    fs::write(&restore_lock, b"held").unwrap();
     let restore_locked = web_request(
         TcpBackend::new(db.clone()),
         &format!(
@@ -383,6 +420,12 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(authorized.contains("HTTP/1.1 200 OK"));
     assert!(authorized.contains("\"auth_failures\":6"));
     assert!(authorized.contains("\"auth_rate_limited\":1"));
+
+    let cookie_authorized = web_request(
+        secure_backend.clone(),
+        "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\ncookie: neo4r.session=secret\r\n\r\n",
+    );
+    assert!(cookie_authorized.contains("HTTP/1.1 200 OK"));
 
     let add_user_body =
         "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"writer\",\"token\":\"alice-token\",\"expired_at\":\"0\"}";

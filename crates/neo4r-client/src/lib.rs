@@ -188,6 +188,15 @@ impl HttpAdminClient {
         )
     }
 
+    pub fn maintenance_mode(&self, enabled: bool, database: Option<&str>) -> ClientResult<String> {
+        let mut payload = format!(r#"{{"enabled":{enabled}"#);
+        if let Some(database) = database {
+            payload.push_str(&format!(r#","database":"{}""#, json_escape(database)));
+        }
+        payload.push('}');
+        self.request_json("POST", "/api/admin/maintenance-mode", &payload, None)
+    }
+
     pub fn query(
         &self,
         query: &str,

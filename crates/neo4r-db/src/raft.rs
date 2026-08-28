@@ -246,6 +246,8 @@ pub struct RaftCore {
     votes_received: BTreeSet<ServerId>,
     lease_deadline: Option<Instant>,
     lease_duration: Duration,
+    lease_clock_drift_bound: Duration,
+    lease_message_delay_bound: Duration,
 }
 
 impl RaftCore {
@@ -289,6 +291,8 @@ impl RaftCore {
             votes_received: BTreeSet::new(),
             lease_deadline: None,
             lease_duration: Duration::from_millis(750),
+            lease_clock_drift_bound: Duration::ZERO,
+            lease_message_delay_bound: Duration::ZERO,
         })
     }
 
@@ -424,6 +428,16 @@ impl RaftCore {
 
     pub fn with_lease_duration(mut self, lease_duration: Duration) -> Self {
         self.lease_duration = lease_duration;
+        self
+    }
+
+    pub fn with_lease_clock_bounds(
+        mut self,
+        clock_drift_bound: Duration,
+        message_delay_bound: Duration,
+    ) -> Self {
+        self.lease_clock_drift_bound = clock_drift_bound;
+        self.lease_message_delay_bound = message_delay_bound;
         self
     }
 
@@ -760,6 +774,15 @@ impl RaftCore {
             return Err(DatabaseError::Replication(
                 "leader lease requires raft leader".to_string(),
             ));
+        }
+        let required = self
+            .lease_clock_drift_bound
+            .saturating_add(self.lease_message_delay_bound);
+        if !required.is_zero() && self.lease_duration <= required {
+            return Err(DatabaseError::Replication(format!(
+                "leader lease duration {:?} must exceed configured clock/message bound {required:?}",
+                self.lease_duration
+            )));
         }
         if self
             .lease_deadline

@@ -177,6 +177,17 @@ impl TcpBackend {
                 },
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
+            ("POST", "/api/admin/maintenance-mode") if !role.allows(WebRole::Admin) => {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/maintenance-mode") => {
+                match extract_optional_json_bool_field(&request.body, "enabled").and_then(
+                    |enabled| selected_db().and_then(|db| self.maintenance_mode_json(&db, enabled)),
+                ) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                }
+            }
             ("POST", "/api/admin/databases") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -328,8 +339,9 @@ impl TcpBackend {
                 Ok(query) => match strip_database_use_clause(&query).and_then(|query| {
                     parse_json_params_field(&request.body).and_then(|params| {
                         parse_query_options(request).and_then(|options| {
-                            selected_db()
-                                .and_then(|db| self.query_json(&db, &query, params, options))
+                            selected_db().and_then(|db| {
+                                self.query_json(&db, &database_name, &query, params, options)
+                            })
                         })
                     })
                 }) {
@@ -416,6 +428,7 @@ impl TcpBackend {
                 .header("authorization")
                 .and_then(|value| value.strip_prefix("Bearer "))
                 .map(str::to_string)
+                .or_else(|| request_session_token(request))
                 .or_else(|| request.query_value("token"))?;
             return self.web_user_tokens.as_ref().and_then(|store| {
                 store.find_role_by_token(&supplied, database, unix_seconds_now())
@@ -425,6 +438,7 @@ impl TcpBackend {
             .header("authorization")
             .and_then(|value| value.strip_prefix("Bearer "))
             .map(str::to_string)
+            .or_else(|| request_session_token(request))
             .or_else(|| request.query_value("token"))?;
         if constant_time_token_eq(&supplied, expected) {
             return Some(web_role_from_token(expected));
@@ -692,6 +706,19 @@ impl TcpBackend {
         );
         Ok(format!("{{\"removed\":{removed}}}"))
     }
+}
+
+fn request_session_token(request: &HttpRequest) -> Option<String> {
+    request.header("cookie").and_then(|cookie| {
+        cookie.split(';').find_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            if key == "neo4r.session" && !value.trim().is_empty() {
+                Some(value.trim().replace("%3A", ":").replace("%20", " "))
+            } else {
+                None
+            }
+        })
+    })
 }
 
 fn parse_query_options(request: &HttpRequest) -> Result<QueryOptions, String> {

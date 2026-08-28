@@ -18,6 +18,7 @@ scripts/sdk-failover.sh
 scripts/storage-atomicity.sh
 scripts/failure-injection.sh
 scripts/security-regression.sh
+scripts/bench-thresholds.sh
 scripts/bench-regression.sh
 
 if [[ "${NEO4R_RUN_RELEASE_LIVE:-0}" == "1" ]]; then
@@ -25,4 +26,5 @@ if [[ "${NEO4R_RUN_RELEASE_LIVE:-0}" == "1" ]]; then
   NEO4R_RUN_MULTI_NODE_LIVE=1 scripts/multi-node-live-gate.sh
 fi
 
+scripts/release-metadata.sh
 echo "neo4r release gate passed"

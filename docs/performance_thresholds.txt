@@ -1,0 +1,7 @@
+# Release gates treat these as upper bounds unless a benchmark script documents otherwise.
+query_p50_ms=25
+query_p99_ms=250
+write_p50_ms=50
+write_p99_ms=500
+replication_append_p99_ms=1000
+snapshot_restore_p99_ms=5000

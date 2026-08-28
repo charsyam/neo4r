@@ -10,7 +10,7 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const TCP_REPLICATION_REQUEST_MAGIC: &[u8] = b"N4RRP1\n";
 const TCP_REPLICATION_HELLO_MAGIC: &[u8] = b"N4RRH1\n";
@@ -307,17 +307,21 @@ impl TcpShardReplicator {
                         }
                         Ok(response) => {
                             self.channel_metrics.record_failure();
+                            self.channel_metrics.record_append_conflict();
                             if let Some(snapshot) =
                                 db.install_snapshot_request_for_shard(shard_id)?
                             {
                                 if response.append.conflict_index.is_some_and(|index| {
                                     index <= snapshot.metadata.last_included_index
                                 }) {
+                                    let started = Instant::now();
                                     let installed = self.channel.install_snapshot(
                                         &endpoint,
                                         &self.channel_config,
                                         snapshot,
                                     )?;
+                                    self.channel_metrics
+                                        .record_snapshot_install(started.elapsed());
                                     if installed.success {
                                         self.channel_metrics.record_ack();
                                         self.set_raft_progress(
@@ -442,6 +446,7 @@ impl TcpShardReplicator {
                 }
                 Err(err) => return Err(err),
             };
+            self.channel_metrics.record_election_round();
             for (server_id, endpoint) in &peers {
                 let response = self.channel.request_vote(
                     endpoint,

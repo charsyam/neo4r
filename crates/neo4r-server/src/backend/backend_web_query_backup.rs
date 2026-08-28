@@ -34,12 +34,21 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) raft_joint_consensus_count: usize,
     pub(crate) web_user_token_count: usize,
     pub(crate) web_audit_event_count: usize,
+    pub(crate) replication_sent_batches: usize,
+    pub(crate) replication_acked_batches: usize,
+    pub(crate) replication_failed_batches: usize,
+    pub(crate) replication_sent_entries: usize,
+    pub(crate) replication_sent_bytes: u64,
+    pub(crate) raft_election_rounds: usize,
+    pub(crate) raft_append_conflicts: usize,
+    pub(crate) raft_snapshot_installs: usize,
+    pub(crate) raft_snapshot_install_millis: u64,
 }
 
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
@@ -80,7 +89,16 @@ impl WebMetricsSnapshot {
             self.raft_snapshot_index_max,
             self.raft_joint_consensus_count,
             self.web_user_token_count,
-            self.web_audit_event_count
+            self.web_audit_event_count,
+            self.replication_sent_batches,
+            self.replication_acked_batches,
+            self.replication_failed_batches,
+            self.replication_sent_entries,
+            self.replication_sent_bytes,
+            self.raft_election_rounds,
+            self.raft_append_conflicts,
+            self.raft_snapshot_installs,
+            self.raft_snapshot_install_millis
         )
     }
 
@@ -148,6 +166,42 @@ impl WebMetricsSnapshot {
             ),
             prometheus_metric("neo4r_web_user_tokens", self.web_user_token_count as u64),
             prometheus_metric("neo4r_web_audit_events", self.web_audit_event_count as u64),
+            prometheus_metric(
+                "neo4r_replication_channel_sent_batches_total",
+                self.replication_sent_batches as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_acked_batches_total",
+                self.replication_acked_batches as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_failed_batches_total",
+                self.replication_failed_batches as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_sent_entries_total",
+                self.replication_sent_entries as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_sent_bytes_total",
+                self.replication_sent_bytes,
+            ),
+            prometheus_metric(
+                "neo4r_raft_election_rounds_total",
+                self.raft_election_rounds as u64,
+            ),
+            prometheus_metric(
+                "neo4r_raft_append_conflicts_total",
+                self.raft_append_conflicts as u64,
+            ),
+            prometheus_metric(
+                "neo4r_raft_snapshot_installs_total",
+                self.raft_snapshot_installs as u64,
+            ),
+            prometheus_metric(
+                "neo4r_raft_snapshot_install_duration_ms_total",
+                self.raft_snapshot_install_millis,
+            ),
         ]
         .join("");
         metrics.push_str(&prometheus_database_metric(
@@ -193,6 +247,30 @@ impl WebMetricsSnapshot {
                 server_id,
                 "unknown",
                 applied_index,
+            ));
+        }
+        for shard_id in 0..self
+            .db_committed_indexes
+            .len()
+            .max(self.db_applied_indexes.len())
+        {
+            let committed = self
+                .db_committed_indexes
+                .get(shard_id)
+                .copied()
+                .unwrap_or_default();
+            let applied = self
+                .db_applied_indexes
+                .get(shard_id)
+                .copied()
+                .unwrap_or_default();
+            metrics.push_str(&prometheus_shard_metric(
+                "neo4r_database_shard_lag",
+                database_name,
+                shard_id as u64,
+                server_id,
+                "unknown",
+                committed.saturating_sub(applied),
             ));
         }
         metrics
@@ -281,6 +359,7 @@ impl TcpBackend {
     pub(crate) fn query_json(
         &self,
         db: &Neo4rDatabaseHandle,
+        database_name: &str,
         query: &str,
         params: QueryParams,
         options: QueryOptions,
@@ -302,12 +381,15 @@ impl TcpBackend {
         if elapsed >= self.slow_query_threshold {
             self.record_slow_query(query, elapsed);
         }
+        let columns = query_columns_json(&rows);
         Ok(format!(
-            "{{\"rows\":[{}]}}",
+            "{{\"columns\":{},\"rows\":[{}],\"plan\":null,\"database\":\"{}\"}}",
+            columns,
             rows.iter()
                 .map(query_row_json)
                 .collect::<Vec<_>>()
-                .join(",")
+                .join(","),
+            json_escape(database_name)
         ))
     }
 
@@ -624,6 +706,7 @@ impl TcpBackend {
             .and_then(|store| store.list().ok())
             .map(|events| events.len())
             .unwrap_or_default();
+        let replication = db.replication_channel_metrics().ok().flatten();
         WebMetricsSnapshot {
             http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
             http_errors: self.metrics.http_errors.load(Ordering::Relaxed),
@@ -670,6 +753,42 @@ impl TcpBackend {
             raft_joint_consensus_count,
             web_user_token_count,
             web_audit_event_count,
+            replication_sent_batches: replication
+                .as_ref()
+                .map(|metrics| metrics.sent_batches)
+                .unwrap_or_default(),
+            replication_acked_batches: replication
+                .as_ref()
+                .map(|metrics| metrics.acked_batches)
+                .unwrap_or_default(),
+            replication_failed_batches: replication
+                .as_ref()
+                .map(|metrics| metrics.failed_batches)
+                .unwrap_or_default(),
+            replication_sent_entries: replication
+                .as_ref()
+                .map(|metrics| metrics.sent_entries)
+                .unwrap_or_default(),
+            replication_sent_bytes: replication
+                .as_ref()
+                .map(|metrics| metrics.sent_bytes)
+                .unwrap_or_default(),
+            raft_election_rounds: replication
+                .as_ref()
+                .map(|metrics| metrics.election_rounds)
+                .unwrap_or_default(),
+            raft_append_conflicts: replication
+                .as_ref()
+                .map(|metrics| metrics.append_conflicts)
+                .unwrap_or_default(),
+            raft_snapshot_installs: replication
+                .as_ref()
+                .map(|metrics| metrics.snapshot_installs)
+                .unwrap_or_default(),
+            raft_snapshot_install_millis: replication
+                .as_ref()
+                .map(|metrics| metrics.snapshot_install_millis)
+                .unwrap_or_default(),
         }
     }
 
@@ -755,6 +874,12 @@ impl TcpBackend {
         let stats = collect_backup_manifest_stats(&source).map_err(|err| err.to_string())?;
         verify_backup_manifest(&source, &stats, database_name).map_err(|err| err.to_string())?;
         let target = db.data_dir().map_err(|err| err.to_string())?;
+        if !dry_run && !self.restore_maintenance_mode_enabled(db)? {
+            return Err(
+                "destructive restore requires maintenance mode before data files are replaced"
+                    .to_string(),
+            );
+        }
         let _lock = if dry_run {
             None
         } else {
@@ -774,6 +899,56 @@ impl TcpBackend {
             stats.checksum
         ))
     }
+
+    pub(crate) fn maintenance_mode_json(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        enabled: bool,
+    ) -> Result<String, String> {
+        let path = restore_maintenance_mode_path(db)?;
+        if enabled {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+            }
+            fs::write(&path, b"maintenance_mode=restore\n").map_err(|err| err.to_string())?;
+        } else if path.exists() {
+            fs::remove_file(&path).map_err(|err| err.to_string())?;
+        }
+        Ok(format!(
+            "{{\"maintenance_mode\":{},\"path\":\"{}\"}}",
+            enabled,
+            json_escape(&path.display().to_string())
+        ))
+    }
+
+    fn restore_maintenance_mode_enabled(&self, db: &Neo4rDatabaseHandle) -> Result<bool, String> {
+        Ok(restore_maintenance_mode_path(db)?.is_file())
+    }
+}
+
+fn query_columns_json(rows: &[QueryRow]) -> String {
+    let mut columns = BTreeSet::new();
+    for row in rows {
+        for key in row.values().keys() {
+            columns.insert(key.clone());
+        }
+    }
+    format!(
+        "[{}]",
+        columns
+            .iter()
+            .map(|column| format!("\"{}\"", json_escape(column)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn restore_maintenance_mode_path(db: &Neo4rDatabaseHandle) -> Result<PathBuf, String> {
+    Ok(db
+        .data_dir()
+        .map_err(|err| err.to_string())?
+        .join("system")
+        .join("maintenance.mode"))
 }
 
 struct RestoreLock {

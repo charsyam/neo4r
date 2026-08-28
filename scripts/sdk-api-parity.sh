@@ -29,6 +29,7 @@ required_admin_methods=(
   list_databases
   invoke_token
   revoke_token
+  maintenance_mode
   query
   metrics
   routing_table

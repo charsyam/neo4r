@@ -16,3 +16,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y netcat-openbsd python3
       - name: Run live release gates
         run: NEO4R_RUN_RELEASE_LIVE=1 NEO4R_RUN_BENCH_REGRESSION=1 scripts/release-gate.sh
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo4r-nightly-release-metadata
+          path: target/neo4r-release/metadata.txt

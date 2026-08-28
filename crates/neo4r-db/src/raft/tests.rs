@@ -191,6 +191,26 @@ fn expired_leader_lease_falls_back_to_quorum_read_index() {
 }
 
 #[test]
+fn leader_lease_rejects_duration_inside_clock_and_message_bound() {
+    let dir = temp_dir("neo4r-raft-lease-clock-bound");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership)
+        .unwrap()
+        .with_lease_duration(Duration::from_millis(100))
+        .with_lease_clock_bounds(Duration::from_millis(70), Duration::from_millis(40));
+    raft.start_election().unwrap();
+    raft.become_leader();
+    let first = raft.append_local_entry(command(1)).unwrap();
+    assert_eq!(raft.record_replication_match(2, first.index).unwrap(), 1);
+
+    let err = raft.leader_lease_read_index().unwrap_err();
+    assert!(err.to_string().contains("clock/message bound"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn candidate_becomes_leader_after_vote_quorum() {
     let dir = temp_dir("neo4r-raft-vote-quorum");
     let store = RaftPersistentStateStore::open(dir.join("state.txt"));

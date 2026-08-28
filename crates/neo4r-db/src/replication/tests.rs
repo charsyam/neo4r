@@ -23,6 +23,10 @@ fn tcp_replication_channel_reports_tcp_kind_and_default_config() {
     assert_eq!(config.connect_timeout, std::time::Duration::from_secs(1));
     assert_eq!(config.max_attempts, 1);
     assert_eq!(config.retry_backoff, std::time::Duration::from_millis(10));
+    assert_eq!(
+        config.retransmit_timeout,
+        std::time::Duration::from_millis(50)
+    );
 }
 
 #[test]
@@ -140,6 +144,44 @@ fn udp_replication_channel_has_explicit_reliability_boundary() {
 }
 
 #[test]
+fn reliable_datagram_receiver_reassembles_out_of_order_fragments_once() {
+    let mut receiver = ReliableDatagramReceiver::default();
+    let frames = ReliableDatagramFrame::fragment_payload(7, 11, b"abcdef", 2);
+
+    assert_eq!(frames.len(), 3);
+    assert_eq!(receiver.accept(frames[1].clone()), None);
+    assert_eq!(receiver.accept(frames[0].clone()), None);
+    assert_eq!(receiver.accept(frames[2].clone()), Some(b"abcdef".to_vec()));
+    assert_eq!(receiver.accept(frames[2].clone()), None);
+}
+
+#[test]
+fn reliable_datagram_frame_carries_ack_sequence() {
+    let ack = ReliableDatagramFrame::ack(1, 2, 9);
+
+    assert_eq!(ack.stream_id, 1);
+    assert_eq!(ack.sequence, 2);
+    assert_eq!(ack.ack, Some(9));
+    assert!(ack.payload.is_empty());
+}
+
+#[test]
+fn rdma_provider_trait_builds_reliable_endpoint_and_validates_availability() {
+    let provider = MockRdmaReplicationProvider::available("mock-rdma");
+    let endpoint = provider.endpoint("rdma://node-a".to_string());
+
+    assert_eq!(provider.provider_name(), "mock-rdma");
+    assert_eq!(endpoint.kind, ReplicationChannelKind::Rdma);
+    assert!(endpoint.capabilities.raft_append);
+    assert!(provider.validate().is_ok());
+
+    let err = MockRdmaReplicationProvider::unavailable("missing-rdma")
+        .validate()
+        .unwrap_err();
+    assert!(err.to_string().contains("missing-rdma"));
+}
+
+#[test]
 fn replication_transport_fault_profiles_make_udp_reliability_requirements_explicit() {
     let tcp = ReplicationEndpoint::tcp("127.0.0.1:17687");
     let udp = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);
@@ -173,6 +215,7 @@ fn tcp_replicator_registers_endpoint_and_tracks_channel_metrics() {
     assert_eq!(metrics.sent_batches, 1);
     assert_eq!(metrics.failed_batches, 1);
     assert_eq!(metrics.sent_entries, 1);
+    assert_eq!(metrics.append_conflicts, 0);
 }
 
 #[test]

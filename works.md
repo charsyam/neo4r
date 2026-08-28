@@ -674,3 +674,26 @@ Verification:
 - `scripts/sdk-failover.sh`
 - `cargo test --workspace --quiet`
 - `scripts/release-gate.sh`
+# 2026-08-29 goal: reliability, security, release, and observability hardening
+
+1. Leader lease validation now has explicit RaftCore clock/message bound
+   configuration and rejects lease reads when the lease duration does not
+   exceed the configured bound.
+2. Web auth token storage now stores keyed digests for new RocksDB token
+   records while keeping legacy plaintext lookup compatibility.
+3. UDP replication has reliable datagram scaffolding for sequence, ack,
+   retransmit timeout configuration, fragmentation, reassembly, and dedup.
+4. RDMA replication now has a provider trait plus mock provider tests for
+   endpoint and availability validation.
+5. Release gates now emit `target/neo4r-release/metadata.txt`, and nightly CI
+   uploads it as an artifact.
+6. Benchmark thresholds are codified in `docs/performance_thresholds.txt` and
+   validated by `scripts/bench-thresholds.sh`.
+7. Destructive HTTP restore now requires explicit maintenance mode in addition
+   to `confirm="RESTORE"`.
+8. HTTP `/api/query` now returns stable QueryResult top-level fields:
+   `columns`, `rows`, `plan`, and `database`.
+9. Prometheus/JSON metrics now expose replication batches, Raft election
+   rounds, append conflicts, snapshot install duration, and per-shard lag.
+10. Admin UI login now writes a session cookie, and the server accepts that
+    cookie as an auth fallback without exposing token material in user lists.

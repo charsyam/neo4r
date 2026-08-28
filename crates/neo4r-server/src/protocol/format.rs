@@ -1,30 +1,32 @@
 use super::*;
 
 pub(crate) fn format_protocol_capabilities() -> String {
-    [
-        "native_protocol=1",
-        "native_protocol_min=1",
-        "native_protocol_max=1",
-        "http_protocol=1",
-        "http_protocol_min=1",
-        "http_protocol_max=1",
-        "server_version=0.1",
-        "routing_table=true",
-        "cluster_registry=true",
-        "ownership_epoch=true",
-        "registry_ttl=true",
-        "redirect_loop_safe=true",
-        "redirect_kinds=MOVED|NOT_LEADER|STALE_ROUTING|STALE_EPOCH",
-        "raft_metadata=true",
-        "write_authority=shard_primary_and_raft_leader",
-        "snapshot_bootstrap=true",
-        "read_index=true",
-        "bounded_staleness=true",
-        "transaction_epoch=true",
-        "typed_epoch_conflict=true",
-        "storage_invariants=true",
-        "storage_atomic_batch=true",
-        "token_expiry=true",
+    let native_min = *neo4r_protocol::native_protocol_version_range().start();
+    let native_max = *neo4r_protocol::native_protocol_version_range().end();
+    vec![
+        format!("native_protocol={native_max}"),
+        format!("native_protocol_min={native_min}"),
+        format!("native_protocol_max={native_max}"),
+        "http_protocol=1".to_string(),
+        "http_protocol_min=1".to_string(),
+        "http_protocol_max=1".to_string(),
+        "server_version=0.1".to_string(),
+        "routing_table=true".to_string(),
+        "cluster_registry=true".to_string(),
+        "ownership_epoch=true".to_string(),
+        "registry_ttl=true".to_string(),
+        "redirect_loop_safe=true".to_string(),
+        "redirect_kinds=MOVED|NOT_LEADER|STALE_ROUTING|STALE_EPOCH".to_string(),
+        "raft_metadata=true".to_string(),
+        "write_authority=shard_primary_and_raft_leader".to_string(),
+        "snapshot_bootstrap=true".to_string(),
+        "read_index=true".to_string(),
+        "bounded_staleness=true".to_string(),
+        "transaction_epoch=true".to_string(),
+        "typed_epoch_conflict=true".to_string(),
+        "storage_invariants=true".to_string(),
+        "storage_atomic_batch=true".to_string(),
+        "token_expiry=true".to_string(),
     ]
     .join(" ")
 }
@@ -261,7 +263,7 @@ pub(super) fn format_rebalance_plan(plan: &RebalancePlan) -> String {
     )
 }
 
-pub(super) fn format_rebalance_execution(execution: &RebalanceExecution) -> String {
+pub(crate) fn format_rebalance_execution(execution: &RebalanceExecution) -> String {
     let steps = execution
         .steps
         .iter()

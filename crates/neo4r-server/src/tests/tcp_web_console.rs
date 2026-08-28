@@ -189,6 +189,15 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(metrics.contains("\"web_user_token_count\""));
     assert!(metrics.contains("\"web_audit_event_count\""));
 
+    let prometheus = web_request(
+        TcpBackend::new(db.clone()),
+        "GET /metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
+    );
+    assert!(prometheus.contains("HTTP/1.1 200 OK"));
+    assert!(prometheus.contains("content-type: text/plain; version=0.0.4; charset=utf-8"));
+    assert!(prometheus.contains("neo4r_http_requests_total"));
+    assert!(prometheus.contains("neo4r_db_nodes"));
+
     let cluster = web_request(
         TcpBackend::new(db.clone()),
         "GET /api/cluster HTTP/1.1\r\nhost: localhost\r\n\r\n",
@@ -556,6 +565,23 @@ pub(super) fn web_console_isolates_tenant_databases_and_scopes_tokens() {
         ),
     );
     assert!(tenant_backup_forbidden.contains("HTTP/1.1 403 Forbidden"));
+
+    let tenant_snapshot_forbidden = web_request(
+        TcpBackend::new(db.clone())
+            .with_multi_tenant_config(config.clone())
+            .unwrap(),
+        "POST /api/admin/cluster/snapshot?db=tenant_a HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer tenant-token\r\ncontent-length: 2\r\n\r\n{}",
+    );
+    assert!(tenant_snapshot_forbidden.contains("HTTP/1.1 403 Forbidden"));
+
+    let tenant_migration_forbidden = web_request(
+        TcpBackend::new(db.clone())
+            .with_multi_tenant_config(config.clone())
+            .unwrap(),
+        "POST /api/admin/cluster/migration/advance?db=tenant_a HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer tenant-token\r\ncontent-length: 2\r\n\r\n{}",
+    );
+    assert!(tenant_migration_forbidden.contains("HTTP/1.1 403 Forbidden"));
+
     let tenant_backup = web_request(
         TcpBackend::new(db.clone())
             .with_multi_tenant_config(config.clone())
@@ -686,6 +712,15 @@ pub(super) fn web_console_isolates_tenant_databases_and_scopes_tokens() {
     assert!(audit.contains("HTTP/1.1 200 OK"));
     assert!(audit.contains("database.delete"));
     assert!(audit.contains("token.invoke"));
+
+    let filtered_audit = web_request(
+        TcpBackend::new(db.clone())
+            .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250)),
+        "GET /api/admin/audit-log?action=token&limit=1 HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\n\r\n",
+    );
+    assert!(filtered_audit.contains("HTTP/1.1 200 OK"));
+    assert!(filtered_audit.contains("token."));
+    assert!(!filtered_audit.contains("database.delete"));
 
     let metrics = web_request(
         TcpBackend::new(db.clone())

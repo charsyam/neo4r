@@ -68,6 +68,11 @@ impl Neo4rDatabaseHandle {
         Ok(self.lock()?.replication_channel_metrics())
     }
 
+    pub fn run_replication_pump(&self) -> DatabaseResult<usize> {
+        let replicator = self.lock()?.replicator.clone();
+        replicator.run_replication_pump(self)
+    }
+
     pub fn install_routing_table(&self, routing_table: ShardRoutingTable) -> DatabaseResult<()> {
         self.lock()?.install_routing_table(routing_table)
     }

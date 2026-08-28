@@ -809,7 +809,10 @@ mod parse_helpers;
 mod row_codec;
 
 pub use execute::{execute_request, format_response, write_response};
-pub(crate) use format::{format_protocol_capabilities, format_query_plan, format_routing_table};
+pub(crate) use format::{
+    format_protocol_capabilities, format_query_plan, format_rebalance_execution,
+    format_routing_table,
+};
 pub use parse_helpers::decode_index_catalog;
 use parse_helpers::*;
 use row_codec::*;

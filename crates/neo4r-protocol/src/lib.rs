@@ -9,6 +9,14 @@ const VERSION: u8 = 1;
 const HEADER_LEN: usize = 20;
 const MAX_PAYLOAD_LEN: usize = 16 * 1024 * 1024;
 
+pub fn native_protocol_version() -> u8 {
+    VERSION
+}
+
+pub fn native_protocol_version_range() -> std::ops::RangeInclusive<u8> {
+    VERSION..=VERSION
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum NativeMessageType {
@@ -717,6 +725,12 @@ mod tests {
                 b'N', b'G',
             ]
         );
+    }
+
+    #[test]
+    fn native_protocol_version_range_is_explicit() {
+        assert_eq!(native_protocol_version(), 1);
+        assert_eq!(native_protocol_version_range(), 1..=1);
     }
 
     #[test]

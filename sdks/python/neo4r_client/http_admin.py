@@ -86,6 +86,21 @@ class HttpAdminClient:
         }
         return registry
 
+    def cached_topology(self, database: str = "default") -> dict[str, Any] | None:
+        topology = self.topology_cache.get(database)
+        if topology is None:
+            return None
+        if topology.get("expires_at", 0) <= time.time():
+            return None
+        return topology
+
+    def refresh_topology_if_stale(self, database: str = "default") -> dict[str, Any]:
+        cached = self.cached_topology(database)
+        if cached is not None:
+            return cached
+        self.cluster_registry()
+        return self.topology_cache.get(database, {})
+
     def capabilities(self) -> dict[str, Any]:
         return self._json("GET", "/api/capabilities")
 

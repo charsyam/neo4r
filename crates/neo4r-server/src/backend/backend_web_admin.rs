@@ -55,6 +55,10 @@ impl TcpBackend {
                 Ok(db) => HttpResponse::json(self.metrics_json(&db)),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
+            ("GET", "/metrics") => match selected_db() {
+                Ok(db) => HttpResponse::text(self.metrics_prometheus(&db)),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
             ("GET", "/api/slow-queries") => HttpResponse::json(self.slow_queries_json()),
             ("GET", "/api/statistics") => match selected_db() {
                 Ok(db) => {
@@ -112,7 +116,13 @@ impl TcpBackend {
             ("GET", "/api/admin/audit-log") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
-            ("GET", "/api/admin/audit-log") => match self.web_audit_json() {
+            ("GET", "/api/admin/audit-log") => match self.web_audit_json_filtered(
+                request.query_value("action").as_deref(),
+                request.query_value("target").as_deref(),
+                request
+                    .query_value("limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+            ) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
@@ -493,7 +503,12 @@ impl TcpBackend {
         self.web_users_json()
     }
 
-    pub(crate) fn web_audit_json(&self) -> Result<String, String> {
+    pub(crate) fn web_audit_json_filtered(
+        &self,
+        action: Option<&str>,
+        target: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<String, String> {
         let events = self
             .web_audit
             .as_ref()
@@ -501,6 +516,18 @@ impl TcpBackend {
             .list()?;
         let events = events
             .iter()
+            .rev()
+            .filter(|event| {
+                action
+                    .map(|action| event.action.contains(action))
+                    .unwrap_or(true)
+            })
+            .filter(|event| {
+                target
+                    .map(|target| event.target.contains(target))
+                    .unwrap_or(true)
+            })
+            .take(limit.unwrap_or(usize::MAX))
             .map(|event| {
                 format!(
                     "{{\"unix_ms\":{},\"action\":\"{}\",\"target\":\"{}\",\"detail\":\"{}\"}}",

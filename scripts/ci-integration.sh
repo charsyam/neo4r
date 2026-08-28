@@ -4,6 +4,7 @@ set -euo pipefail
 cargo test -p neo4r-server --test multi_process_cluster_smoke
 cargo test -p neo4r-server --test jepsen_lite_correctness
 NEO4R_RUN_SDK_COMPAT=0 NEO4R_RUN_SDK_LIVE=0 scripts/sdk-compat.sh
+scripts/protocol-compat.sh
 scripts/storage-atomicity.sh
 scripts/security-regression.sh
 scripts/multi-node-integration.sh

@@ -75,6 +75,10 @@ pub trait ShardReplicator: Send + Sync {
         None
     }
 
+    fn run_replication_pump(&self, _db: &Neo4rDatabaseHandle) -> DatabaseResult<usize> {
+        Ok(0)
+    }
+
     fn publish_batch(&self, entries: &[LogEntry]) -> DatabaseResult<Vec<ReplicationOutcome>> {
         entries.iter().map(|entry| self.publish(entry)).collect()
     }
@@ -652,6 +656,10 @@ impl ShardReplicator for TcpShardReplicator {
 
     fn channel_metrics_snapshot(&self) -> Option<ReplicationChannelMetricsSnapshot> {
         Some(self.channel_metrics())
+    }
+
+    fn run_replication_pump(&self, db: &Neo4rDatabaseHandle) -> DatabaseResult<usize> {
+        self.run_raft_replication_pump(db)
     }
 
     fn publish(&self, entry: &LogEntry) -> DatabaseResult<ReplicationOutcome> {

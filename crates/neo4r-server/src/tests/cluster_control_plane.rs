@@ -148,3 +148,37 @@ pub(super) fn http_query_accepts_bounded_staleness_read_consistency() {
     drop(db);
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+pub(super) fn backend_advance_rebalance_runs_auto_pump_for_snapshot_bootstrap() {
+    let dir = temp_dir("neo4r-server-rebalance-auto-pump");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.create_node(
+        vec!["Person".to_string()],
+        [(
+            "name".to_string(),
+            Value::String("PumpBootstrapAlice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    )
+    .unwrap();
+    db.register_cluster_node(2, "127.0.0.1:17688").unwrap();
+    let backend = TcpBackend::with_config(db.clone(), TcpBackendConfig::default());
+
+    let prepared = backend.execute_backend_request(BackendRequest::AdvanceRebalance);
+    let BackendResponse::OkRebalanceExecution(prepared) = prepared else {
+        panic!("expected rebalance execution response");
+    };
+    assert!(prepared.contains("action=prepared"));
+
+    let waiting = backend.execute_backend_request(BackendRequest::AdvanceRebalance);
+    let BackendResponse::OkRebalanceExecution(waiting) = waiting else {
+        panic!("expected rebalance execution response");
+    };
+    assert!(waiting.contains("snapshot_bootstrap_required"));
+    assert!(waiting.contains("auto_pump_sent=0"));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}

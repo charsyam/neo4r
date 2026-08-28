@@ -244,6 +244,7 @@ POST /api/query
 POST /api/query-plan
 POST /api/profile
 GET  /api/metrics
+GET  /metrics
 GET  /api/slow-queries
 GET  /api/statistics
 GET  /api/storage
@@ -323,6 +324,8 @@ Migration catch-up uses the Raft/TCP catch-up and install-snapshot protocol
 surfaces. When a joining replica has no matching log position but the shard has
 committed data, the rebalance state machine reports
 `snapshot_bootstrap_required ...` before the replica can be marked ready.
+Server-side `ADVANCE_REBALANCE` also runs one replication pump pass for
+snapshot/catch-up waits and reports `auto_pump_sent=N` in the response.
 
 SDK examples can be checked without a long-running server for static
 compatibility, or with one local live server for Rust and Python examples:
@@ -333,6 +336,7 @@ NEO4R_RUN_SDK_LIVE=1 scripts/sdk-compat.sh
 scripts/multi-node-integration.sh
 scripts/security-regression.sh
 scripts/bench-regression.sh
+scripts/protocol-compat.sh
 ```
 
 The live path runs the Rust and Python examples against the same endpoint. Both
@@ -356,6 +360,10 @@ magic(4) version(1) type(1) flags(2) length(4) request_id(8) payload(length)
 current protocol range is `1..=1`; clients should check capabilities before
 depending on redirect, topology-cache, typed epoch conflict, or bounded
 staleness features.
+
+`GET /metrics` exposes the same operational counters as `/api/metrics` in
+Prometheus text format. `GET /api/admin/audit-log` accepts optional `action`,
+`target`, and `limit` query parameters for RocksDB-backed audit log searches.
 
 Current request message types:
 

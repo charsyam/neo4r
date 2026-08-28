@@ -64,6 +64,15 @@ impl HttpResponse {
             body,
         }
     }
+
+    pub(crate) fn text(body: String) -> Self {
+        Self {
+            status: 200,
+            reason: "OK",
+            content_type: "text/plain; version=0.0.4; charset=utf-8",
+            body,
+        }
+    }
 }
 
 pub(crate) fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {

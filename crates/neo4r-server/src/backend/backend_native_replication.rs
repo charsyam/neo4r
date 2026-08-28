@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::format_rebalance_execution;
 impl TcpBackend {
     pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
         let (stream, _) = listener.accept()?;
@@ -238,8 +239,34 @@ impl TcpBackend {
                     Err(err) => BackendResponse::Err(err),
                 }
             }
+            BackendRequest::AdvanceRebalance => match self.advance_rebalance_with_auto_pump() {
+                Ok(response) => BackendResponse::OkRebalanceExecution(response),
+                Err(err) => BackendResponse::Err(err),
+            },
             request => execute_request(&self.db, request),
         }
+    }
+
+    pub(crate) fn advance_rebalance_with_auto_pump(&self) -> Result<String, String> {
+        let mut result = self.db.advance_rebalance().map_err(|err| err.to_string())?;
+        let mut auto_pump_sent = 0_usize;
+        if result.action.starts_with("snapshot_bootstrap_required")
+            || result.action.starts_with("waiting_for_catch_up")
+        {
+            auto_pump_sent = self
+                .db
+                .run_replication_pump()
+                .map_err(|err| err.to_string())?;
+            if auto_pump_sent > 0 {
+                result = self.db.advance_rebalance().map_err(|err| err.to_string())?;
+            }
+        }
+        Ok(format!(
+            "action={} auto_pump_sent={} {}",
+            result.action,
+            auto_pump_sent,
+            format_rebalance_execution(&result.execution)
+        ))
     }
 
     pub(crate) fn execute_distributed_query(

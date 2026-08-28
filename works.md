@@ -462,3 +462,47 @@ Verification:
 - `scripts/storage-atomicity.sh`
 - `scripts/security-regression.sh`
 - `scripts/bench-regression.sh`
+
+## CI, Operations, And Observability Follow-up
+
+Requested scope: continue the 1 through 10 follow-up plan and address GitHub CI
+link failures.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Updated GitHub Actions to install `librocksdb-dev`, `pkg-config`, and
+   `clang` before `cargo build`, fixing the likely `cc` link failure for the
+   direct RocksDB C API binding.
+2. Added a `ShardReplicator::run_replication_pump` hook and wired TCP Raft
+   replication pump execution into server-side `ADVANCE_REBALANCE` when a
+   migration is waiting for snapshot bootstrap or catch-up.
+3. Confirmed replicated `ClusterConfigChange` already applies routing table,
+   config epoch, replicator routing, and Raft group rebuild through
+   `apply_cluster_config_change`.
+4. Added protocol version source-of-truth helpers in `neo4r-protocol` and
+   `scripts/protocol-compat.sh`.
+5. Extended Python HTTP SDK topology cache helpers with `cached_topology` and
+   `refresh_topology_if_stale`.
+6. Hardened tenant-scoped maintenance permissions by testing that scoped writer
+   tokens cannot run tenant backup/snapshot/migration admin operations.
+7. Added a Raft lease/read-index test showing expired leader lease falls back to
+   quorum-confirmed read-index validation.
+8. Extended `scripts/storage-atomicity.sh` to include the real crash harness.
+9. Added Prometheus text metrics at `GET /metrics`.
+10. Extended RocksDB-backed audit log access with `action`, `target`, and
+    `limit` filters.
+
+Verification:
+
+- `cargo check --workspace`
+- `cargo test -p neo4r-server backend_advance_rebalance_runs_auto_pump_for_snapshot_bootstrap --quiet`
+- `cargo test -p neo4r-db expired_leader_lease_falls_back_to_quorum_read_index --quiet`
+- `cargo test -p neo4r-server web_console_isolates_tenant_databases_and_scopes_tokens --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `scripts/protocol-compat.sh`
+- `scripts/security-regression.sh`
+- `scripts/storage-atomicity.sh`

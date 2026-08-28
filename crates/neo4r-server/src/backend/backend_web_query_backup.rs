@@ -1,4 +1,114 @@
 use super::*;
+
+pub(crate) struct WebMetricsSnapshot {
+    pub(crate) http_requests: u64,
+    pub(crate) http_errors: u64,
+    pub(crate) queries: u64,
+    pub(crate) query_errors: u64,
+    pub(crate) slow_queries: u64,
+    pub(crate) slow_query_threshold_ms: u128,
+    pub(crate) registry_requests: u64,
+    pub(crate) stale_epoch_rejections: u64,
+    pub(crate) redirects: u64,
+    pub(crate) migration_state: String,
+    pub(crate) db_nodes: usize,
+    pub(crate) db_relationships: usize,
+    pub(crate) db_indexes: usize,
+    pub(crate) db_vector_indexes: usize,
+    pub(crate) db_shard_count: u64,
+    pub(crate) db_local_partition_count: usize,
+    pub(crate) db_committed_indexes: Vec<u64>,
+    pub(crate) db_applied_indexes: Vec<u64>,
+    pub(crate) tenant_database_count: usize,
+    pub(crate) tenant_disabled_count: usize,
+    pub(crate) index_ready_count: usize,
+    pub(crate) index_building_count: usize,
+    pub(crate) index_rebuilding_count: usize,
+    pub(crate) index_failed_count: usize,
+    pub(crate) raft_group_count: usize,
+    pub(crate) raft_leader_count: usize,
+    pub(crate) raft_term_max: u64,
+    pub(crate) raft_snapshot_index_max: u64,
+    pub(crate) raft_joint_consensus_count: usize,
+    pub(crate) web_user_token_count: usize,
+    pub(crate) web_audit_event_count: usize,
+}
+
+impl WebMetricsSnapshot {
+    pub(crate) fn to_json(&self) -> String {
+        format!(
+            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
+            self.http_requests,
+            self.http_errors,
+            self.queries,
+            self.query_errors,
+            self.slow_queries,
+            self.slow_query_threshold_ms,
+            self.registry_requests,
+            self.stale_epoch_rejections,
+            self.redirects,
+            json_escape(&self.migration_state),
+            self.db_nodes,
+            self.db_relationships,
+            self.db_indexes,
+            self.db_vector_indexes,
+            self.db_shard_count,
+            self.db_local_partition_count,
+            self.db_committed_indexes
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.db_applied_indexes
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.tenant_database_count,
+            self.tenant_disabled_count,
+            self.index_ready_count,
+            self.index_building_count,
+            self.index_rebuilding_count,
+            self.index_failed_count,
+            self.raft_group_count,
+            self.raft_leader_count,
+            self.raft_term_max,
+            self.raft_snapshot_index_max,
+            self.raft_joint_consensus_count,
+            self.web_user_token_count,
+            self.web_audit_event_count
+        )
+    }
+
+    pub(crate) fn to_prometheus(&self) -> String {
+        [
+            prometheus_metric("neo4r_http_requests_total", self.http_requests),
+            prometheus_metric("neo4r_http_errors_total", self.http_errors),
+            prometheus_metric("neo4r_queries_total", self.queries),
+            prometheus_metric("neo4r_query_errors_total", self.query_errors),
+            prometheus_metric("neo4r_slow_queries_total", self.slow_queries),
+            prometheus_metric("neo4r_registry_requests_total", self.registry_requests),
+            prometheus_metric(
+                "neo4r_stale_epoch_rejections_total",
+                self.stale_epoch_rejections,
+            ),
+            prometheus_metric("neo4r_redirects_total", self.redirects),
+            prometheus_metric("neo4r_db_nodes", self.db_nodes as u64),
+            prometheus_metric("neo4r_db_relationships", self.db_relationships as u64),
+            prometheus_metric("neo4r_tenant_databases", self.tenant_database_count as u64),
+            prometheus_metric("neo4r_raft_groups", self.raft_group_count as u64),
+            prometheus_metric("neo4r_raft_leaders", self.raft_leader_count as u64),
+            prometheus_metric("neo4r_web_user_tokens", self.web_user_token_count as u64),
+            prometheus_metric("neo4r_web_audit_events", self.web_audit_event_count as u64),
+        ]
+        .join("")
+    }
+}
+
+fn prometheus_metric(name: &str, value: u64) -> String {
+    format!("# TYPE {name} gauge\n{name} {value}\n")
+}
+
 impl TcpBackend {
     pub(crate) fn graph_json(
         &self,
@@ -270,6 +380,16 @@ impl TcpBackend {
     }
 
     pub(crate) fn metrics_json(&self, db: &Neo4rDatabaseHandle) -> String {
+        let metrics = self.metrics_snapshot(db);
+        metrics.to_json()
+    }
+
+    pub(crate) fn metrics_prometheus(&self, db: &Neo4rDatabaseHandle) -> String {
+        let metrics = self.metrics_snapshot(db);
+        metrics.to_prometheus()
+    }
+
+    pub(crate) fn metrics_snapshot(&self, db: &Neo4rDatabaseHandle) -> WebMetricsSnapshot {
         let statistics = db.statistics_catalog().ok();
         let committed_indexes = db.committed_indexes().unwrap_or_default();
         let applied_indexes = db
@@ -343,46 +463,37 @@ impl TcpBackend {
             .and_then(|store| store.list().ok())
             .map(|events| events.len())
             .unwrap_or_default();
-        format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
-            self.metrics.http_requests.load(Ordering::Relaxed),
-            self.metrics.http_errors.load(Ordering::Relaxed),
-            self.metrics.queries.load(Ordering::Relaxed),
-            self.metrics.query_errors.load(Ordering::Relaxed),
-            self.metrics.slow_queries.load(Ordering::Relaxed),
-            self.slow_query_threshold.as_millis(),
-            self.metrics.registry_requests.load(Ordering::Relaxed),
-            self.metrics.stale_epoch_rejections.load(Ordering::Relaxed),
-            self.metrics.redirects.load(Ordering::Relaxed),
-            json_escape(&migration_state),
-            statistics
+        WebMetricsSnapshot {
+            http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
+            http_errors: self.metrics.http_errors.load(Ordering::Relaxed),
+            queries: self.metrics.queries.load(Ordering::Relaxed),
+            query_errors: self.metrics.query_errors.load(Ordering::Relaxed),
+            slow_queries: self.metrics.slow_queries.load(Ordering::Relaxed),
+            slow_query_threshold_ms: self.slow_query_threshold.as_millis(),
+            registry_requests: self.metrics.registry_requests.load(Ordering::Relaxed),
+            stale_epoch_rejections: self.metrics.stale_epoch_rejections.load(Ordering::Relaxed),
+            redirects: self.metrics.redirects.load(Ordering::Relaxed),
+            migration_state,
+            db_nodes: statistics
                 .as_ref()
                 .map(|statistics| statistics.node_count)
                 .unwrap_or_default(),
-            statistics
+            db_relationships: statistics
                 .as_ref()
                 .map(|statistics| statistics.relationship_count)
                 .unwrap_or_default(),
-            statistics
+            db_indexes: statistics
                 .as_ref()
                 .map(|statistics| statistics.index_count)
                 .unwrap_or_default(),
-            statistics
+            db_vector_indexes: statistics
                 .as_ref()
                 .map(|statistics| statistics.vector_index_count)
                 .unwrap_or_default(),
-            db.shard_count().unwrap_or_default(),
-            db.local_partition_count().unwrap_or_default(),
-            committed_indexes
-                .iter()
-                .map(u64::to_string)
-                .collect::<Vec<_>>()
-                .join(","),
-            applied_indexes
-                .iter()
-                .map(u64::to_string)
-                .collect::<Vec<_>>()
-                .join(","),
+            db_shard_count: db.shard_count().unwrap_or_default(),
+            db_local_partition_count: db.local_partition_count().unwrap_or_default(),
+            db_committed_indexes: committed_indexes,
+            db_applied_indexes: applied_indexes,
             tenant_database_count,
             tenant_disabled_count,
             index_ready_count,
@@ -395,8 +506,8 @@ impl TcpBackend {
             raft_snapshot_index_max,
             raft_joint_consensus_count,
             web_user_token_count,
-            web_audit_event_count
-        )
+            web_audit_event_count,
+        }
     }
 
     pub(crate) fn record_slow_query(&self, query: &str, elapsed: Duration) {

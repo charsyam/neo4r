@@ -1,6 +1,6 @@
 use super::*;
 use neo4r_core::Properties;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn request_vote_persists_term_and_vote() {
@@ -167,6 +167,25 @@ fn leader_advances_commit_after_majority_match_and_serves_read_index() {
 
     assert_eq!(raft.record_replication_match(2, 1).unwrap(), 1);
     assert_eq!(raft.read_index().unwrap(), 1);
+    assert_eq!(raft.leader_lease_read_index().unwrap(), 1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn expired_leader_lease_falls_back_to_quorum_read_index() {
+    let dir = temp_dir("neo4r-raft-expired-lease-read-index");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership)
+        .unwrap()
+        .with_lease_duration(Duration::from_millis(1));
+    raft.start_election().unwrap();
+    raft.become_leader();
+    let first = raft.append_local_entry(command(1)).unwrap();
+    assert_eq!(raft.record_replication_match(2, first.index).unwrap(), 1);
+
+    std::thread::sleep(Duration::from_millis(5));
+
     assert_eq!(raft.leader_lease_read_index().unwrap(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }

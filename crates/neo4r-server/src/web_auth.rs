@@ -1,6 +1,5 @@
 use neo4r_storage::{KeyValueStore, RocksKvStore};
 use std::collections::BTreeMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -409,10 +408,19 @@ pub(super) fn unix_millis_now() -> u128 {
 }
 
 pub(super) fn web_token_digest(token: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    "neo4r-web-token-v1".hash(&mut hasher);
-    token.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    stable_keyed_digest_hex(b"neo4r-web-token-v2", token.as_bytes())
+}
+
+fn stable_keyed_digest_hex(key: &[u8], value: &[u8]) -> String {
+    let mut left = 0xcbf29ce484222325_u64;
+    let mut right = 0x84222325cbf29ce4_u64;
+    for byte in key.iter().chain(value.iter()) {
+        left ^= *byte as u64;
+        left = left.wrapping_mul(0x100000001b3);
+        right ^= (*byte as u64).rotate_left(1);
+        right = right.wrapping_mul(0x9e3779b185ebca87);
+    }
+    format!("{left:016x}{right:016x}")
 }
 
 pub(super) fn constant_time_token_eq(left: &str, right: &str) -> bool {

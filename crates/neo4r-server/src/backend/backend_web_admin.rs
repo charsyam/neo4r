@@ -9,6 +9,15 @@ impl TcpBackend {
         let Some(role) = self.authorized_role(request, &database_name) else {
             self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
             self.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
+            if self
+                .auth_limiter
+                .record_and_should_limit("web", unix_millis_now())
+            {
+                self.metrics
+                    .auth_rate_limited
+                    .fetch_add(1, Ordering::Relaxed);
+                return HttpResponse::json_status(429, json_error("auth rate limited"));
+            }
             return HttpResponse::json_status(401, json_error("unauthorized"));
         };
         let selected_db = || self.database_for_name(&database_name);
@@ -299,6 +308,12 @@ impl TcpBackend {
                 match extract_json_string_field(&request.body, "path").and_then(|path| {
                     let dry_run = extract_optional_json_bool_field(&request.body, "dry_run")?
                         || extract_optional_json_bool_field(&request.body, "verify_only")?;
+                    if !dry_run
+                        && extract_optional_json_string_field(&request.body, "confirm")?.as_deref()
+                            != Some("RESTORE")
+                    {
+                        return Err("destructive restore requires confirm=\"RESTORE\"".to_string());
+                    }
                     selected_db()
                         .and_then(|db| self.restore_from_path(&db, &database_name, &path, dry_run))
                 }) {

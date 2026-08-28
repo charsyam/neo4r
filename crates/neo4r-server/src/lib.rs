@@ -70,6 +70,7 @@ pub struct TcpBackend {
     web_auth_token: Option<String>,
     slow_query_threshold: Duration,
     metrics: WebMetrics,
+    auth_limiter: AuthFailureLimiter,
     slow_queries: SlowQueryLog,
     web_user_tokens: Option<WebUserTokenStore>,
     web_audit: Option<WebAuditStore>,
@@ -108,12 +109,41 @@ struct WebMetrics {
     http_requests: Arc<AtomicU64>,
     http_errors: Arc<AtomicU64>,
     auth_failures: Arc<AtomicU64>,
+    auth_rate_limited: Arc<AtomicU64>,
     queries: Arc<AtomicU64>,
     query_errors: Arc<AtomicU64>,
     slow_queries: Arc<AtomicU64>,
     registry_requests: Arc<AtomicU64>,
     stale_epoch_rejections: Arc<AtomicU64>,
     redirects: Arc<AtomicU64>,
+}
+
+#[derive(Clone, Default)]
+struct AuthFailureLimiter {
+    entries: Arc<Mutex<HashMap<String, AuthFailureEntry>>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AuthFailureEntry {
+    window_start_ms: u128,
+    failures: u64,
+}
+
+impl AuthFailureLimiter {
+    fn record_and_should_limit(&self, key: &str, now_ms: u128) -> bool {
+        const WINDOW_MS: u128 = 60_000;
+        const MAX_FAILURES: u64 = 5;
+        let mut entries = self.entries.lock().unwrap();
+        let entry = entries.entry(key.to_string()).or_default();
+        if now_ms.saturating_sub(entry.window_start_ms) > WINDOW_MS {
+            *entry = AuthFailureEntry {
+                window_start_ms: now_ms,
+                failures: 0,
+            };
+        }
+        entry.failures = entry.failures.saturating_add(1);
+        entry.failures > MAX_FAILURES
+    }
 }
 
 #[derive(Clone, Default)]

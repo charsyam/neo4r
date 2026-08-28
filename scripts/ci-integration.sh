@@ -8,12 +8,14 @@ scripts/sdk-failover.sh
 scripts/protocol-compat.sh
 scripts/read-consistency.sh
 scripts/query-plan-golden.sh
+scripts/query-result-contract.sh
 scripts/storage-atomicity.sh
 scripts/failure-injection.sh
 scripts/security-regression.sh
 scripts/multi-node-live-gate.sh
 scripts/membership-automation.sh
 scripts/wal-compaction.sh
+scripts/transport-fault-model.sh
 scripts/multi-node-integration.sh
 scripts/bench-regression.sh
 

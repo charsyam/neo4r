@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import socket
 import struct
-from typing import Any
+from typing import Any, TypeAlias
 
 MAGIC = b"N4R1"
 VERSION = 1
@@ -64,6 +64,9 @@ class ResultPage:
     cursor_id: int
     rows: list[dict[str, QueryValue]]
     has_more: bool
+
+
+QueryResult: TypeAlias = ResultStart | ResultPage | list[dict[str, QueryValue]]
 
 
 def write_frame(sock: socket.socket, frame: NativeFrame) -> None:

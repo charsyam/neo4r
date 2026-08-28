@@ -29,17 +29,20 @@ and promote candidates after quorum, and applies graph state only after the Raft
 commit index advances. Strong reads in Raft mode use a local leader lease when
 available and fall back to quorum-confirmed read-index validation, and routing
 membership changes pass through a joint quorum model in RaftCore. Routing table
-installs also append a durable `ClusterConfigChange` command to the shard log.
-The remaining limitations are production-grade lease clock-bound validation and
-fully applying replicated configuration-change commands as cluster metadata
-state transitions.
+installs also append a durable `ClusterConfigChange` command to the shard log,
+and committed install-phase config changes update durable local cluster
+metadata. The remaining production limitation is validating leader lease
+clock-bound assumptions across hosts.
 
 Operational contracts are tracked in:
 
 - [QueryResult contract](docs/query_result_contract.md)
+- [Raft production semantics](docs/raft_production_semantics.md)
 - [Release checklist](docs/release_checklist.md)
 - [Backup and restore](docs/backup_restore.md)
 - [Security](docs/security.md)
+- [Performance baseline](docs/performance_baseline.md)
+- [Replication fault model](docs/replication_fault_model.md)
 
 Replay is shard-local, not cluster-global. A node only replays log entries for
 shards it hosts.

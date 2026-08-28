@@ -32,6 +32,9 @@ NEO4R_RUN_RELEASE_LIVE=1 scripts/release-gate.sh
 - Confirm admin users have scoped database permissions, expiry, and revocation
   paths tested.
 - Confirm SDK examples can connect, query, and recover from topology redirects.
+- Confirm the nightly live workflow passed for the release candidate SHA.
+- Attach performance baseline output for query, write, index, vector, cursor,
+  and reopen paths.
 
 ## Artifact Notes
 

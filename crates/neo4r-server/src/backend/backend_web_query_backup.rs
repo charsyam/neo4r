@@ -4,6 +4,7 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) http_requests: u64,
     pub(crate) http_errors: u64,
     pub(crate) auth_failures: u64,
+    pub(crate) auth_rate_limited: u64,
     pub(crate) queries: u64,
     pub(crate) query_errors: u64,
     pub(crate) slow_queries: u64,
@@ -38,10 +39,11 @@ pub(crate) struct WebMetricsSnapshot {
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
+            self.auth_rate_limited,
             self.queries,
             self.query_errors,
             self.slow_queries,
@@ -99,6 +101,7 @@ impl WebMetricsSnapshot {
             prometheus_metric("neo4r_http_requests_total", self.http_requests),
             prometheus_metric("neo4r_http_errors_total", self.http_errors),
             prometheus_metric("neo4r_auth_failures_total", self.auth_failures),
+            prometheus_metric("neo4r_auth_rate_limited_total", self.auth_rate_limited),
             prometheus_metric("neo4r_queries_total", self.queries),
             prometheus_metric("neo4r_query_errors_total", self.query_errors),
             prometheus_metric("neo4r_slow_queries_total", self.slow_queries),
@@ -535,6 +538,14 @@ impl TcpBackend {
                 &format!("{:?}", status.role),
                 status.snapshot_index,
             ));
+            output.push_str(&prometheus_shard_metric(
+                "neo4r_raft_shard_leader_lease_remaining_ms",
+                database_name,
+                status.shard_id,
+                server_id,
+                &format!("{:?}", status.role),
+                status.leader_lease_remaining_ms,
+            ));
         }
         output
     }
@@ -617,6 +628,7 @@ impl TcpBackend {
             http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
             http_errors: self.metrics.http_errors.load(Ordering::Relaxed),
             auth_failures: self.metrics.auth_failures.load(Ordering::Relaxed),
+            auth_rate_limited: self.metrics.auth_rate_limited.load(Ordering::Relaxed),
             queries: self.metrics.queries.load(Ordering::Relaxed),
             query_errors: self.metrics.query_errors.load(Ordering::Relaxed),
             slow_queries: self.metrics.slow_queries.load(Ordering::Relaxed),

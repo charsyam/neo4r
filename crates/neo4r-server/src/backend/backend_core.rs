@@ -130,6 +130,7 @@ impl TcpBackend {
             web_auth_token: None,
             slow_query_threshold: Duration::from_millis(250),
             metrics: WebMetrics::default(),
+            auth_limiter: AuthFailureLimiter::default(),
             slow_queries: SlowQueryLog::default(),
             web_user_tokens,
             web_audit,

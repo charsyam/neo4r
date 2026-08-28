@@ -1,0 +1,18 @@
+name: nightly-live
+
+on:
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  live-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install runtime tools
+        run: sudo apt-get update && sudo apt-get install -y netcat-openbsd python3
+      - name: Run live release gates
+        run: NEO4R_RUN_RELEASE_LIVE=1 NEO4R_RUN_BENCH_REGRESSION=1 scripts/release-gate.sh

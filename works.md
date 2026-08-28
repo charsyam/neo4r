@@ -1,5 +1,46 @@
 # Module Boundary, Raft/API Hardening, Chaos Goal
 
+## Raft, Transport, Security, Result Contract Goal 1-10
+
+Requested scope: set items 1 through 10 as a goal and implement them in order.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Removed one remaining Raft production observability gap by exposing leader
+   lease remaining time in Raft status and Prometheus shard metrics.
+2. Extended replication channel capabilities with explicit transport fault
+   profiles for TCP and UDP/RDMA readiness.
+3. Added a nightly live GitHub workflow that runs release gates with live
+   cluster and benchmark flags.
+4. Replaced `DefaultHasher` token digest usage with a stable keyed digest and
+   added web auth failure rate limiting.
+5. Required explicit `confirm:"RESTORE"` for destructive web restore and kept
+   dry-run restore unchanged.
+6. Added a shared `QueryResult` protocol type and exported Python SDK
+   `QueryResult` naming.
+7. Added `docs/performance_baseline.md` and release checklist baseline notes.
+8. Added `docs/replication_fault_model.md` plus a transport fault model gate.
+9. Added auth rate-limit and Raft leader-lease Prometheus metrics.
+10. Added admin UI destructive restore confirmation controls.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo check --workspace`
+- `scripts/query-result-contract.sh`
+- `scripts/transport-fault-model.sh`
+- `cargo test -p neo4r-db raft --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `scripts/check-file-lines.sh`
+- `scripts/release-gate.sh`
+- `cargo test --workspace --quiet`
+- `git diff --check`
+- `cargo fmt --all --check`
+
 ## Release Gate And Operations Hardening Goal 1-10
 
 Requested scope: commit the current baseline first, then set items 1 through 10

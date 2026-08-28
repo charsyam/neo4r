@@ -177,6 +177,7 @@ pub struct RaftShardStatus {
     pub commit_index: LogIndex,
     pub last_log_index: LogIndex,
     pub snapshot_index: LogIndex,
+    pub leader_lease_remaining_ms: u64,
     pub joint_consensus: bool,
 }
 

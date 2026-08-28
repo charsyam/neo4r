@@ -770,6 +770,13 @@ impl RaftCore {
         self.read_index()
     }
 
+    pub fn leader_lease_remaining_millis(&self) -> u64 {
+        self.lease_deadline
+            .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or_default()
+    }
+
     pub fn begin_joint_consensus(
         &mut self,
         voters: impl IntoIterator<Item = ServerId>,

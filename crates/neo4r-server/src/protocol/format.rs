@@ -102,7 +102,7 @@ pub(super) fn format_raft_status(status: &[neo4r_db::RaftShardStatus]) -> String
         .iter()
         .map(|shard| {
             format!(
-                "{}:term={}:role={:?}:leader={}:commit={}:last_log={}:snapshot={}:joint={}",
+                "{}:term={}:role={:?}:leader={}:commit={}:last_log={}:snapshot={}:lease_ms={}:joint={}",
                 shard.shard_id,
                 shard.term,
                 shard.role,
@@ -113,6 +113,7 @@ pub(super) fn format_raft_status(status: &[neo4r_db::RaftShardStatus]) -> String
                 shard.commit_index,
                 shard.last_log_index,
                 shard.snapshot_index,
+                shard.leader_lease_remaining_ms,
                 shard.joint_consensus
             )
         })

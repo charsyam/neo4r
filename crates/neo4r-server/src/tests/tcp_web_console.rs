@@ -128,6 +128,8 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     assert!(index.contains("id=\"cleanupTokens\""));
     assert!(index.contains("id=\"backup\""));
     assert!(index.contains("id=\"restoreDryRun\""));
+    assert!(index.contains("id=\"restoreConfirm\""));
+    assert!(index.contains("id=\"restoreApply\""));
     assert!(index.contains("id=\"raftStatus\""));
     assert!(index.contains("id=\"snapshotNow\""));
     assert!(index.contains("id=\"verifyInvariants\""));
@@ -195,6 +197,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         &[
             "\"http_requests\"",
             "\"auth_failures\"",
+            "\"auth_rate_limited\"",
             "\"db_nodes\"",
             "\"db_committed_indexes\"",
             "\"db_applied_indexes\"",
@@ -219,6 +222,7 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         &[
             "neo4r_http_requests_total",
             "neo4r_auth_failures_total",
+            "neo4r_auth_rate_limited_total",
             "neo4r_db_nodes",
             "neo4r_db_committed_index_max",
             "neo4r_index_ready",
@@ -281,8 +285,23 @@ pub(super) fn web_console_serves_index_and_graph_api() {
     let restore_lock = dir.join("system").join("restore.lock");
     fs::create_dir_all(restore_lock.parent().unwrap()).unwrap();
     fs::write(&restore_lock, b"held").unwrap();
-    let restore_locked_body = format!(
+    let restore_without_confirm_body = format!(
         "{{\"path\":\"{}\",\"dry_run\":false}}",
+        backup_dir.display()
+    );
+    let restore_without_confirm = web_request(
+        TcpBackend::new(db.clone()),
+        &format!(
+            "POST /api/restore HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            restore_without_confirm_body.len(),
+            restore_without_confirm_body
+        ),
+    );
+    assert!(restore_without_confirm.contains("HTTP/1.1 500 Internal Server Error"));
+    assert!(restore_without_confirm.contains("confirm"));
+
+    let restore_locked_body = format!(
+        "{{\"path\":\"{}\",\"dry_run\":false,\"confirm\":\"RESTORE\"}}",
         backup_dir.display()
     );
     let restore_locked = web_request(
@@ -334,6 +353,14 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
     );
     assert!(unauthorized.contains("HTTP/1.1 401 Unauthorized"));
+    let mut rate_limited = String::new();
+    for _ in 0..5 {
+        rate_limited = web_request(
+            secure_backend.clone(),
+            "GET /api/metrics HTTP/1.1\r\nhost: localhost\r\n\r\n",
+        );
+    }
+    assert!(rate_limited.contains("HTTP/1.1 429"));
 
     let reader_query_body = "{\"query\":\"MATCH (n) RETURN n\"}";
     let reader_forbidden = web_request(
@@ -354,7 +381,8 @@ pub(super) fn web_console_serves_index_and_graph_api() {
         "GET /api/metrics?token=secret HTTP/1.1\r\nhost: localhost\r\n\r\n",
     );
     assert!(authorized.contains("HTTP/1.1 200 OK"));
-    assert!(authorized.contains("\"auth_failures\":1"));
+    assert!(authorized.contains("\"auth_failures\":6"));
+    assert!(authorized.contains("\"auth_rate_limited\":1"));
 
     let add_user_body =
         "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"writer\",\"token\":\"alice-token\",\"expired_at\":\"0\"}";

@@ -17,6 +17,7 @@ pub struct ReplicationChannelCapabilities {
     pub snapshot: bool,
     pub catch_up: bool,
     pub max_frame_bytes: Option<usize>,
+    pub fault_profile: ReplicationTransportFaultProfile,
 }
 
 impl ReplicationChannelCapabilities {
@@ -27,6 +28,7 @@ impl ReplicationChannelCapabilities {
             snapshot: true,
             catch_up: true,
             max_frame_bytes: None,
+            fault_profile: ReplicationTransportFaultProfile::reliable_stream(),
         }
     }
 
@@ -37,6 +39,7 @@ impl ReplicationChannelCapabilities {
             snapshot: false,
             catch_up: false,
             max_frame_bytes: Some(max_frame_bytes),
+            fault_profile: ReplicationTransportFaultProfile::unreliable_datagram(),
         }
     }
 
@@ -48,6 +51,41 @@ impl ReplicationChannelCapabilities {
             && required.max_frame_bytes.is_none_or(|required_max| {
                 self.max_frame_bytes.is_none_or(|max| max >= required_max)
             })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ReplicationTransportFaultProfile {
+    pub may_drop: bool,
+    pub may_duplicate: bool,
+    pub may_reorder: bool,
+    pub may_fragment: bool,
+    pub bounded_delivery: bool,
+}
+
+impl ReplicationTransportFaultProfile {
+    pub fn reliable_stream() -> Self {
+        Self {
+            may_drop: false,
+            may_duplicate: false,
+            may_reorder: false,
+            may_fragment: false,
+            bounded_delivery: true,
+        }
+    }
+
+    pub fn unreliable_datagram() -> Self {
+        Self {
+            may_drop: true,
+            may_duplicate: true,
+            may_reorder: true,
+            may_fragment: true,
+            bounded_delivery: false,
+        }
+    }
+
+    pub fn requires_reliable_delivery(&self) -> bool {
+        self.may_drop || self.may_duplicate || self.may_reorder || !self.bounded_delivery
     }
 }
 
@@ -130,6 +168,7 @@ pub fn negotiate_replication_channel(
             snapshot: false,
             catch_up: false,
             max_frame_bytes: None,
+            fault_profile: ReplicationTransportFaultProfile::reliable_stream(),
         },
     )
 }

@@ -59,6 +59,15 @@ curl -X POST -H 'authorization: Bearer admin:secret' \
   http://127.0.0.1:18080/api/restore
 ```
 
+Destructive restore requires an explicit confirmation field:
+
+```bash
+curl -X POST -H 'authorization: Bearer admin:secret' \
+  -H 'content-type: application/json' \
+  -d '{"database":"tenant_a","path":"data/backups/tenant_a","dry_run":false,"confirm":"RESTORE"}' \
+  http://127.0.0.1:18080/api/restore
+```
+
 If restore is interrupted, Neo4r writes `DATA_DIR/system/restore.pending` before
 materializing the snapshot. On the next open, the pending manifest is replayed
 from the local snapshot payload and cleared after successful metadata install.

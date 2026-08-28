@@ -222,6 +222,13 @@ pub struct ResultPage {
     pub has_more: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryResult {
+    Start(ResultStart),
+    Page(ResultPage),
+    Rows(Vec<QueryRow>),
+}
+
 pub fn parse_result_start_response(payload: &str) -> Result<ResultStart, String> {
     let parts = payload.splitn(7, '\t').collect::<Vec<_>>();
     if parts.len() != 7 || parts[0] != "OK" || parts[1] != "RESULT_START" {
@@ -247,6 +254,33 @@ pub fn parse_result_start_response(payload: &str) -> Result<ResultStart, String>
         rows,
         has_more: parse_bool_token(parts[5], "RESULT_START has_more")?,
     })
+}
+
+pub fn parse_query_result_response(payload: &str) -> Result<QueryResult, String> {
+    if payload.starts_with("OK\tRESULT_START\t") {
+        return parse_result_start_response(payload).map(QueryResult::Start);
+    }
+    if payload.starts_with("OK\tRESULT_PAGE\t") {
+        return parse_result_page_response(payload).map(QueryResult::Page);
+    }
+    if payload.starts_with("OK\tROWS\t") {
+        let parts = payload.splitn(4, '\t').collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(format!("expected ROWS response, got: {payload}"));
+        }
+        let row_count = parts[2]
+            .parse::<usize>()
+            .map_err(|_| "ROWS row count must be an unsigned integer".to_string())?;
+        let rows = decode_query_rows(parts[3])?;
+        if rows.len() != row_count {
+            return Err(format!(
+                "ROWS row count mismatch: header {row_count}, decoded {}",
+                rows.len()
+            ));
+        }
+        return Ok(QueryResult::Rows(rows));
+    }
+    Err(format!("expected query result response, got: {payload}"))
 }
 
 pub fn parse_result_page_response(payload: &str) -> Result<ResultPage, String> {
@@ -788,5 +822,21 @@ mod tests {
         let encoded = encode_query_rows(&[row.clone()]);
 
         assert_eq!(decode_query_rows(&encoded).unwrap(), vec![row]);
+    }
+
+    #[test]
+    fn query_result_parser_accepts_rows_start_and_page_contracts() {
+        assert!(matches!(
+            parse_query_result_response("OK\tROWS\t0\t").unwrap(),
+            QueryResult::Rows(_)
+        ));
+        assert!(matches!(
+            parse_query_result_response("OK\tRESULT_START\t7\tUNKNOWN\t0\tfalse\t").unwrap(),
+            QueryResult::Start(_)
+        ));
+        assert!(matches!(
+            parse_query_result_response("OK\tRESULT_PAGE\t7\t0\tfalse\t").unwrap(),
+            QueryResult::Page(_)
+        ));
     }
 }

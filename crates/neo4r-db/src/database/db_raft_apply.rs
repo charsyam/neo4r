@@ -408,6 +408,7 @@ impl Neo4rDatabase {
                     .snapshot()
                     .map(|snapshot| snapshot.last_included_index)
                     .unwrap_or_default(),
+                leader_lease_remaining_ms: group.leader_lease_remaining_millis(),
                 joint_consensus: group.membership().is_joint(),
             })
             .collect())

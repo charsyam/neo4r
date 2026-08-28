@@ -93,6 +93,7 @@ fn replication_channel_negotiation_filters_by_required_capabilities() {
             snapshot: true,
             catch_up: true,
             max_frame_bytes: None,
+            fault_profile: ReplicationTransportFaultProfile::reliable_stream(),
         },
     )
     .unwrap();
@@ -116,6 +117,7 @@ fn replication_channel_negotiation_rejects_missing_required_capabilities() {
             snapshot: false,
             catch_up: false,
             max_frame_bytes: None,
+            fault_profile: ReplicationTransportFaultProfile::reliable_stream(),
         },
     )
     .unwrap_err();
@@ -135,6 +137,18 @@ fn udp_replication_channel_has_explicit_reliability_boundary() {
     assert!(err
         .to_string()
         .contains("reliable raft delivery is not implemented"));
+}
+
+#[test]
+fn replication_transport_fault_profiles_make_udp_reliability_requirements_explicit() {
+    let tcp = ReplicationEndpoint::tcp("127.0.0.1:17687");
+    let udp = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);
+
+    assert!(!tcp.capabilities.fault_profile.requires_reliable_delivery());
+    assert!(udp.capabilities.fault_profile.requires_reliable_delivery());
+    assert!(udp.capabilities.fault_profile.may_drop);
+    assert!(udp.capabilities.fault_profile.may_duplicate);
+    assert!(udp.capabilities.fault_profile.may_reorder);
 }
 
 #[test]

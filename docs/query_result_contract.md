@@ -55,6 +55,7 @@ Run these before changing the result format:
 
 ```bash
 scripts/protocol-compat.sh
+scripts/query-result-contract.sh
 scripts/sdk-api-parity.sh
 scripts/sdk-failover.sh
 ```

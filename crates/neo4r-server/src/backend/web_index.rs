@@ -79,6 +79,10 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
         <button class="secondary" id="restoreDryRun">Verify Restore</button>
       </div>
       <div class="row">
+        <input id="restoreConfirm" type="text" aria-label="restore confirmation" placeholder="RESTORE">
+        <button class="secondary" id="restoreApply">Restore</button>
+      </div>
+      <div class="row">
         <button class="secondary" id="raftStatus">Raft</button>
         <button class="secondary" id="snapshotNow">Snapshot</button>
         <button class="secondary" id="verifyInvariants">Verify</button>
@@ -333,6 +337,18 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       setStatus(result.response.ok ? 'Verify restore complete.' : 'Verify restore failed.');
     }
 
+    async function runRestoreApply() {
+      setStatus('Restore...');
+      const result = await postJson('/api/restore', {
+        database: selectedDatabase(),
+        path: document.getElementById('backupPath').value.trim(),
+        dry_run: false,
+        confirm: document.getElementById('restoreConfirm').value.trim()
+      });
+      document.getElementById('detail').textContent = JSON.stringify(result.payload, null, 2);
+      setStatus(result.response.ok ? 'Restore complete.' : 'Restore failed.');
+    }
+
     function userPayload() {
       const expires = document.getElementById('adminExpiredAt').value;
       const expiredAt = expires ? String(Math.floor(new Date(expires).getTime() / 1000)) : '0';
@@ -537,6 +553,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     document.getElementById('slow').addEventListener('click', () => showManagement('/api/slow-queries'));
     document.getElementById('backup').addEventListener('click', runBackup);
     document.getElementById('restoreDryRun').addEventListener('click', runRestoreDryRun);
+    document.getElementById('restoreApply').addEventListener('click', runRestoreApply);
     document.getElementById('raftStatus').addEventListener('click', () => showManagement('/api/admin/raft-status'));
     document.getElementById('snapshotNow').addEventListener('click', () => runClusterAction('/api/admin/snapshot-now', 'Snapshot'));
     document.getElementById('verifyInvariants').addEventListener('click', () => runClusterAction('/api/admin/verify-invariants', 'Verify invariants'));

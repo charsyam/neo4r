@@ -9,12 +9,15 @@ Current hardening:
 - admin mutations append audit events.
 - web authentication failures are exported as `auth_failures` in JSON metrics
   and `neo4r_auth_failures_total` in Prometheus metrics.
+- repeated web authentication failures are rate limited and exported as
+  `auth_rate_limited` / `neo4r_auth_rate_limited_total`.
+- token lookup keys use a stable keyed digest instead of Rust's randomized
+  `DefaultHasher`.
 
 Next hardening targets:
 
-- replace `DefaultHasher` token digest with a stable KDF or keyed digest.
+- replace the built-in stable digest with a dedicated KDF or keyed MAC.
 - avoid storing plaintext token material in user records.
-- add rate limiting to auth failures.
 - redact token-like values from audit and slow query output.
 - separate session cookies from bearer tokens for browser admin usage.
 

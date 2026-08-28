@@ -8,3 +8,4 @@ cargo test -p neo4r-storage graph_store::tests::removes_node_property_and_proper
 cargo test -p neo4r-storage graph_store::tests::updates_indexes_when_node_labels_change
 cargo test -p neo4r-storage graph_store::tests::stores_relationship_type_adjacency_index
 cargo test -p neo4r-db --test real_crash_harness real_crash_harness_reopens_child_written_data_after_kill
+cargo test -p neo4r-db --test real_crash_harness real_crash_harness_reopens_relationship_and_adjacency_after_kill

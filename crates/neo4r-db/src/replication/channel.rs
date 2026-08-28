@@ -39,6 +39,16 @@ impl ReplicationChannelCapabilities {
             max_frame_bytes: Some(max_frame_bytes),
         }
     }
+
+    pub fn supports(&self, required: &Self) -> bool {
+        (!required.raft_append || self.raft_append)
+            && (!required.vote || self.vote)
+            && (!required.snapshot || self.snapshot)
+            && (!required.catch_up || self.catch_up)
+            && required.max_frame_bytes.is_none_or(|required_max| {
+                self.max_frame_bytes.is_none_or(|max| max >= required_max)
+            })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,11 +121,29 @@ pub fn negotiate_replication_channel(
     preferred: &[ReplicationChannelKind],
     offer: ReplicationChannelOffer,
 ) -> DatabaseResult<ReplicationChannelAgreement> {
+    negotiate_replication_channel_with_capabilities(
+        preferred,
+        offer,
+        &ReplicationChannelCapabilities {
+            raft_append: false,
+            vote: false,
+            snapshot: false,
+            catch_up: false,
+            max_frame_bytes: None,
+        },
+    )
+}
+
+pub fn negotiate_replication_channel_with_capabilities(
+    preferred: &[ReplicationChannelKind],
+    offer: ReplicationChannelOffer,
+    required: &ReplicationChannelCapabilities,
+) -> DatabaseResult<ReplicationChannelAgreement> {
     for kind in preferred {
         if let Some(endpoint) = offer
             .endpoints
             .iter()
-            .find(|endpoint| endpoint.kind == *kind)
+            .find(|endpoint| endpoint.kind == *kind && endpoint.capabilities.supports(required))
             .cloned()
         {
             return Ok(ReplicationChannelAgreement {
@@ -125,7 +153,7 @@ pub fn negotiate_replication_channel(
         }
     }
     Err(DatabaseError::Replication(format!(
-        "no compatible replication channel for server {}",
+        "no compatible replication channel for server {} with required capabilities",
         offer.server_id
     )))
 }

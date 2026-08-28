@@ -687,6 +687,12 @@ pub(super) fn query_plan_reports_read_access_path() {
             .access_plan,
         QueryAccessPlan::Unsupported { reason } if reason.contains("variable \"m\" is not bound")
     ));
+    let fallback = db
+        .query_plan(r#"MATCH (n:Company) WHERE n.name = "Neo4r" RETURN n"#)
+        .unwrap();
+    assert_eq!(fallback.cost_model_version, 3);
+    assert!(fallback.estimated_cost >= fallback.estimated_rows);
+    assert!(fallback.access_reason.contains("label cardinality"));
 
     let _ = fs::remove_dir_all(dir);
 }

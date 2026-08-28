@@ -506,3 +506,50 @@ Verification:
 - `scripts/protocol-compat.sh`
 - `scripts/security-regression.sh`
 - `scripts/storage-atomicity.sh`
+
+## CI, Consensus, Storage, SDK, And Failure-Injection Goal 1-10
+
+Requested scope: set the next proposed items 1 through 10 as a goal and
+complete them in order.
+
+Status:
+
+- Completed.
+
+Completed changes:
+
+1. Hardened GitHub CI dependency setup with RocksDB and compression library
+   development packages, plus shell syntax checks for helper scripts.
+2. Fixed joint-consensus elections to require both current and outgoing voter
+   quorums before a candidate can become leader.
+3. Added Raft membership regression coverage for joint election quorum and
+   local voter removal step-down behavior.
+4. Fixed follower AppendEntries validation at an installed snapshot boundary by
+   falling back to Raft snapshot metadata when the previous log entry has been
+   compacted.
+5. Added snapshot install -> append -> reopen coverage to verify materialized
+   graph state survives catch-up from a snapshot boundary.
+6. Extended storage crash coverage with a relationship/adjacency child-process
+   kill harness and wired it into `scripts/storage-atomicity.sh`.
+7. Added tenant restore authorization coverage so tenant-scoped tokens cannot
+   run backup/restore/snapshot/migration maintenance operations.
+8. Extended Python SDK native topology cache parsing to derive a reconnect
+   target from `CLUSTER_REGISTRY` `query_peers` or active `nodes`.
+9. Added replication channel capability negotiation so Raft-required operations
+   do not select transports that only match by kind.
+10. Expanded Prometheus metrics and added `scripts/failure-injection.sh` to
+    group divergent log, snapshot fallback, and real crash-point checks.
+
+Verification:
+
+- `cargo fmt --all`
+- `python3 -m py_compile sdks/python/neo4r_client/client.py sdks/python/tests/test_protocol.py`
+- `PYTHONPATH=sdks/python python3 -m unittest sdks/python/tests/test_protocol.py`
+- `cargo test -p neo4r-db joint_consensus --quiet`
+- `cargo test -p neo4r-db replication_channel_negotiation --quiet`
+- `cargo test -p neo4r-db raft_snapshot_install_then_append_survives_reopen --quiet`
+- `cargo test -p neo4r-db query_plan_reports_read_access_path --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `cargo test -p neo4r-server web_console_isolates_tenant_databases_and_scopes_tokens --quiet`
+- `scripts/storage-atomicity.sh`
+- `scripts/failure-injection.sh`

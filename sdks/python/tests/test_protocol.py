@@ -1,7 +1,7 @@
 import socket
 import unittest
 
-from neo4r_client.client import _parse_redirect
+from neo4r_client.client import Client, _first_registry_address, _parse_redirect
 from neo4r_client.protocol import (
     NativeFrame,
     Node,
@@ -120,6 +120,35 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(redirect["routing_version"], 2)
         self.assertEqual(redirect["ownership_epoch"], 2)
         self.assertTrue(redirect["retryable"])
+
+    def test_registry_topology_cache_records_peer_address_and_ttl(self):
+        left, right = socket.socketpair()
+        try:
+            client = Client(left)
+            client._update_topology_cache_from_registry(
+                "database=tenant_a local_server=1 routing_version=3 "
+                "ownership_epoch=4 ttl_ms=5000 query_peers=1:127.0.0.1:17687|2:127.0.0.1:17688 "
+                "nodes=1:active:127.0.0.1:17687|2:active:127.0.0.1:17688"
+            )
+
+            self.assertEqual(client.topology_cache["database"], "tenant_a")
+            self.assertEqual(client.topology_cache["routing_version"], 3)
+            self.assertEqual(client.topology_cache["ownership_epoch"], 4)
+            self.assertEqual(client.topology_cache["last_address"], "127.0.0.1:17688")
+            self.assertIsNotNone(client.topology_cache["expires_at"])
+        finally:
+            left.close()
+            right.close()
+
+    def test_registry_address_falls_back_to_active_node(self):
+        self.assertEqual(
+            _first_registry_address(
+                1,
+                "none",
+                "1:active:127.0.0.1:17687|2:active:127.0.0.1:17688",
+            ),
+            "127.0.0.1:17688",
+        )
 
 
 if __name__ == "__main__":

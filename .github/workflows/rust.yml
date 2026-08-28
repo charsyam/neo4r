@@ -19,7 +19,17 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev pkg-config clang
+        sudo apt-get install -y \
+          clang \
+          libbz2-dev \
+          liblz4-dev \
+          librocksdb-dev \
+          libsnappy-dev \
+          libzstd-dev \
+          pkg-config \
+          zlib1g-dev
+    - name: Check helper scripts
+      run: bash -n scripts/*.sh
     - name: Build
       run: cargo build --verbose
     - name: Run tests

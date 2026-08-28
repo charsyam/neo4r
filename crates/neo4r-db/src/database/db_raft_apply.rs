@@ -548,9 +548,23 @@ impl Neo4rDatabase {
             let prev_log_term = if prev_log_index == 0 {
                 0
             } else {
-                self.log(shard_id)?
+                let log_term = self
+                    .log(shard_id)?
                     .entry(prev_log_index)?
-                    .map(|entry| entry.term)
+                    .map(|entry| entry.term);
+                log_term
+                    .or_else(|| {
+                        self.raft_groups.as_ref().and_then(|raft_groups| {
+                            raft_groups.groups.get(shard_id as usize).and_then(|group| {
+                                group
+                                    .snapshot()
+                                    .filter(|snapshot| {
+                                        snapshot.last_included_index == prev_log_index
+                                    })
+                                    .map(|snapshot| snapshot.last_included_term)
+                            })
+                        })
+                    })
                     .unwrap_or_default()
             };
             let term = shard_entries

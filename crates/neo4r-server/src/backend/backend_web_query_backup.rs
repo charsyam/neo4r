@@ -81,12 +81,28 @@ impl WebMetricsSnapshot {
     }
 
     pub(crate) fn to_prometheus(&self) -> String {
+        let committed_max = self
+            .db_committed_indexes
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or_default();
+        let applied_max = self
+            .db_applied_indexes
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or_default();
         [
             prometheus_metric("neo4r_http_requests_total", self.http_requests),
             prometheus_metric("neo4r_http_errors_total", self.http_errors),
             prometheus_metric("neo4r_queries_total", self.queries),
             prometheus_metric("neo4r_query_errors_total", self.query_errors),
             prometheus_metric("neo4r_slow_queries_total", self.slow_queries),
+            prometheus_metric(
+                "neo4r_slow_query_threshold_ms",
+                self.slow_query_threshold_ms as u64,
+            ),
             prometheus_metric("neo4r_registry_requests_total", self.registry_requests),
             prometheus_metric(
                 "neo4r_stale_epoch_rejections_total",
@@ -95,9 +111,35 @@ impl WebMetricsSnapshot {
             prometheus_metric("neo4r_redirects_total", self.redirects),
             prometheus_metric("neo4r_db_nodes", self.db_nodes as u64),
             prometheus_metric("neo4r_db_relationships", self.db_relationships as u64),
+            prometheus_metric("neo4r_db_indexes", self.db_indexes as u64),
+            prometheus_metric("neo4r_db_vector_indexes", self.db_vector_indexes as u64),
+            prometheus_metric("neo4r_db_shards", self.db_shard_count),
+            prometheus_metric(
+                "neo4r_db_local_partitions",
+                self.db_local_partition_count as u64,
+            ),
+            prometheus_metric("neo4r_db_committed_index_max", committed_max),
+            prometheus_metric("neo4r_db_applied_index_max", applied_max),
             prometheus_metric("neo4r_tenant_databases", self.tenant_database_count as u64),
+            prometheus_metric(
+                "neo4r_tenant_disabled_databases",
+                self.tenant_disabled_count as u64,
+            ),
+            prometheus_metric("neo4r_index_ready", self.index_ready_count as u64),
+            prometheus_metric("neo4r_index_building", self.index_building_count as u64),
+            prometheus_metric("neo4r_index_rebuilding", self.index_rebuilding_count as u64),
+            prometheus_metric("neo4r_index_failed", self.index_failed_count as u64),
             prometheus_metric("neo4r_raft_groups", self.raft_group_count as u64),
             prometheus_metric("neo4r_raft_leaders", self.raft_leader_count as u64),
+            prometheus_metric("neo4r_raft_term_max", self.raft_term_max),
+            prometheus_metric(
+                "neo4r_raft_snapshot_index_max",
+                self.raft_snapshot_index_max,
+            ),
+            prometheus_metric(
+                "neo4r_raft_joint_consensus_groups",
+                self.raft_joint_consensus_count as u64,
+            ),
             prometheus_metric("neo4r_web_user_tokens", self.web_user_token_count as u64),
             prometheus_metric("neo4r_web_audit_events", self.web_audit_event_count as u64),
         ]

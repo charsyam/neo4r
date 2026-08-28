@@ -233,20 +233,32 @@ class Client:
 
     def _update_topology_cache_from_registry(self, registry: str) -> None:
         ttl_ms = None
+        local_server = None
+        query_peers = None
+        nodes = None
         for part in registry.split():
             if "=" not in part:
                 continue
             key, value = part.split("=", 1)
             if key == "database":
                 self.topology_cache["database"] = value
+            elif key == "local_server":
+                local_server = int(value)
             elif key == "routing_version":
                 self.topology_cache["routing_version"] = int(value)
             elif key == "ownership_epoch":
                 self.topology_cache["ownership_epoch"] = int(value)
             elif key == "ttl_ms":
                 ttl_ms = int(value)
+            elif key == "query_peers":
+                query_peers = value
+            elif key == "nodes":
+                nodes = value
         if ttl_ms is not None:
             self.topology_cache["expires_at"] = time.time() + (ttl_ms / 1000.0)
+        address = _first_registry_address(local_server, query_peers, nodes)
+        if address is not None:
+            self.topology_cache["last_address"] = address
 
 
 def _parse_redirect(text: str) -> dict[str, Any] | None:
@@ -289,3 +301,26 @@ def _parse_redirect(text: str) -> dict[str, Any] | None:
     if redirect["ownership_epoch"] == 0:
         redirect["ownership_epoch"] = redirect["routing_version"]
     return redirect
+
+
+def _first_registry_address(
+    local_server: int | None,
+    query_peers: str | None,
+    nodes: str | None,
+) -> str | None:
+    if query_peers and query_peers != "none":
+        for peer in query_peers.split("|"):
+            if ":" not in peer:
+                continue
+            server, address = peer.split(":", 1)
+            if address and (local_server is None or server != str(local_server)):
+                return address
+    if nodes:
+        for node in nodes.split("|"):
+            parts = node.split(":", 2)
+            if len(parts) != 3:
+                continue
+            server, state, address = parts
+            if state == "active" and address and (local_server is None or server != str(local_server)):
+                return address
+    return None

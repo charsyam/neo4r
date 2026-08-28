@@ -1,3 +1,4 @@
+use neo4r_core::{Properties, Value};
 use neo4r_db::{DatabaseConfig, Neo4rDatabaseHandle};
 use std::fs;
 use std::path::PathBuf;
@@ -13,6 +14,35 @@ fn real_crash_child_writer() {
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
     db.execute_cypher(r#"CREATE (n:Crash {name: "durable-before-kill"}) RETURN n"#)
         .unwrap();
+    fs::write(PathBuf::from(&dir).join("child-ready"), b"ready").unwrap();
+    thread::sleep(Duration::from_secs(30));
+}
+
+#[test]
+fn real_crash_relationship_child_writer() {
+    let Ok(dir) = std::env::var("NEO4R_REAL_CRASH_REL_CHILD_DIR") else {
+        return;
+    };
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    let from = db
+        .create_node(
+            vec!["Crash".to_string()],
+            properties(&[("name", Value::String("from".to_string()))]),
+        )
+        .unwrap();
+    let to = db
+        .create_node(
+            vec!["Crash".to_string()],
+            properties(&[("name", Value::String("to".to_string()))]),
+        )
+        .unwrap();
+    db.create_relationship(
+        from,
+        to,
+        "LINK".to_string(),
+        properties(&[("kind", Value::String("durable".to_string()))]),
+    )
+    .unwrap();
     fs::write(PathBuf::from(&dir).join("child-ready"), b"ready").unwrap();
     thread::sleep(Duration::from_secs(30));
 }
@@ -53,6 +83,47 @@ fn real_crash_harness_reopens_child_written_data_after_kill() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+fn real_crash_harness_reopens_relationship_and_adjacency_after_kill() {
+    if std::env::var("NEO4R_REAL_CRASH_REL_CHILD_DIR").is_ok() {
+        return;
+    }
+    let dir = temp_dir("neo4r-real-crash-relationship-harness");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .arg("real_crash_relationship_child_writer")
+        .arg("--exact")
+        .arg("--nocapture")
+        .env("NEO4R_REAL_CRASH_REL_CHILD_DIR", &dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let ready = dir.join("child-ready");
+    let deadline = SystemTime::now() + Duration::from_secs(5);
+    while !ready.is_file() {
+        assert!(
+            SystemTime::now() < deadline,
+            "child did not write relationship test row"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    child.kill().unwrap();
+    let _ = child.wait();
+
+    let reopened = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    let rows = reopened
+        .execute_cypher(
+            r#"MATCH (a:Crash)-[r:LINK]->(b:Crash) WHERE r.kind = "durable" RETURN a.name, b.name, r.kind"#,
+        )
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
 fn temp_dir(prefix: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "{}-{}",
@@ -62,4 +133,11 @@ fn temp_dir(prefix: &str) -> std::path::PathBuf {
             .unwrap()
             .as_nanos()
     ))
+}
+
+fn properties(entries: &[(&str, Value)]) -> Properties {
+    entries
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), value.clone()))
+        .collect()
 }

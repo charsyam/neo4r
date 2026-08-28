@@ -442,7 +442,7 @@ impl RaftCore {
         if response.vote_granted {
             self.votes_received.insert(voter_id);
         }
-        if self.votes_received.len() >= self.membership.quorum_size() {
+        if self.membership.has_quorum(&self.votes_received) {
             self.become_leader();
             return Ok(true);
         }

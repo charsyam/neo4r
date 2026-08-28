@@ -198,6 +198,74 @@ pub(super) fn tcp_install_snapshot_updates_replica_snapshot_payload() {
 }
 
 #[test]
+pub(super) fn raft_snapshot_install_then_append_survives_reopen() {
+    let dir = temp_dir("facade-raft-snapshot-append-reopen");
+    let routing_table = ShardRoutingTable {
+        version: 1,
+        placements: vec![ShardPlacement::new(0, vec![ShardReplica::primary(1)])],
+    };
+    let replica = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(1)
+            .with_routing_table(routing_table.clone())
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+    let payload = snapshot_payload(&dir, 0, 4, 11, "SnapshotAppendAlice");
+    replica
+        .install_raft_snapshot(crate::InstallSnapshotRequest {
+            term: 5,
+            leader_id: 9,
+            metadata: crate::RaftSnapshotMetadata {
+                shard_id: 0,
+                last_included_term: 4,
+                last_included_index: 11,
+            },
+            payload,
+        })
+        .unwrap();
+    replica
+        .apply_raft_append_entries(
+            0,
+            vec![LogEntry::new(
+                0,
+                5,
+                12,
+                Command::SetNodeProperty {
+                    id: 1,
+                    key: "city".to_string(),
+                    value: Value::String("Seoul".to_string()),
+                },
+            )],
+            12,
+        )
+        .unwrap();
+    drop(replica);
+
+    let reopened = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(1)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+    let rows = reopened
+        .query_with_options(
+            r#"MATCH (n:Person) WHERE n.name = "SnapshotAppendAlice" RETURN n.city"#,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("n.city"),
+        Some(&QueryValue::Scalar(Value::String("Seoul".to_string())))
+    );
+    assert_eq!(reopened.read_snapshot().unwrap().committed_indexes(), &[12]);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn tcp_raft_append_falls_back_to_install_snapshot_on_rejection() {
     let dir = temp_dir("facade-tcp-append-fallback-snapshot");
     let routing_table = ShardRoutingTable {

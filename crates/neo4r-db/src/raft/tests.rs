@@ -271,6 +271,62 @@ fn joint_consensus_requires_old_and_new_quorums() {
 }
 
 #[test]
+fn joint_consensus_election_requires_old_and_new_vote_quorums() {
+    let dir = temp_dir("neo4r-raft-joint-election-quorum");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership).unwrap();
+    raft.begin_joint_consensus([1, 4, 5]).unwrap();
+    let request = raft.start_election().unwrap();
+
+    assert_eq!(request.term, 1);
+    assert!(!raft
+        .record_vote_response(
+            4,
+            RequestVoteResponse {
+                term: 1,
+                vote_granted: true,
+            },
+        )
+        .unwrap());
+    assert_eq!(raft.role(), &RaftRole::Candidate);
+    assert!(raft
+        .record_vote_response(
+            2,
+            RequestVoteResponse {
+                term: 1,
+                vote_granted: true,
+            },
+        )
+        .unwrap());
+    assert_eq!(raft.role(), &RaftRole::Leader);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn removing_local_voter_steps_down_and_blocks_local_appends() {
+    let dir = temp_dir("neo4r-raft-remove-local-voter");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership).unwrap();
+    raft.start_election().unwrap();
+    raft.become_leader();
+
+    raft.apply_committed_membership_change(RaftMembershipChange::RemoveVoter(1))
+        .unwrap();
+
+    assert_eq!(raft.role(), &RaftRole::Follower);
+    assert_eq!(raft.leader_id(), None);
+    assert!(matches!(
+        raft.append_local_entry(command(1)),
+        Err(DatabaseError::Replication(message)) if message.contains("not leader")
+    ));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn install_snapshot_compacts_log_and_accepts_append_from_snapshot_boundary() {
     let dir = temp_dir("neo4r-raft-install-snapshot");
     let store = RaftPersistentStateStore::open(dir.join("state.txt"));

@@ -6,6 +6,7 @@ cargo test -p neo4r-server --test jepsen_lite_correctness
 NEO4R_RUN_SDK_COMPAT=0 NEO4R_RUN_SDK_LIVE=0 scripts/sdk-compat.sh
 scripts/protocol-compat.sh
 scripts/storage-atomicity.sh
+scripts/failure-injection.sh
 scripts/security-regression.sh
 scripts/multi-node-integration.sh
 scripts/bench-regression.sh

@@ -337,6 +337,8 @@ scripts/multi-node-integration.sh
 scripts/security-regression.sh
 scripts/bench-regression.sh
 scripts/protocol-compat.sh
+scripts/storage-atomicity.sh
+scripts/failure-injection.sh
 ```
 
 The live path runs the Rust and Python examples against the same endpoint. Both
@@ -362,7 +364,9 @@ depending on redirect, topology-cache, typed epoch conflict, or bounded
 staleness features.
 
 `GET /metrics` exposes the same operational counters as `/api/metrics` in
-Prometheus text format. `GET /api/admin/audit-log` accepts optional `action`,
+Prometheus text format, including HTTP/query counts, committed/applied index
+maxima, index lifecycle counts, tenant counts, and Raft term/snapshot/joint
+consensus gauges. `GET /api/admin/audit-log` accepts optional `action`,
 `target`, and `limit` query parameters for RocksDB-backed audit log searches.
 
 Current request message types:

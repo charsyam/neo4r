@@ -75,6 +75,55 @@ fn replication_channel_negotiation_uses_preference_order() {
 }
 
 #[test]
+fn replication_channel_negotiation_filters_by_required_capabilities() {
+    let offer = ReplicationChannelOffer {
+        server_id: 2,
+        endpoints: vec![
+            ReplicationEndpoint::udp("127.0.0.1:17688", 1200),
+            ReplicationEndpoint::tcp("127.0.0.1:17687"),
+        ],
+    };
+
+    let agreement = negotiate_replication_channel_with_capabilities(
+        &[ReplicationChannelKind::Udp, ReplicationChannelKind::Tcp],
+        offer,
+        &ReplicationChannelCapabilities {
+            raft_append: true,
+            vote: true,
+            snapshot: true,
+            catch_up: true,
+            max_frame_bytes: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(agreement.endpoint.kind, ReplicationChannelKind::Tcp);
+}
+
+#[test]
+fn replication_channel_negotiation_rejects_missing_required_capabilities() {
+    let offer = ReplicationChannelOffer {
+        server_id: 2,
+        endpoints: vec![ReplicationEndpoint::udp("127.0.0.1:17688", 1200)],
+    };
+
+    let err = negotiate_replication_channel_with_capabilities(
+        &[ReplicationChannelKind::Udp],
+        offer,
+        &ReplicationChannelCapabilities {
+            raft_append: true,
+            vote: true,
+            snapshot: false,
+            catch_up: false,
+            max_frame_bytes: None,
+        },
+    )
+    .unwrap_err();
+
+    assert!(err.to_string().contains("required capabilities"));
+}
+
+#[test]
 fn udp_replication_channel_has_explicit_reliability_boundary() {
     let channel = UdpReplicationChannel::prototype(1200);
     let endpoint = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);

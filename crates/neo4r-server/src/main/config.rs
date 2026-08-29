@@ -313,7 +313,10 @@ fn append_config_arg(
         "catch-up-on-startup"
         | "sync-index-catalog-on-startup"
         | "recover-transactions-on-startup"
-        | "daemonize" => {
+        | "daemonize"
+        | "check-config"
+        | "production-check"
+        | "dump-config" => {
             if parse_config_bool(value, line_no)? {
                 args.push(format!("--{key}"));
             }

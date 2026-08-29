@@ -8,6 +8,24 @@ Build the server first:
 cargo build -p neo4r-server
 ```
 
+Validate and render a normalized YAML summary before starting a node:
+
+```bash
+target/debug/neo4r-server --config packaging/server.example.yml --check-config
+target/debug/neo4r-server --config packaging/server.example.yml --dump-config
+```
+
+Run the stricter production preflight after replacing example secrets and paths:
+
+```bash
+target/debug/neo4r-server --config /etc/neo4r/server.yml --production-check
+scripts/production-preflight.sh /etc/neo4r/server.yml
+```
+
+The production check rejects development defaults such as loopback-only binds,
+relative or temp data directories, missing/weak web admin tokens, async
+replication ACKs, and clustered configs without catch-up controls.
+
 Start three local nodes with separate data directories and replication ports:
 
 ```bash
@@ -94,6 +112,52 @@ curl -X POST -H 'authorization: Bearer admin:secret' \
 Audit records are available from `/api/admin/audit-log` and in the web console
 through the `Audit` button.
 
+The CLI wraps the same admin API:
+
+```bash
+target/debug/neo4r-cli --http-host 127.0.0.1 --http-port 18080 \
+  --admin-token admin:secret --list-users
+target/debug/neo4r-cli --admin-token admin:secret --database default \
+  --invoke-user operator --invoke-token-id main --invoke-token writer:token \
+  --invoke-role writer --invoke-database-role writer --invoke-expired-at 4102444800
+target/debug/neo4r-cli --admin-token admin:secret \
+  --revoke-user operator --revoke-token-id main
+```
+
+## CLI Operation
+
+Use the interactive CLI for query history, transaction checks, and operator
+status:
+
+```bash
+target/debug/neo4r-cli --addr 127.0.0.1:17687
+```
+
+Useful REPL commands:
+
+```text
+:begin
+MATCH (n) RETURN n;
+:plan MATCH (n) RETURN n
+:profile MATCH (n) RETURN n
+:cluster
+:storage
+:routing
+:replication
+:commit
+```
+
+Single-shot backup and restore:
+
+```bash
+target/debug/neo4r-cli --admin-token admin:secret --database tenant_a \
+  --backup data/backups/tenant_a
+target/debug/neo4r-cli --admin-token admin:secret --database tenant_a \
+  --restore data/backups/tenant_a --restore-dry-run
+target/debug/neo4r-cli --admin-token admin:secret --database tenant_a \
+  --restore data/backups/tenant_a --restore-confirm RESTORE
+```
+
 ## Recovery Checks
 
 After restart or restore, check:
@@ -121,3 +185,55 @@ REPAIR_INVARIANTS
 
 The read freshness contract is documented in
 [read_consistency.md](read_consistency.md).
+
+## RDMA Live Gate
+
+The default RDMA gate validates provider abstraction without requiring RDMA
+libraries:
+
+```bash
+scripts/rdma-live-gate.sh
+```
+
+Run it on RDMA hosts only when `neo4r-server --features rdma` can link on both
+machines:
+
+```bash
+NEO4R_RUN_RDMA_LIVE=1 \
+NEO4R_RDMA_NODE_A=192.168.0.175 \
+NEO4R_RDMA_NODE_B=192.168.0.176 \
+NEO4R_RDMA_ADDR_A=192.168.0.175 \
+NEO4R_RDMA_ADDR_B=192.168.0.176 \
+scripts/rdma-live-gate.sh
+```
+
+## Packaging
+
+Example deployment files live under `packaging/`:
+
+- `server.example.yml`
+- `neo4r-server.env`
+- `neo4r-server.service`
+
+For local installation:
+
+```bash
+sudo scripts/install-local.sh
+sudo systemctl enable --now neo4r-server
+```
+
+The systemd unit runs `neo4r-server --production-check` as `ExecStartPre`.
+`packaging/server.example.yml` intentionally ships with a placeholder admin
+token and must be edited before the service can start.
+
+## Production Readiness
+
+Neo4r is still below production DB maturity for high-stakes data. The current
+status and gap list are tracked in
+[production_db_comparison.md](production_db_comparison.md). Treat every release
+candidate as needing at least:
+
+```bash
+scripts/release-gate.sh
+scripts/crash-consistency-gate.sh
+```

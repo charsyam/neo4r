@@ -146,6 +146,46 @@ impl HttpAdminClient {
         self.request_json("GET", "/api/admin/databases", "", None)
     }
 
+    pub fn delete_database(&self, name: &str) -> ClientResult<String> {
+        self.request_json(
+            "POST",
+            "/api/admin/delete-database",
+            &format!(r#"{{"name":"{}"}}"#, json_escape(name)),
+            None,
+        )
+    }
+
+    pub fn disable_database(&self, name: &str) -> ClientResult<String> {
+        self.request_json(
+            "POST",
+            "/api/admin/disable-database",
+            &format!(r#"{{"name":"{}"}}"#, json_escape(name)),
+            None,
+        )
+    }
+
+    pub fn enable_database(&self, name: &str) -> ClientResult<String> {
+        self.request_json(
+            "POST",
+            "/api/admin/enable-database",
+            &format!(r#"{{"name":"{}"}}"#, json_escape(name)),
+            None,
+        )
+    }
+
+    pub fn list_users(&self) -> ClientResult<String> {
+        self.request_json("GET", "/api/admin/users", "", None)
+    }
+
+    pub fn delete_user(&self, name: &str) -> ClientResult<String> {
+        self.request_json(
+            "POST",
+            "/api/admin/delete-user",
+            &format!(r#"{{"name":"{}"}}"#, json_escape(name)),
+            None,
+        )
+    }
+
     pub fn invoke_token(
         &self,
         name: &str,
@@ -188,6 +228,10 @@ impl HttpAdminClient {
         )
     }
 
+    pub fn cleanup_expired_tokens(&self) -> ClientResult<String> {
+        self.request_json("POST", "/api/admin/cleanup-expired-tokens", "{}", None)
+    }
+
     pub fn maintenance_mode(&self, enabled: bool, database: Option<&str>) -> ClientResult<String> {
         let mut payload = format!(r#"{{"enabled":{enabled}"#);
         if let Some(database) = database {
@@ -195,6 +239,61 @@ impl HttpAdminClient {
         }
         payload.push('}');
         self.request_json("POST", "/api/admin/maintenance-mode", &payload, None)
+    }
+
+    pub fn backup(&self, path: &str, database: Option<&str>) -> ClientResult<String> {
+        let endpoint = admin_path("/api/backup", database);
+        self.request_json(
+            "POST",
+            &endpoint,
+            &format!(r#"{{"path":"{}"}}"#, json_escape(path)),
+            None,
+        )
+    }
+
+    pub fn restore(
+        &self,
+        path: &str,
+        dry_run: bool,
+        confirm: Option<&str>,
+        database: Option<&str>,
+    ) -> ClientResult<String> {
+        let endpoint = admin_path("/api/restore", database);
+        let mut payload = format!(r#"{{"path":"{}","dry_run":{dry_run}"#, json_escape(path));
+        if let Some(confirm) = confirm {
+            payload.push_str(&format!(r#","confirm":"{}""#, json_escape(confirm)));
+        }
+        payload.push('}');
+        self.request_json("POST", &endpoint, &payload, None)
+    }
+
+    pub fn raft_status(&self, database: Option<&str>) -> ClientResult<String> {
+        let endpoint = admin_path("/api/admin/raft-status", database);
+        self.request_json("GET", &endpoint, "", None)
+    }
+
+    pub fn audit_log(&self) -> ClientResult<String> {
+        self.request_json("GET", "/api/admin/audit-log", "", None)
+    }
+
+    pub fn query_plan_http(
+        &self,
+        query: &str,
+        params_json: &str,
+        database: Option<&str>,
+    ) -> ClientResult<String> {
+        let payload = query_payload(query, params_json, database);
+        self.request_json("POST", "/api/query-plan", &payload, None)
+    }
+
+    pub fn profile_http(
+        &self,
+        query: &str,
+        params_json: &str,
+        database: Option<&str>,
+    ) -> ClientResult<String> {
+        let payload = query_payload(query, params_json, database);
+        self.request_json("POST", "/api/profile", &payload, None)
     }
 
     pub fn query(
@@ -286,6 +385,39 @@ impl HttpAdminClient {
         }
         Ok(body.to_string())
     }
+}
+
+fn query_payload(query: &str, params_json: &str, database: Option<&str>) -> String {
+    let mut payload = format!(
+        r#"{{"query":"{}","params":{}"#,
+        json_escape(query),
+        params_json
+    );
+    if let Some(database) = database {
+        payload.push_str(&format!(r#","database":"{}""#, json_escape(database)));
+    }
+    payload.push('}');
+    payload
+}
+
+fn admin_path(path: &str, database: Option<&str>) -> String {
+    match database {
+        Some(database) => format!("{path}?db={}", url_escape(database)),
+        None => path.to_string(),
+    }
+}
+
+fn url_escape(input: &str) -> String {
+    let mut encoded = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            other => encoded.push_str(&format!("%{other:02X}")),
+        }
+    }
+    encoded
 }
 
 impl Client {

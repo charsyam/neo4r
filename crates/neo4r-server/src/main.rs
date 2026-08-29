@@ -26,6 +26,21 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = ServerArgs::parse(std::env::args().skip(1))?;
+    if args.check_config {
+        args.validate_runtime()?;
+        eprintln!("neo4r-server config ok");
+        return Ok(());
+    }
+    if args.production_check {
+        args.validate_production()?;
+        eprintln!("neo4r-server production check ok");
+        return Ok(());
+    }
+    if args.dump_config {
+        args.validate_runtime()?;
+        print!("{}", args.to_yaml_summary());
+        return Ok(());
+    }
     if args.daemonize {
         spawn_daemon(&args)?;
         return Ok(());
@@ -316,6 +331,9 @@ struct ServerArgs {
     web_auth_token: Option<String>,
     slow_query_threshold_ms: u64,
     daemonize: bool,
+    check_config: bool,
+    production_check: bool,
+    dump_config: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -364,6 +382,9 @@ impl ServerArgs {
             web_auth_token: None,
             slow_query_threshold_ms: 250,
             daemonize: false,
+            check_config: false,
+            production_check: false,
+            dump_config: false,
         };
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -455,55 +476,244 @@ impl ServerArgs {
                         parse_next(&mut args, "--slow-query-threshold-ms")?
                 }
                 "--daemonize" => parsed.daemonize = true,
+                "--check-config" => parsed.check_config = true,
+                "--production-check" => parsed.production_check = true,
+                "--dump-config" => parsed.dump_config = true,
                 "--help" | "-h" => return Err(usage()),
                 value => return Err(format!("unknown argument: {value}\n{}", usage())),
             }
         }
-        if parsed.shard_count == 0 {
+        parsed.validate_runtime()?;
+        let config_actions = usize::from(parsed.check_config)
+            + usize::from(parsed.production_check)
+            + usize::from(parsed.dump_config);
+        if config_actions > 1 {
+            return Err(
+                "--check-config, --production-check, and --dump-config cannot be combined"
+                    .to_string(),
+            );
+        }
+        Ok(parsed)
+    }
+
+    fn validate_runtime(&self) -> Result<(), String> {
+        if self.shard_count == 0 {
             return Err("--shards must be greater than zero".to_string());
         }
-        if parsed.partition_count == 0 {
+        if self.partition_count == 0 {
             return Err("--partitions must be greater than zero".to_string());
         }
-        if parsed.worker_count == 0 {
+        if self.worker_count == 0 {
             return Err("--workers must be greater than zero".to_string());
         }
-        if parsed.queue_capacity == 0 {
+        if self.queue_capacity == 0 {
             return Err("--queue-capacity must be greater than zero".to_string());
         }
-        if parsed.default_page_size == 0 {
+        if self.default_page_size == 0 {
             return Err("--page-size must be greater than zero".to_string());
         }
-        if parsed.primary_server_id == 0 {
+        if self.primary_server_id == 0 {
             return Err("--primary-server-id must be greater than zero".to_string());
         }
-        if parsed.replication_retry_attempts == 0 {
+        if self.replication_retry_attempts == 0 {
             return Err("--replication-retry-attempts must be greater than zero".to_string());
         }
-        if parsed.replication_connect_timeout_ms == 0 {
+        if self.replication_connect_timeout_ms == 0 {
             return Err("--replication-connect-timeout-ms must be greater than zero".to_string());
         }
-        if parsed.catch_up_interval_ms == Some(0) {
+        if self.catch_up_interval_ms == Some(0) {
             return Err("--catch-up-interval-ms must be greater than zero".to_string());
         }
-        if parsed.catch_up_batch_size == Some(0) {
+        if self.catch_up_batch_size == Some(0) {
             return Err("--catch-up-batch-size must be greater than zero".to_string());
         }
-        if parsed.sync_index_catalog_interval_ms == Some(0) {
+        if self.sync_index_catalog_interval_ms == Some(0) {
             return Err("--sync-index-catalog-interval-ms must be greater than zero".to_string());
         }
-        if parsed.recover_transactions_interval_ms == Some(0) {
+        if self.recover_transactions_interval_ms == Some(0) {
             return Err("--recover-transactions-interval-ms must be greater than zero".to_string());
         }
-        if parsed.slow_query_threshold_ms == 0 {
+        if self.slow_query_threshold_ms == 0 {
             return Err("--slow-query-threshold-ms must be greater than zero".to_string());
         }
-        for peer in &parsed.replica_peers {
-            if peer.server_id == parsed.primary_server_id {
+        for peer in &self.replica_peers {
+            if peer.server_id == self.primary_server_id {
                 return Err("--replica-peer cannot reference the primary server id".to_string());
             }
         }
-        Ok(parsed)
+        Ok(())
+    }
+
+    fn validate_production(&self) -> Result<(), String> {
+        self.validate_runtime()?;
+        let mut issues = Vec::new();
+        if is_local_bind(&self.bind_addr) {
+            issues.push("--bind must not be loopback-only for production".to_string());
+        }
+        if self.data_dir.is_relative() {
+            issues.push("--data-dir must be an absolute path for production".to_string());
+        }
+        if is_temp_or_dev_data_dir(&self.data_dir) {
+            issues.push("--data-dir must not point at a temp/dev data directory".to_string());
+        }
+        if self.web_bind_addr.is_none() {
+            issues.push("--web-bind is required for production admin/metrics access".to_string());
+        }
+        if let Some(address) = &self.web_bind_addr {
+            if is_local_bind(address) {
+                issues.push("--web-bind must not be loopback-only for production".to_string());
+            }
+        }
+        match self.web_auth_token.as_deref() {
+            Some(token) if is_strong_admin_token(token) => {}
+            _ => issues.push(
+                "--web-auth-token must be set to a non-default token of at least 16 bytes"
+                    .to_string(),
+            ),
+        }
+        if self.replication_ack_policy == ReplicationAckPolicy::Async {
+            issues.push("--replication-ack async is not production safe".to_string());
+        }
+        if self.read_preference == QueryReadPreference::PreferReplica
+            && self.query_peers.is_empty()
+            && self.peers.is_empty()
+        {
+            issues.push("--read-preference prefer-replica requires query peers".to_string());
+        }
+        if self.cluster_requested() {
+            if self.replication_bind_addr.is_none() {
+                issues.push("--replication-bind is required for clustered production".to_string());
+            }
+            if self.replica_peers.is_empty() && self.peers.is_empty() {
+                issues.push(
+                    "clustered production requires at least one replication peer".to_string(),
+                );
+            }
+            if !self.catch_up_on_startup {
+                issues
+                    .push("--catch-up-on-startup is required for clustered production".to_string());
+            }
+            if self.catch_up_interval_ms.is_none() {
+                issues.push(
+                    "--catch-up-interval-ms is required for clustered production".to_string(),
+                );
+            }
+            if self.catch_up_batch_size.is_none() {
+                issues
+                    .push("--catch-up-batch-size is required for clustered production".to_string());
+            }
+        }
+        if !issues.is_empty() {
+            return Err(format!(
+                "production check failed:\n- {}",
+                issues.join("\n- ")
+            ));
+        }
+        Ok(())
+    }
+
+    fn cluster_requested(&self) -> bool {
+        self.primary_server_id != self.server_id
+            || !self.replica_peers.is_empty()
+            || !self.peers.is_empty()
+            || self.replication_bind_addr.is_some()
+            || self.routing_table_path.is_some()
+    }
+
+    fn to_yaml_summary(&self) -> String {
+        let mut output = String::new();
+        output.push_str("server:\n");
+        output.push_str(&format!("  bind: {}\n", self.bind_addr));
+        output.push_str(&format!("  data_dir: {}\n", self.data_dir.display()));
+        output.push_str(&format!("  server_id: {}\n", self.server_id));
+        output.push_str(&format!(
+            "  primary_server_id: {}\n",
+            self.primary_server_id
+        ));
+        output.push_str(&format!("  workers: {}\n", self.worker_count));
+        output.push_str(&format!("  queue_capacity: {}\n", self.queue_capacity));
+        output.push_str(&format!("  page_size: {}\n", self.default_page_size));
+        if let Some(path) = &self.routing_table_path {
+            output.push_str(&format!("  routing_table: {}\n", path.display()));
+        }
+        output.push_str(&format!("  daemonize: {}\n", self.daemonize));
+        output.push_str("database:\n");
+        output.push_str(&format!("  shards: {}\n", self.shard_count));
+        output.push_str(&format!("  partitions: {}\n", self.partition_count));
+        output.push_str("replication:\n");
+        if let Some(address) = &self.replication_bind_addr {
+            output.push_str(&format!("  bind: {address}\n"));
+        }
+        output.push_str(&format!(
+            "  transport: {}\n",
+            format_replication_transport(self.replication_transport)
+        ));
+        output.push_str(&format!(
+            "  ack: {}\n",
+            format_ack_policy(self.replication_ack_policy)
+        ));
+        output.push_str(&format!(
+            "  connect_timeout_ms: {}\n",
+            self.replication_connect_timeout_ms
+        ));
+        output.push_str(&format!(
+            "  retry_attempts: {}\n",
+            self.replication_retry_attempts
+        ));
+        output.push_str(&format!(
+            "  retry_backoff_ms: {}\n",
+            self.replication_retry_backoff_ms
+        ));
+        output.push_str("  replica_peers:\n");
+        for peer in &self.replica_peers {
+            output.push_str(&format!(
+                "    - server_id: {}\n      address: {}\n",
+                peer.server_id, peer.address
+            ));
+        }
+        output.push_str("  peers:\n");
+        for peer in &self.peers {
+            output.push_str(&format!(
+                "    - server_id: {}\n      address: {}\n",
+                peer.server_id, peer.address
+            ));
+        }
+        output.push_str("query:\n");
+        output.push_str(&format!(
+            "  read_preference: {}\n",
+            format_read_preference(self.read_preference)
+        ));
+        output.push_str("  peers:\n");
+        for peer in &self.query_peers {
+            output.push_str(&format!(
+                "    - server_id: {}\n      address: {}\n",
+                peer.server_id, peer.address
+            ));
+        }
+        output.push_str("web:\n");
+        if let Some(address) = &self.web_bind_addr {
+            output.push_str(&format!("  bind: {address}\n"));
+        }
+        output.push_str(&format!(
+            "  slow_query_threshold_ms: {}\n",
+            self.slow_query_threshold_ms
+        ));
+        output.push_str("maintenance:\n");
+        output.push_str(&format!(
+            "  sync_index_catalog_on_startup: {}\n",
+            self.sync_index_catalog_on_startup
+        ));
+        if let Some(ms) = self.sync_index_catalog_interval_ms {
+            output.push_str(&format!("  sync_index_catalog_interval_ms: {ms}\n"));
+        }
+        output.push_str(&format!(
+            "  recover_transactions_on_startup: {}\n",
+            self.recover_transactions_on_startup
+        ));
+        if let Some(ms) = self.recover_transactions_interval_ms {
+            output.push_str(&format!("  recover_transactions_interval_ms: {ms}\n"));
+        }
+        output
     }
 
     fn routing_table(&self) -> Result<Option<ShardRoutingTable>, String> {
@@ -871,6 +1081,25 @@ fn parse_read_preference(value: &str) -> Result<QueryReadPreference, String> {
     }
 }
 
+fn is_local_bind(address: &str) -> bool {
+    address.starts_with("127.")
+        || address.starts_with("localhost:")
+        || address.starts_with("[::1]:")
+        || address.starts_with("::1:")
+}
+
+fn is_temp_or_dev_data_dir(path: &PathBuf) -> bool {
+    path == &PathBuf::from("data") || path.starts_with("/tmp") || path.starts_with("/var/tmp")
+}
+
+fn is_strong_admin_token(token: &str) -> bool {
+    token.len() >= 16
+        && !matches!(
+            token,
+            "secret" | "admin:secret" | "admin:change-me" | "change-me" | "changeme"
+        )
+}
+
 fn format_ack_policy(policy: ReplicationAckPolicy) -> &'static str {
     match policy {
         ReplicationAckPolicy::All => "all",
@@ -902,7 +1131,7 @@ fn parse_next<T: std::str::FromStr>(
 }
 
 fn usage() -> String {
-    "usage: neo4r-server [--config PATH] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--config PATH] [--check-config] [--production-check] [--dump-config] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 fn default_worker_count() -> usize {

@@ -1,0 +1,23 @@
+[Unit]
+Description=Neo4r graph database server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=neo4r
+Group=neo4r
+EnvironmentFile=-/etc/neo4r/neo4r-server.env
+ExecStartPre=/usr/local/bin/neo4r-server $NEO4R_SERVER_ARGS --production-check
+ExecStart=/usr/local/bin/neo4r-server $NEO4R_SERVER_ARGS
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/neo4r /var/log/neo4r /etc/neo4r
+
+[Install]
+WantedBy=multi-user.target

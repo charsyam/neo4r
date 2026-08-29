@@ -1,0 +1,27 @@
+server:
+  bind: 0.0.0.0:7687
+  web_bind: 0.0.0.0:17687
+  web_auth_token: admin:change-me
+  data_dir: /var/lib/neo4r
+  server_id: 1
+  primary_server_id: 1
+
+database:
+  shards: 8
+  partitions: 8
+  workers: 8
+  queue_capacity: 4096
+  page_size: 1000
+
+replication:
+  bind: 0.0.0.0:18687
+  transport: tcp
+  ack: quorum
+  connect_timeout_ms: 1000
+  retry_attempts: 3
+  retry_backoff_ms: 50
+  peers: []
+
+query:
+  slow_query_threshold_ms: 1000
+  read_preference: primary

@@ -131,6 +131,116 @@ fn defaults_replication_transport_to_tcp() {
 }
 
 #[test]
+fn parses_config_validation_flags_and_dump_summary() {
+    let args = ServerArgs::parse([
+        "--check-config".to_string(),
+        "--bind".to_string(),
+        "127.0.0.1:9001".to_string(),
+    ])
+    .unwrap();
+
+    assert!(args.check_config);
+    assert!(!args.production_check);
+    assert!(!args.dump_config);
+    assert!(args.to_yaml_summary().contains("bind: 127.0.0.1:9001"));
+
+    let err =
+        ServerArgs::parse(["--check-config".to_string(), "--dump-config".to_string()]).unwrap_err();
+    assert_eq!(
+        err,
+        "--check-config, --production-check, and --dump-config cannot be combined"
+    );
+}
+
+#[test]
+fn production_check_rejects_development_defaults() {
+    let args = ServerArgs::parse(["--production-check".to_string()]).unwrap();
+    let err = args.validate_production().unwrap_err();
+
+    assert!(err.contains("--bind must not be loopback-only"));
+    assert!(err.contains("--data-dir must be an absolute path"));
+    assert!(err.contains("--web-bind is required"));
+    assert!(err.contains("--web-auth-token must be set"));
+}
+
+#[test]
+fn production_check_accepts_hardened_single_node_config() {
+    let args = ServerArgs::parse([
+        "--production-check".to_string(),
+        "--bind".to_string(),
+        "0.0.0.0:7687".to_string(),
+        "--web-bind".to_string(),
+        "0.0.0.0:17687".to_string(),
+        "--web-auth-token".to_string(),
+        "admin:long-production-token".to_string(),
+        "--data-dir".to_string(),
+        "/var/lib/neo4r".to_string(),
+    ])
+    .unwrap();
+
+    args.validate_production().unwrap();
+}
+
+#[test]
+fn production_check_requires_cluster_catchup_controls() {
+    let args = ServerArgs::parse([
+        "--production-check".to_string(),
+        "--bind".to_string(),
+        "0.0.0.0:7687".to_string(),
+        "--web-bind".to_string(),
+        "0.0.0.0:17687".to_string(),
+        "--web-auth-token".to_string(),
+        "admin:long-production-token".to_string(),
+        "--data-dir".to_string(),
+        "/var/lib/neo4r".to_string(),
+        "--replication-bind".to_string(),
+        "0.0.0.0:18687".to_string(),
+        "--replica-peer".to_string(),
+        "2=10.0.0.2:18687".to_string(),
+    ])
+    .unwrap();
+    let err = args.validate_production().unwrap_err();
+
+    assert!(err.contains("--catch-up-on-startup is required"));
+    assert!(err.contains("--catch-up-interval-ms is required"));
+    assert!(err.contains("--catch-up-batch-size is required"));
+}
+
+#[test]
+fn key_value_config_supports_production_check_flag() {
+    let path = temp_file("server-production-check-config");
+    fs::write(&path, "production_check=true\n").unwrap();
+
+    let args = ServerArgs::parse(["--config".to_string(), path.display().to_string()]).unwrap();
+
+    assert!(args.production_check);
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn production_check_rejects_async_replication_ack() {
+    let args = ServerArgs::parse([
+        "--production-check".to_string(),
+        "--bind".to_string(),
+        "0.0.0.0:7687".to_string(),
+        "--web-bind".to_string(),
+        "0.0.0.0:17687".to_string(),
+        "--web-auth-token".to_string(),
+        "admin:long-production-token".to_string(),
+        "--data-dir".to_string(),
+        "/var/lib/neo4r".to_string(),
+        "--replication-ack".to_string(),
+        "async".to_string(),
+    ])
+    .unwrap();
+
+    assert!(args
+        .validate_production()
+        .unwrap_err()
+        .contains("--replication-ack async"));
+}
+
+#[test]
 fn loads_server_args_from_config_file_and_allows_cli_override() {
     let path = temp_file("server-config");
     fs::write(

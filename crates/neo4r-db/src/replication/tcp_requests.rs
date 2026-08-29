@@ -30,7 +30,7 @@ pub(super) fn preflight_tcp_ack_capacity(
 
 pub fn handle_tcp_replication_stream(
     db: &Neo4rDatabaseHandle,
-    stream: &mut TcpStream,
+    stream: &mut (impl Read + Write),
 ) -> DatabaseResult<()> {
     let magic = read_magic_bytes(stream)?;
     match magic.as_slice() {

@@ -35,6 +35,8 @@ fn parses_server_args() {
         "12=127.0.0.1:7688".to_string(),
         "--replication-bind".to_string(),
         "127.0.0.1:9700".to_string(),
+        "--replication-transport".to_string(),
+        "rdma".to_string(),
         "--web-bind".to_string(),
         "127.0.0.1:7474".to_string(),
         "--web-auth-token".to_string(),
@@ -105,6 +107,7 @@ fn parses_server_args() {
         args.replication_bind_addr,
         Some("127.0.0.1:9700".to_string())
     );
+    assert_eq!(args.replication_transport, ReplicationChannelKind::Rdma);
     assert_eq!(args.web_bind_addr, Some("127.0.0.1:7474".to_string()));
     assert_eq!(args.replication_ack_policy, ReplicationAckPolicy::Quorum);
     assert_eq!(args.replication_connect_timeout_ms, 750);
@@ -118,6 +121,13 @@ fn parses_server_args() {
     assert!(args.recover_transactions_on_startup);
     assert_eq!(args.recover_transactions_interval_ms, Some(3000));
     assert!(args.daemonize);
+}
+
+#[test]
+fn defaults_replication_transport_to_tcp() {
+    let args = ServerArgs::parse([]).unwrap();
+
+    assert_eq!(args.replication_transport, ReplicationChannelKind::Tcp);
 }
 
 #[test]

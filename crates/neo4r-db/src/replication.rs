@@ -847,11 +847,15 @@ impl TcpShardReplicator {
 }
 
 mod channel;
+mod rdma;
+#[cfg(feature = "rdma")]
+mod rdma_rsocket;
 mod tcp_requests;
 mod tcp_responses;
 mod udp;
 
 pub use channel::*;
+pub use rdma::*;
 pub use tcp_requests::*;
 pub use udp::*;
 

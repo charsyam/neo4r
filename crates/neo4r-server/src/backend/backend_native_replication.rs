@@ -25,6 +25,21 @@ impl TcpBackend {
         Ok(())
     }
 
+    #[cfg(feature = "rdma")]
+    pub fn serve_rdma_replication_listener(
+        &self,
+        listener: RdmaReplicationListener,
+    ) -> io::Result<()> {
+        let backend = Arc::new(self.clone());
+        loop {
+            let stream = listener.accept().map_err(io::Error::other)?;
+            let backend = backend.clone();
+            thread::spawn(move || {
+                let _ = backend.handle_replication_stream(stream);
+            });
+        }
+    }
+
     pub fn serve_replication_listener_until(
         &self,
         listener: TcpListener,

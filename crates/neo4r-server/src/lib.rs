@@ -8,6 +8,8 @@ mod tenant;
 mod web_auth;
 
 use neo4r_core::{Properties, ShardRole, Value};
+#[cfg(feature = "rdma")]
+use neo4r_db::RdmaReplicationListener;
 use neo4r_db::{
     catch_up_from_tcp_primary, catch_up_from_tcp_primary_batched, create_node_routing_key,
     handle_tcp_replication_stream, merge_node_routing_key, request_tcp_replication_hello,

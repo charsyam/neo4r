@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+rdma = ["neo4r-db/rdma"]
+
 [dependencies]
 neo4r-core = { path = "../neo4r-core" }
 neo4r-db = { path = "../neo4r-db" }

@@ -403,7 +403,7 @@ impl TcpBackend {
         Ok(())
     }
 
-    pub fn handle_replication_stream(&self, mut stream: TcpStream) -> io::Result<()> {
+    pub fn handle_replication_stream(&self, mut stream: impl Read + Write) -> io::Result<()> {
         handle_tcp_replication_stream(&self.db, &mut stream).map_err(io::Error::other)
     }
 }
@@ -415,9 +415,13 @@ pub(crate) fn replication_endpoint(
     match transport.unwrap_or(ReplicationChannelKind::Tcp) {
         ReplicationChannelKind::Tcp => Ok(ReplicationEndpoint::tcp(address)),
         ReplicationChannelKind::Udp => Ok(ReplicationEndpoint::udp(address, 1200)),
-        ReplicationChannelKind::Rdma => {
-            Err("rdma replication endpoints require an rdma-enabled provider boundary".to_string())
-        }
+        #[cfg(feature = "rdma")]
+        ReplicationChannelKind::Rdma => Ok(ReplicationEndpoint::rdma(address)),
+        #[cfg(not(feature = "rdma"))]
+        ReplicationChannelKind::Rdma => Err(
+            "rdma replication endpoints require building neo4r-server with --features rdma"
+                .to_string(),
+        ),
         ReplicationChannelKind::Custom => {
             Err("custom replication endpoints require an explicit provider boundary".to_string())
         }

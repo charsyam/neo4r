@@ -1,5 +1,10 @@
 use neo4r_core::{ShardPlacement, ShardReplica, ShardRole, ShardRoutingTable};
-use neo4r_db::{DatabaseConfig, ReplicationAckPolicy, TcpShardReplicator};
+use neo4r_db::{
+    DatabaseConfig, ReplicationAckPolicy, ReplicationChannel, ReplicationChannelKind,
+    ReplicationEndpoint, TcpReplicationChannel, TcpShardReplicator,
+};
+#[cfg(feature = "rdma")]
+use neo4r_db::{RdmaReplicationChannel, RdmaReplicationListener};
 use neo4r_server::{QueryReadPreference, TcpBackend, TcpBackendConfig};
 use std::fs::{self, OpenOptions};
 use std::io;
@@ -51,13 +56,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     args.replication_retry_attempts,
                     Duration::from_millis(args.replication_retry_backoff_ms),
                 )
+                .with_channel(replication_channel(args.replication_transport)?)
                 .with_raft_transport(true),
         );
         for peer in &args.replica_peers {
-            replicator.register_peer(peer.server_id, peer.address.clone())?;
+            replicator.register_peer_endpoint(
+                peer.server_id,
+                replication_endpoint(peer.address.clone(), args.replication_transport)?,
+            )?;
         }
         for peer in &args.peers {
-            replicator.register_peer(peer.server_id, peer.address.clone())?;
+            replicator.register_peer_endpoint(
+                peer.server_id,
+                replication_endpoint(peer.address.clone(), args.replication_transport)?,
+            )?;
         }
         raft_replicator = Some(replicator.clone());
         neo4r_db::Neo4rDatabaseHandle::open_with_replicator(config, replicator)?
@@ -233,12 +245,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(replication_bind_addr) = args.replication_bind_addr.clone() {
         let replication_backend = backend.clone();
-        let replication_listener = TcpListener::bind(&replication_bind_addr)?;
-        let replication_local_addr = replication_listener.local_addr()?;
-        std::thread::spawn(move || {
-            eprintln!("neo4r-server replication listening on {replication_local_addr}");
-            let _ = replication_backend.serve_replication_listener(replication_listener);
-        });
+        match args.replication_transport {
+            ReplicationChannelKind::Tcp => {
+                let replication_listener = TcpListener::bind(&replication_bind_addr)?;
+                let replication_local_addr = replication_listener.local_addr()?;
+                std::thread::spawn(move || {
+                    eprintln!("neo4r-server replication tcp listening on {replication_local_addr}");
+                    let _ = replication_backend.serve_replication_listener(replication_listener);
+                });
+            }
+            ReplicationChannelKind::Rdma => {
+                #[cfg(feature = "rdma")]
+                {
+                    let replication_listener =
+                        RdmaReplicationListener::bind(&replication_bind_addr)?;
+                    let replication_local_addr = replication_listener.local_addr()?;
+                    std::thread::spawn(move || {
+                        eprintln!(
+                            "neo4r-server replication rdma listening on {replication_local_addr}"
+                        );
+                        let _ = replication_backend
+                            .serve_rdma_replication_listener(replication_listener);
+                    });
+                }
+                #[cfg(not(feature = "rdma"))]
+                return Err("--replication-transport rdma requires --features rdma".into());
+            }
+            other => {
+                return Err(format!("replication listener does not support {other:?}").into());
+            }
+        }
     }
     backend.serve_addr(&args.bind_addr)?;
     Ok(())
@@ -261,6 +297,7 @@ struct ServerArgs {
     peers: Vec<ReplicaPeer>,
     query_peers: Vec<ReplicaPeer>,
     replication_bind_addr: Option<String>,
+    replication_transport: ReplicationChannelKind,
     replication_ack_policy: ReplicationAckPolicy,
     replication_connect_timeout_ms: u64,
     replication_retry_attempts: usize,
@@ -302,6 +339,7 @@ impl ServerArgs {
             peers: Vec::new(),
             query_peers: Vec::new(),
             replication_bind_addr: None,
+            replication_transport: ReplicationChannelKind::Tcp,
             replication_ack_policy: ReplicationAckPolicy::All,
             replication_connect_timeout_ms: 1000,
             replication_retry_attempts: 1,
@@ -354,6 +392,12 @@ impl ServerArgs {
                 )?),
                 "--replication-bind" => {
                     parsed.replication_bind_addr = Some(next_arg(&mut args, "--replication-bind")?)
+                }
+                "--replication-transport" => {
+                    parsed.replication_transport = parse_replication_transport(&next_arg(
+                        &mut args,
+                        "--replication-transport",
+                    )?)?
                 }
                 "--replication-ack" => {
                     parsed.replication_ack_policy =
@@ -522,6 +566,8 @@ fn daemon_child_args(args: &ServerArgs) -> Vec<String> {
         args.primary_server_id.to_string(),
         "--replication-ack".to_string(),
         format_ack_policy(args.replication_ack_policy).to_string(),
+        "--replication-transport".to_string(),
+        format_replication_transport(args.replication_transport).to_string(),
         "--replication-retry-attempts".to_string(),
         args.replication_retry_attempts.to_string(),
         "--replication-retry-backoff-ms".to_string(),
@@ -743,6 +789,68 @@ fn parse_ack_policy(value: &str) -> Result<ReplicationAckPolicy, String> {
     }
 }
 
+fn parse_replication_transport(value: &str) -> Result<ReplicationChannelKind, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "tcp" => Ok(ReplicationChannelKind::Tcp),
+        "rdma" => Ok(ReplicationChannelKind::Rdma),
+        "udp" => Err("udp is not supported for raft replication transport".to_string()),
+        "custom" => {
+            Err("custom replication transport requires explicit provider wiring".to_string())
+        }
+        _ => Err("--replication-transport must be tcp or rdma".to_string()),
+    }
+}
+
+fn format_replication_transport(transport: ReplicationChannelKind) -> &'static str {
+    match transport {
+        ReplicationChannelKind::Tcp => "tcp",
+        ReplicationChannelKind::Rdma => "rdma",
+        ReplicationChannelKind::Udp => "udp",
+        ReplicationChannelKind::Custom => "custom",
+    }
+}
+
+fn replication_endpoint(
+    address: String,
+    transport: ReplicationChannelKind,
+) -> Result<ReplicationEndpoint, String> {
+    match transport {
+        ReplicationChannelKind::Tcp => Ok(ReplicationEndpoint::tcp(address)),
+        #[cfg(feature = "rdma")]
+        ReplicationChannelKind::Rdma => Ok(ReplicationEndpoint::rdma(address)),
+        #[cfg(not(feature = "rdma"))]
+        ReplicationChannelKind::Rdma => {
+            Err("--replication-transport rdma requires --features rdma".to_string())
+        }
+        ReplicationChannelKind::Udp => {
+            Err("udp is not supported for raft replication transport".to_string())
+        }
+        ReplicationChannelKind::Custom => {
+            Err("custom replication transport requires explicit provider wiring".to_string())
+        }
+    }
+}
+
+fn replication_channel(
+    transport: ReplicationChannelKind,
+) -> Result<Arc<dyn ReplicationChannel>, String> {
+    match transport {
+        ReplicationChannelKind::Tcp => Ok(Arc::new(TcpReplicationChannel)),
+        #[cfg(feature = "rdma")]
+        ReplicationChannelKind::Rdma => Ok(Arc::new(RdmaReplicationChannel::default())),
+        #[cfg(not(feature = "rdma"))]
+        ReplicationChannelKind::Rdma => {
+            Err("--replication-transport rdma requires --features rdma".to_string())
+        }
+        ReplicationChannelKind::Udp => {
+            Err("udp is not supported for raft replication transport".to_string())
+        }
+        ReplicationChannelKind::Custom => {
+            Err("custom replication transport requires explicit provider wiring".to_string())
+        }
+    }
+}
+
 fn parse_read_preference(value: &str) -> Result<QueryReadPreference, String> {
     match value {
         "primary" | "PRIMARY" => Ok(QueryReadPreference::Primary),
@@ -784,7 +892,7 @@ fn parse_next<T: std::str::FromStr>(
 }
 
 fn usage() -> String {
-    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 fn default_worker_count() -> usize {

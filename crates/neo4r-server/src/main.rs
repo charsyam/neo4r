@@ -14,6 +14,9 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[path = "main/config.rs"]
+mod config;
+
 fn main() {
     if let Err(err) = run() {
         eprintln!("{err}");
@@ -323,6 +326,12 @@ struct ReplicaPeer {
 
 impl ServerArgs {
     fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
+        let args = args.into_iter().collect::<Vec<_>>();
+        let expanded = config::expand_config_args(args)?;
+        Self::parse_expanded(expanded)
+    }
+
+    fn parse_expanded(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut parsed = Self {
             bind_addr: "127.0.0.1:7687".to_string(),
             data_dir: PathBuf::from("data"),
@@ -360,6 +369,7 @@ impl ServerArgs {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--bind" => parsed.bind_addr = next_arg(&mut args, "--bind")?,
+                "--config" => return Err("--config must be handled before parsing".to_string()),
                 "--data-dir" => parsed.data_dir = PathBuf::from(next_arg(&mut args, "--data-dir")?),
                 "--shards" => parsed.shard_count = parse_next(&mut args, "--shards")?,
                 "--partitions" => parsed.partition_count = parse_next(&mut args, "--partitions")?,
@@ -892,7 +902,7 @@ fn parse_next<T: std::str::FromStr>(
 }
 
 fn usage() -> String {
-    "usage: neo4r-server [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--config PATH] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 fn default_worker_count() -> usize {

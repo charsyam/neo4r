@@ -131,6 +131,155 @@ fn defaults_replication_transport_to_tcp() {
 }
 
 #[test]
+fn loads_server_args_from_config_file_and_allows_cli_override() {
+    let path = temp_file("server-config");
+    fs::write(
+        &path,
+        [
+            "bind=127.0.0.1:9100",
+            "data_dir=/tmp/neo4r-config",
+            "shards=4",
+            "server_id=2",
+            "primary_server_id=1",
+            "replica_peer=3=127.0.0.1:9703",
+            "peer=1=127.0.0.1:9701",
+            "query_peer=4=127.0.0.1:7689",
+            "replication_bind=127.0.0.1:9702",
+            "replication_transport=rdma",
+            "catch_up_on_startup=true",
+            "recover_transactions_on_startup=yes",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+
+    let args = ServerArgs::parse([
+        "--config".to_string(),
+        path.display().to_string(),
+        "--bind".to_string(),
+        "127.0.0.1:9999".to_string(),
+        "--peer".to_string(),
+        "5=127.0.0.1:9705".to_string(),
+    ])
+    .unwrap();
+
+    assert_eq!(args.bind_addr, "127.0.0.1:9999");
+    assert_eq!(args.data_dir, PathBuf::from("/tmp/neo4r-config"));
+    assert_eq!(args.shard_count, 4);
+    assert_eq!(args.server_id, 2);
+    assert_eq!(args.primary_server_id, 1);
+    assert_eq!(args.replication_transport, ReplicationChannelKind::Rdma);
+    assert!(args.catch_up_on_startup);
+    assert!(args.recover_transactions_on_startup);
+    assert_eq!(
+        args.peers,
+        vec![
+            ReplicaPeer {
+                server_id: 1,
+                address: "127.0.0.1:9701".to_string(),
+            },
+            ReplicaPeer {
+                server_id: 5,
+                address: "127.0.0.1:9705".to_string(),
+            },
+        ]
+    );
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn loads_server_args_from_yaml_config_file() {
+    let path = temp_file("server-config-yaml").with_extension("yml");
+    fs::write(
+        &path,
+        r#"
+server:
+  bind: 127.0.0.1:9100
+  data_dir: /tmp/neo4r-yaml
+  server_id: 2
+  primary_server_id: 1
+database:
+  shards: 4
+  partitions: 2
+replication:
+  bind: 127.0.0.1:9702
+  transport: rdma
+  ack: quorum
+  connect_timeout_ms: 750
+  retry_attempts: 3
+  retry_backoff_ms: 25
+  peers:
+    - server_id: 3
+      address: 127.0.0.1:9703
+      role: replica
+    - server_id: 4
+      address: 127.0.0.1:9704
+  catch_up_on_startup: true
+query:
+  read_preference: prefer-replica
+  peers:
+    - server_id: 5
+      address: 127.0.0.1:7689
+web:
+  bind: 127.0.0.1:7474
+  auth_token: secret
+maintenance:
+  sync_index_catalog_on_startup: true
+  recover_transactions_on_startup: true
+"#,
+    )
+    .unwrap();
+
+    let args = ServerArgs::parse(["--config".to_string(), path.display().to_string()]).unwrap();
+
+    assert_eq!(args.bind_addr, "127.0.0.1:9100");
+    assert_eq!(args.data_dir, PathBuf::from("/tmp/neo4r-yaml"));
+    assert_eq!(args.shard_count, 4);
+    assert_eq!(args.partition_count, 2);
+    assert_eq!(args.server_id, 2);
+    assert_eq!(args.primary_server_id, 1);
+    assert_eq!(
+        args.replication_bind_addr,
+        Some("127.0.0.1:9702".to_string())
+    );
+    assert_eq!(args.replication_transport, ReplicationChannelKind::Rdma);
+    assert_eq!(args.replication_ack_policy, ReplicationAckPolicy::Quorum);
+    assert_eq!(args.replication_connect_timeout_ms, 750);
+    assert_eq!(args.replication_retry_attempts, 3);
+    assert_eq!(args.replication_retry_backoff_ms, 25);
+    assert_eq!(
+        args.replica_peers,
+        vec![ReplicaPeer {
+            server_id: 3,
+            address: "127.0.0.1:9703".to_string(),
+        }]
+    );
+    assert_eq!(
+        args.peers,
+        vec![ReplicaPeer {
+            server_id: 4,
+            address: "127.0.0.1:9704".to_string(),
+        }]
+    );
+    assert_eq!(
+        args.query_peers,
+        vec![ReplicaPeer {
+            server_id: 5,
+            address: "127.0.0.1:7689".to_string(),
+        }]
+    );
+    assert_eq!(args.read_preference, QueryReadPreference::PreferReplica);
+    assert_eq!(args.web_bind_addr, Some("127.0.0.1:7474".to_string()));
+    assert_eq!(args.web_auth_token, Some("secret".to_string()));
+    assert!(args.catch_up_on_startup);
+    assert!(args.sync_index_catalog_on_startup);
+    assert!(args.recover_transactions_on_startup);
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
 fn rejects_zero_catch_up_interval() {
     assert_eq!(
         ServerArgs::parse([

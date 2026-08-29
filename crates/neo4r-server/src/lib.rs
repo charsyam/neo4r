@@ -25,10 +25,11 @@ use peer_store::{
     QUERY_PEERS_FILE, REPLICATION_PEERS_FILE, REPLICATION_PEER_IDENTITIES_FILE,
 };
 use protocol::{
-    decode_index_catalog, decode_query_batch_payload, decode_query_rows,
-    encode_query_batch_payload, encode_query_rows, execute_request, format_protocol_capabilities,
-    format_query_plan, format_response, format_routing_table, parse_query_payload, parse_request,
-    write_response, BackendRedirect, BackendResponse, RedirectKind,
+    backend_request_mutates_data, decode_index_catalog, decode_query_batch_payload,
+    decode_query_rows, encode_query_batch_payload, encode_query_rows, execute_request,
+    format_protocol_capabilities, format_query_plan, format_response, format_routing_table,
+    parse_query_payload, parse_request, write_response, BackendRedirect, BackendResponse,
+    RedirectKind,
 };
 use restore_guard::{restore_maintenance_mode_path, RestoreLock};
 use std::collections::{BTreeMap, BTreeSet, HashMap};

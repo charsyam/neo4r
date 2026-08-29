@@ -380,6 +380,15 @@ impl RaftCore {
         })
     }
 
+    pub fn pre_vote_request(&self) -> PreVoteRequest {
+        PreVoteRequest {
+            next_term: self.persistent.current_term.saturating_add(1),
+            candidate_id: self.server_id,
+            last_log_index: self.last_log_index(),
+            last_log_term: self.last_log_term(),
+        }
+    }
+
     pub fn become_leader(&mut self) {
         self.role = RaftRole::Leader;
         self.leader_id = Some(self.server_id);

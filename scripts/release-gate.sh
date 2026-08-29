@@ -7,6 +7,10 @@ scripts/ci-crash.sh
 scripts/ci-server.sh
 scripts/protocol-compat.sh
 scripts/protocol-matrix.sh
+scripts/udp-transport.sh
+scripts/snapshot-chunks.sh
+scripts/session-security.sh
+scripts/restore-drain.sh
 scripts/read-consistency.sh
 scripts/query-plan-golden.sh
 scripts/query-result-contract.sh

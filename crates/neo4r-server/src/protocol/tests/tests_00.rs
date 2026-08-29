@@ -649,6 +649,17 @@ pub(super) fn performance_commands_report_profile_storage_and_statistics() {
         raft,
         BackendResponse::OkClusterStatus(result) if result.contains("raft_shards=")
     ));
+    assert_eq!(
+        parse_request("RAFT_LEADER_TRANSFER\t0\t2").unwrap(),
+        BackendRequest::RaftLeaderTransfer {
+            shard_id: 0,
+            transferee_id: 2
+        }
+    );
+    assert_eq!(
+        parse_request("RAFT_LEADER_TRANSFER\t0").unwrap_err(),
+        "RAFT_LEADER_TRANSFER requires transferee id"
+    );
 
     let _ = fs::remove_dir_all(dir);
 }

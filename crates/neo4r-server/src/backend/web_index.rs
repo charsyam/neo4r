@@ -158,6 +158,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
     const graphLabels = [];
     const history = JSON.parse(localStorage.getItem('neo4r.queryHistory') || '[]');
     const savedAuthToken = localStorage.getItem('neo4r.authToken') || sessionCookieToken() || new URLSearchParams(window.location.search).get('token') || '';
+    const savedCsrfToken = localStorage.getItem('neo4r.csrfToken') || '';
     let graph = { nodes: [], relationships: [] };
     let selected = null;
     let dragging = false;
@@ -202,7 +203,8 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       const token = authToken();
       if (token) headers.authorization = 'Bearer ' + token;
       headers['x-neo4r-database'] = selectedDatabase();
-      headers['x-neo4r-csrf'] = 'neo4r-admin';
+      const csrfToken = localStorage.getItem('neo4r.csrfToken') || savedCsrfToken;
+      if (csrfToken) headers['x-neo4r-csrf'] = csrfToken;
       return headers;
     }
 
@@ -216,6 +218,7 @@ pub(crate) const WEB_INDEX_HTML: &str = r#"<!doctype html>
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Login failed');
       document.cookie = 'neo4r.session=' + encodeURIComponent(body.session_id) + '; Max-Age=3600; SameSite=Strict; path=/';
+      localStorage.setItem('neo4r.csrfToken', body.csrf_token || '');
       setStatus('Login saved.');
     }
 

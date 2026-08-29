@@ -46,27 +46,48 @@ implement them in order.
 
 Status:
 
-- In progress.
+- Completed.
 
-Planned changes:
+Completed changes:
 
-1. Commit and push the current completed network/session/restore/optimizer
-   changes to establish a clean baseline.
-2. Connect UDP transport primitives to Raft channel behavior instead of leaving
-   the UDP channel as a pure negotiation placeholder.
-3. Integrate PreVote into the election flow before RequestVote.
-4. Expose leader-transfer through an operator-facing API/command.
-5. Connect snapshot chunk install to the TCP/Raft path with validation.
-6. Harden opaque sessions with per-session CSRF, logout/revoke, and cleanup.
-7. Extend restore drain beyond HTTP query mutation toward native/work queues and
-   transaction/cursor visibility.
-8. Use selectivity estimates in optimizer plan decisions, not only explain JSON.
-9. Define distributed query partial failure, timeout, cancellation, and merge
-   policy.
-10. Add release-gate scripts for session security, restore drain, UDP socket,
-    and snapshot chunk paths.
-- `git diff --check`
-- `cargo fmt --all --check`
+1. Committed and pushed the previous completed baseline as
+   `46b64e4 Add network raft and admin session groundwork`.
+2. Added a concrete `UdpReplicationChannel` boundary that sends datagram
+   frames for replication, Raft append, and snapshot chunks while keeping
+   response-required vote/catch-up paths explicit.
+3. Integrated PreVote into TCP Raft election rounds before RequestVote so terms
+   only advance after a pre-election quorum.
+4. Added `RAFT_LEADER_TRANSFER` line protocol support plus a web admin API for
+   leader transfer requests.
+5. Connected snapshot chunk split/assemble validation into the TCP install
+   snapshot send path.
+6. Hardened web sessions with per-session CSRF tokens, logout, cleanup, and
+   parent directory initialization for RocksDB-backed auth/session stores.
+7. Extended restore drain to native/backend mutating commands and added native
+   restore drain coverage.
+8. Applied property selectivity estimates to indexed node plan cost and
+   indexed property selection.
+9. Defined distributed query fail-fast timeout, cancellation, and deterministic
+   shard-order merge policy in code and status JSON.
+10. Added release-gate scripts for UDP transport, snapshot chunks, session
+    security, and restore drain paths.
+
+Verification:
+
+- `cargo fmt --all`
+- `cargo check --workspace`
+- `cargo test -p neo4r-db raft::tests --quiet`
+- `cargo test -p neo4r-db replication::tests --quiet`
+- `cargo test -p neo4r-server raft_election_round_promotes_candidate_after_peer_vote --quiet`
+- `cargo test -p neo4r-server web_console_serves_index_and_graph_api --quiet`
+- `scripts/udp-transport.sh`
+- `scripts/snapshot-chunks.sh`
+- `scripts/session-security.sh`
+- `scripts/restore-drain.sh`
+- `scripts/protocol-matrix.sh`
+- `scripts/check-file-lines.sh`
+- `cargo test --workspace --quiet`
+- `scripts/release-gate.sh`
 
 ## Release Gate And Operations Hardening Goal 1-10
 

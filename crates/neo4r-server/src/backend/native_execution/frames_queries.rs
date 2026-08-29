@@ -30,6 +30,7 @@ impl NativeExecutionContext {
             NativeMessageType::Ping => Ok(format_response(&BackendResponse::OkPong)),
             NativeMessageType::Quit => Ok(format_response(&BackendResponse::OkBye)),
             NativeMessageType::Query => {
+                self.reject_if_restore_draining_native_query()?;
                 let payload = frame.payload_text().map_err(|err| err.to_string())?;
                 let (query, params) = parse_query_payload(payload)?;
                 self.execute_query(session_id, &query, params)
@@ -79,6 +80,9 @@ impl NativeExecutionContext {
         session_id: u64,
         request: BackendRequest,
     ) -> Result<String, String> {
+        if backend_request_mutates_data(&request) {
+            self.reject_if_restore_draining_native_query()?;
+        }
         if let Some(response) = self.forward_shard_write_if_needed(&request)? {
             return Ok(response);
         }
@@ -600,5 +604,12 @@ impl NativeExecutionContext {
     pub(crate) fn close_cursor(&self, session_id: u64, cursor_id: u64) -> Result<String, String> {
         self.cursors.close(session_id, cursor_id)?;
         Ok(format!("OK\tCURSOR_CLOSED\t{cursor_id}"))
+    }
+
+    fn reject_if_restore_draining_native_query(&self) -> Result<(), String> {
+        if restore_maintenance_mode_path(&self.db)?.is_file() {
+            return Err("restore maintenance mode is draining native requests".to_string());
+        }
+        Ok(())
     }
 }

@@ -36,6 +36,7 @@ mod replication_quorum;
 mod tcp_web_console;
 mod transaction_epoch;
 mod transaction_protocol;
+mod web_session_security;
 mod worker_cancellation;
 
 use cluster_control_plane::*;
@@ -55,4 +56,5 @@ use replication_quorum::*;
 use tcp_web_console::*;
 use transaction_epoch::*;
 use transaction_protocol::*;
+use web_session_security::*;
 use worker_cancellation::*;

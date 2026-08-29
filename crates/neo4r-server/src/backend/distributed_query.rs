@@ -1,4 +1,23 @@
 use super::*;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DistributedQueryPolicy {
+    pub(crate) partial_failure: &'static str,
+    pub(crate) timeout: Duration,
+    pub(crate) cancellation: &'static str,
+    pub(crate) merge: &'static str,
+}
+
+impl Default for DistributedQueryPolicy {
+    fn default() -> Self {
+        Self {
+            partial_failure: "fail_fast",
+            timeout: Duration::from_secs(3),
+            cancellation: "client_cancel_propagates_to_pending_workers",
+            merge: "deterministic_shard_id_order",
+        }
+    }
+}
+
 pub(crate) fn execute_distributed_query(
     db: &Neo4rDatabaseHandle,
     query_peers: &QueryPeerStore,
@@ -6,9 +25,11 @@ pub(crate) fn execute_distributed_query(
     query: &str,
     params: &neo4r_query::QueryParams,
 ) -> Result<Vec<QueryRow>, String> {
+    let policy = DistributedQueryPolicy::default();
     let status = db.cluster_status().map_err(|err| err.to_string())?;
     let (tx, rx) = mpsc::channel();
     let mut handles = Vec::new();
+    let shard_count = status.shards.len();
     for shard in status.shards {
         let tx = tx.clone();
         let db = db.clone();
@@ -31,13 +52,32 @@ pub(crate) fn execute_distributed_query(
     }
     drop(tx);
     let mut shard_rows = BTreeMap::new();
-    for (shard_id, result) in rx {
-        shard_rows.insert(shard_id, result?);
+    let deadline = Instant::now() + policy.timeout;
+    while shard_rows.len() < shard_count {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match rx.recv_timeout(remaining) {
+            Ok((shard_id, result)) => {
+                shard_rows.insert(shard_id, result?);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
     for handle in handles {
         handle
             .join()
             .map_err(|_| "distributed query worker panicked".to_string())?;
+    }
+    if shard_rows.len() != shard_count {
+        return Err(format!(
+            "distributed query timed out after {}ms: received {}/{} shards",
+            policy.timeout.as_millis(),
+            shard_rows.len(),
+            shard_count
+        ));
     }
     let mut rows = Vec::new();
     for (_shard_id, mut part) in shard_rows {
@@ -50,16 +90,21 @@ pub(crate) fn distributed_query_scatter_gather_summary(
     db: &Neo4rDatabaseHandle,
 ) -> Result<String, String> {
     let status = db.cluster_status().map_err(|err| err.to_string())?;
+    let policy = DistributedQueryPolicy::default();
     let local = status
         .shards
         .iter()
         .filter(|shard| shard.has_local_copy)
         .count();
     Ok(format!(
-        "{{\"shards\":{},\"local_shards\":{},\"remote_shards\":{},\"parallel\":true}}",
+        "{{\"shards\":{},\"local_shards\":{},\"remote_shards\":{},\"parallel\":true,\"partial_failure\":\"{}\",\"timeout_ms\":{},\"cancellation\":\"{}\",\"merge\":\"{}\"}}",
         status.shards.len(),
         local,
-        status.shards.len().saturating_sub(local)
+        status.shards.len().saturating_sub(local),
+        policy.partial_failure,
+        policy.timeout.as_millis(),
+        policy.cancellation,
+        policy.merge
     ))
 }
 

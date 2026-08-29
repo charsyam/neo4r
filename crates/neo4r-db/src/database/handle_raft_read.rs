@@ -340,6 +340,10 @@ impl Neo4rDatabaseHandle {
         self.lock()?.request_raft_pre_vote(shard_id, request)
     }
 
+    pub fn raft_pre_vote_request(&self, shard_id: ShardId) -> DatabaseResult<PreVoteRequest> {
+        self.lock()?.raft_pre_vote_request(shard_id)
+    }
+
     pub fn request_raft_leader_transfer(
         &self,
         shard_id: ShardId,

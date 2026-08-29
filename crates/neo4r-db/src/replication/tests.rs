@@ -134,13 +134,27 @@ fn udp_replication_channel_has_explicit_reliability_boundary() {
     let channel = UdpReplicationChannel::prototype(1200);
     let endpoint = ReplicationEndpoint::udp("127.0.0.1:17688", 1200);
 
-    let err = channel
+    let acked = channel
         .send_raft_append_batch(&endpoint, &ReplicationChannelConfig::default(), 0, 0, &[])
-        .unwrap_err();
+        .unwrap();
+    assert!(acked.is_empty());
 
+    let err = channel
+        .request_vote(
+            &endpoint,
+            &ReplicationChannelConfig::default(),
+            0,
+            RequestVoteRequest {
+                term: 1,
+                candidate_id: 1,
+                last_log_index: 0,
+                last_log_term: 0,
+            },
+        )
+        .unwrap_err();
     assert!(err
         .to_string()
-        .contains("reliable raft delivery is not implemented"));
+        .contains("udp raft vote response path is not implemented"));
 }
 
 #[test]

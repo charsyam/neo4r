@@ -1,5 +1,6 @@
 use neo4r_storage::{KeyValueStore, RocksKvStore};
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -71,6 +72,12 @@ pub(super) struct WebSessionStore {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct WebSession {
+    pub(super) session_id: String,
+    pub(super) csrf_token: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WebAuditEvent {
     pub(super) unix_ms: u128,
     pub(super) action: String,
@@ -80,6 +87,7 @@ pub(super) struct WebAuditEvent {
 
 impl WebAuditStore {
     pub(super) fn open(path: PathBuf) -> Result<Self, String> {
+        ensure_store_parent(&path)?;
         RocksKvStore::open(path)
             .map(|kv| Self {
                 kv: Arc::new(Mutex::new(kv)),
@@ -120,6 +128,7 @@ impl WebAuditStore {
 
 impl WebUserTokenStore {
     pub(super) fn open(path: PathBuf) -> Result<Self, String> {
+        ensure_store_parent(&path)?;
         RocksKvStore::open(path)
             .map(|kv| Self {
                 kv: Arc::new(Mutex::new(kv)),
@@ -334,6 +343,7 @@ impl WebUserTokenStore {
 
 impl WebSessionStore {
     pub(super) fn open(path: PathBuf) -> Result<Self, String> {
+        ensure_store_parent(&path)?;
         RocksKvStore::open(path)
             .map(|kv| Self {
                 kv: Arc::new(Mutex::new(kv)),
@@ -348,19 +358,21 @@ impl WebSessionStore {
         role: WebRole,
         now: u128,
         ttl_seconds: u128,
-    ) -> Result<String, String> {
+    ) -> Result<WebSession, String> {
         let seed = format!("{token}:{database}:{now}:{}", unix_millis_now());
         let session_id = format!(
             "sid:{}",
             stable_keyed_digest_hex(b"neo4r-web-session-v1", seed.as_bytes())
         );
+        let csrf_token = stable_keyed_digest_hex(b"neo4r-web-csrf-v1", session_id.as_bytes());
         let expires_at = now.saturating_add(ttl_seconds.max(1));
         let record = format!(
-            "session_id={}\ndatabase={}\nrole={}\nexpires_at={}\n",
+            "session_id={}\ndatabase={}\nrole={}\nexpires_at={}\ncsrf_token={}\n",
             session_id,
             database,
             role.as_str(),
-            expires_at
+            expires_at,
+            csrf_token
         );
         let mut kv = self
             .kv
@@ -368,7 +380,10 @@ impl WebSessionStore {
             .map_err(|_| "web session store lock poisoned".to_string())?;
         kv.put(&web_session_key(&session_id), record.as_bytes())
             .map_err(|err| err.to_string())?;
-        Ok(session_id)
+        Ok(WebSession {
+            session_id,
+            csrf_token,
+        })
     }
 
     pub(super) fn role_for_session(
@@ -377,28 +392,106 @@ impl WebSessionStore {
         database: &str,
         now: u128,
     ) -> Option<WebRole> {
+        let record = self.session_record(session_id)?;
+        if record.expires_at < now {
+            return None;
+        }
+        if record.database != "*" && record.database != database {
+            return None;
+        }
+        Some(record.role)
+    }
+
+    pub(super) fn csrf_for_session(&self, session_id: &str, now: u128) -> Option<String> {
+        let record = self.session_record(session_id)?;
+        if record.expires_at < now {
+            return None;
+        }
+        Some(record.csrf_token)
+    }
+
+    pub(super) fn delete(&self, session_id: &str) -> Result<(), String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web session store lock poisoned".to_string())?;
+        kv.delete(&web_session_key(session_id))
+            .map_err(|err| err.to_string())
+    }
+
+    pub(super) fn cleanup_expired(&self, now: u128) -> Result<usize, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web session store lock poisoned".to_string())?;
+        let sessions = kv
+            .scan_prefix(WEB_SESSION_PREFIX)
+            .map_err(|err| err.to_string())?;
+        let mut removed = 0_usize;
+        for (key, value) in sessions {
+            let record = decode_web_session_record(&value)?;
+            if record.expires_at >= now {
+                continue;
+            }
+            kv.delete(&key).map_err(|err| err.to_string())?;
+            removed += 1;
+        }
+        Ok(removed)
+    }
+
+    fn session_record(&self, session_id: &str) -> Option<WebSessionRecord> {
         let kv = self.kv.lock().ok()?;
         let bytes = kv.get(&web_session_key(session_id)).ok().flatten()?;
-        let mut stored_database = None;
-        let mut role = None;
-        let mut expires_at = None;
-        for line in String::from_utf8_lossy(&bytes).lines() {
-            if let Some(value) = line.strip_prefix("database=") {
-                stored_database = Some(value.to_string());
-            } else if let Some(value) = line.strip_prefix("role=") {
-                role = parse_web_role(value).ok();
-            } else if let Some(value) = line.strip_prefix("expires_at=") {
-                expires_at = value.parse::<u128>().ok();
-            }
-        }
-        if expires_at? < now {
-            return None;
-        }
-        if stored_database.as_deref()? != "*" && stored_database.as_deref()? != database {
-            return None;
-        }
-        role
+        decode_web_session_record(&bytes).ok()
     }
+}
+
+fn ensure_store_parent(path: &std::path::Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WebSessionRecord {
+    database: String,
+    role: WebRole,
+    expires_at: u128,
+    csrf_token: String,
+}
+
+fn decode_web_session_record(input: &[u8]) -> Result<WebSessionRecord, String> {
+    let mut stored_database = None;
+    let mut role = None;
+    let mut expires_at = None;
+    let mut csrf_token = None;
+    for line in String::from_utf8_lossy(input).lines() {
+        if let Some(value) = line.strip_prefix("database=") {
+            stored_database = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("role=") {
+            role = Some(parse_web_role(value)?);
+        } else if let Some(value) = line.strip_prefix("expires_at=") {
+            expires_at = Some(value.parse::<u128>().map_err(|err| err.to_string())?);
+        } else if let Some(value) = line.strip_prefix("csrf_token=") {
+            csrf_token = Some(value.to_string());
+        }
+    }
+    let database = stored_database.ok_or_else(|| "session database is missing".to_string())?;
+    let role = role.ok_or_else(|| "session role is missing".to_string())?;
+    let expires_at = expires_at.ok_or_else(|| "session expires_at is missing".to_string())?;
+    let csrf_token = csrf_token.unwrap_or_else(|| {
+        stable_keyed_digest_hex(
+            b"neo4r-web-csrf-v1-legacy",
+            format!("{database}:{expires_at}").as_bytes(),
+        )
+    });
+    Ok(WebSessionRecord {
+        database,
+        role,
+        expires_at,
+        csrf_token,
+    })
 }
 
 impl WebUserToken {

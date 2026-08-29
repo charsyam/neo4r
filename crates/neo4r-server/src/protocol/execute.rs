@@ -379,6 +379,20 @@ fn execute_request_inner(
         BackendRequest::RaftStatus => Ok(BackendResponse::OkClusterStatus(format_raft_status(
             &db.raft_status()?,
         ))),
+        BackendRequest::RaftLeaderTransfer {
+            shard_id,
+            transferee_id,
+        } => {
+            let request = db.request_raft_leader_transfer(shard_id, transferee_id)?;
+            Ok(BackendResponse::OkStorageMaintenance(format!(
+                "raft_leader_transfer shard_id={} transferee_id={} term={} last_log_index={} last_log_term={}",
+                shard_id,
+                transferee_id,
+                request.term,
+                request.last_log_index,
+                request.last_log_term
+            )))
+        }
         BackendRequest::MetadataLog => Ok(BackendResponse::OkMetadataLog(format_metadata_log(
             &db.metadata_operations()?,
         ))),

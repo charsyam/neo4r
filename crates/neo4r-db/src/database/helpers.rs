@@ -415,8 +415,8 @@ pub(in crate::database) fn estimate_rows(
 ) -> u64 {
     match plan {
         QueryAccessPlan::NodeUniqueIndexSeek { .. } => 1,
-        QueryAccessPlan::NodeIndexSeek { label, .. } => {
-            estimate_indexed_label_rows(statistics, label)
+        QueryAccessPlan::NodeIndexSeek { label, property } => {
+            estimate_indexed_property_rows(statistics, label, property)
         }
         QueryAccessPlan::NodeLabelScan { label } => label_count(statistics, label),
         QueryAccessPlan::NodeFullScan => statistics.node_count as u64,
@@ -438,8 +438,8 @@ pub(in crate::database) fn estimate_query_cost(
 ) -> u64 {
     let base = match plan {
         QueryAccessPlan::NodeUniqueIndexSeek { .. } => 1,
-        QueryAccessPlan::NodeIndexSeek { label, .. } => {
-            estimate_indexed_label_rows(statistics, label).max(1)
+        QueryAccessPlan::NodeIndexSeek { label, property } => {
+            estimate_indexed_property_rows(statistics, label, property).max(1)
         }
         QueryAccessPlan::NodeLabelScan { label } => label_count(statistics, label).max(1),
         QueryAccessPlan::NodeFullScan => statistics.node_count.max(1) as u64,
@@ -469,7 +469,7 @@ pub(in crate::database) fn access_plan_reason(
                 "property index on {label}.{property}; label_cardinality={} property_cardinality={} estimated_rows={}",
                 label_count(statistics, label),
                 node_property_count(statistics, property),
-                estimate_indexed_label_rows(statistics, label)
+                estimate_indexed_property_rows(statistics, label, property)
             )
         }
         QueryAccessPlan::NodeLabelScan { label } => {
@@ -517,6 +517,21 @@ pub(in crate::database) fn estimate_indexed_label_rows(
     let index_bonus = (statistics.index_count as u64).max(1);
     let divisor = 8_u64.saturating_add(index_bonus.min(16));
     label_rows.div_ceil(divisor).max(1)
+}
+
+pub(in crate::database) fn estimate_indexed_property_rows(
+    statistics: &StatisticsCatalog,
+    label: &str,
+    property: &str,
+) -> u64 {
+    let label_rows = label_count(statistics, label).max(1);
+    let property_rows = node_property_count(statistics, property).max(1);
+    let total_rows = (statistics.node_count as u64).max(1);
+    let intersection = label_rows
+        .saturating_mul(property_rows)
+        .div_ceil(total_rows)
+        .max(1);
+    intersection.min(estimate_indexed_label_rows(statistics, label))
 }
 
 pub(in crate::database) fn estimated_scanned_nodes(

@@ -754,7 +754,10 @@ impl Neo4rDatabase {
             .or_else(|| {
                 properties
                     .iter()
-                    .find(|property| self.has_node_property_index(label, property))
+                    .filter(|property| self.has_node_property_index(label, property))
+                    .min_by_key(|property| {
+                        estimate_indexed_property_rows(&self.statistics, label, property)
+                    })
                     .map(|property| QueryAccessPlan::NodeIndexSeek {
                         label: label.to_string(),
                         property: (*property).clone(),

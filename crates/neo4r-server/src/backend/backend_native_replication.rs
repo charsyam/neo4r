@@ -122,6 +122,17 @@ impl TcpBackend {
     }
 
     pub(crate) fn execute_backend_request(&self, request: BackendRequest) -> BackendResponse {
+        if backend_request_mutates_data(&request) {
+            match self.restore_maintenance_mode_enabled(&self.db) {
+                Ok(true) => {
+                    return BackendResponse::Err(
+                        "restore maintenance mode is draining mutating requests".to_string(),
+                    );
+                }
+                Ok(false) => {}
+                Err(err) => return BackendResponse::Err(err),
+            }
+        }
         match request {
             BackendRequest::QueryDistributed { query, params } => {
                 self.execute_distributed_query(&query, params)

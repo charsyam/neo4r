@@ -206,6 +206,7 @@ pub fn request_tcp_install_snapshot(
     connect_timeout: Duration,
     request: InstallSnapshotRequest,
 ) -> DatabaseResult<InstallSnapshotResponse> {
+    let request = validate_snapshot_chunks_for_tcp(request)?;
     let mut addrs = address
         .to_socket_addrs()
         .map_err(|err| DatabaseError::Replication(format!("resolve {address}: {err}")))?;
@@ -219,6 +220,22 @@ pub fn request_tcp_install_snapshot(
         DatabaseError::Replication(format!("flush install snapshot request: {err}"))
     })?;
     read_tcp_install_snapshot_response(&mut stream)
+}
+
+fn validate_snapshot_chunks_for_tcp(
+    request: InstallSnapshotRequest,
+) -> DatabaseResult<InstallSnapshotRequest> {
+    let mut chunks = request.chunks(64 * 1024).into_iter();
+    let Some(first) = chunks.next() else {
+        return Ok(request);
+    };
+    let mut assembler = crate::raft::SnapshotChunkAssembler::new(first)?;
+    for chunk in chunks {
+        if let Some(assembled) = assembler.push(chunk)? {
+            return Ok(assembled);
+        }
+    }
+    Ok(request)
 }
 
 pub fn request_tcp_raft_append_or_install_snapshot(

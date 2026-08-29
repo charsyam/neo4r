@@ -27,6 +27,12 @@ impl TcpBackend {
                 Err(err) => HttpResponse::json_status(401, json_error(&err)),
             };
         }
+        if request.method == "POST" && request.path == "/api/session/logout" {
+            return match self.delete_web_session(request) {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            };
+        }
         let Some(role) = self.authorized_role(request, &database_name) else {
             self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
             self.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
@@ -42,7 +48,7 @@ impl TcpBackend {
             return HttpResponse::json_status(401, json_error("unauthorized"));
         };
         if !request.method.eq_ignore_ascii_case("GET") && request_uses_session_cookie(request) {
-            if request.header("x-neo4r-csrf") != Some("neo4r-admin") {
+            if !self.valid_session_csrf(request) {
                 self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
                 return HttpResponse::json_status(403, json_error("missing csrf token"));
             }
@@ -313,6 +319,15 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
+            ("POST", "/api/admin/cleanup-expired-sessions") if !role.allows(WebRole::Admin) => {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/cleanup-expired-sessions") => {
+                match self.cleanup_expired_web_sessions() {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
             ("POST", "/api/admin/delete-user") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -347,6 +362,33 @@ impl TcpBackend {
                 }
                 let response = self.execute_backend_request(BackendRequest::CancelRebalance);
                 HttpResponse::json(management_response_json(&response))
+            }
+            ("POST", "/api/admin/raft-leader-transfer") => {
+                if !role.allows(WebRole::Admin) {
+                    return HttpResponse::json_status(403, json_error("forbidden"));
+                }
+                let required_u64 = |name| {
+                    extract_optional_json_u64_field(&request.body, name)?
+                        .ok_or_else(|| format!("missing {name}"))
+                };
+                let result = required_u64("shard_id")
+                    .and_then(|shard_id| required_u64("transferee_id").map(|id| (shard_id, id)));
+                match result {
+                    Ok((shard_id, transferee_id)) => match selected_db() {
+                        Ok(db) => {
+                            let response = execute_request(
+                                &db,
+                                BackendRequest::RaftLeaderTransfer {
+                                    shard_id,
+                                    transferee_id,
+                                },
+                            );
+                            HttpResponse::json(management_response_json(&response))
+                        }
+                        Err(err) => HttpResponse::json_status(500, json_error(&err)),
+                    },
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
             }
             ("POST", "/api/backup") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
@@ -527,10 +569,42 @@ impl TcpBackend {
             .ok_or_else(|| "web session store is unavailable".to_string())?
             .create(&token, database, role, unix_seconds_now(), 3600)?;
         Ok(format!(
-            "{{\"session_id\":\"{}\",\"expires_in\":3600,\"database\":\"{}\"}}",
-            json_escape(&session_id),
+            "{{\"session_id\":\"{}\",\"csrf_token\":\"{}\",\"expires_in\":3600,\"database\":\"{}\"}}",
+            json_escape(&session_id.session_id),
+            json_escape(&session_id.csrf_token),
             json_escape(database)
         ))
+    }
+
+    fn delete_web_session(&self, request: &HttpRequest) -> Result<String, String> {
+        let Some(session_id) =
+            request_session_token(request).filter(|token| token.starts_with("sid:"))
+        else {
+            return Err("missing web session".to_string());
+        };
+        self.web_sessions
+            .as_ref()
+            .ok_or_else(|| "web session store is unavailable".to_string())?
+            .delete(&session_id)?;
+        Ok("{\"logged_out\":true}".to_string())
+    }
+
+    fn valid_session_csrf(&self, request: &HttpRequest) -> bool {
+        let Some(session_id) =
+            request_session_token(request).filter(|token| token.starts_with("sid:"))
+        else {
+            return false;
+        };
+        let Some(expected) = self
+            .web_sessions
+            .as_ref()
+            .and_then(|store| store.csrf_for_session(&session_id, unix_seconds_now()))
+        else {
+            return false;
+        };
+        request
+            .header("x-neo4r-csrf")
+            .is_some_and(|supplied| constant_time_token_eq(supplied, &expected))
     }
 
     fn authorize_token_value(&self, token: &str, database: &str) -> Option<WebRole> {
@@ -798,6 +872,20 @@ impl TcpBackend {
         self.audit_admin(
             "token.cleanup_expired",
             "web-auth",
+            &format!("removed={removed}"),
+        );
+        Ok(format!("{{\"removed\":{removed}}}"))
+    }
+
+    pub(crate) fn cleanup_expired_web_sessions(&self) -> Result<String, String> {
+        let removed = self
+            .web_sessions
+            .as_ref()
+            .ok_or_else(|| "web session store is unavailable".to_string())?
+            .cleanup_expired(unix_seconds_now())?;
+        self.audit_admin(
+            "session.cleanup_expired",
+            "web-session",
             &format!("removed={removed}"),
         );
         Ok(format!("{{\"removed\":{removed}}}"))

@@ -68,7 +68,12 @@ pub(super) fn raft_election_round_promotes_candidate_after_peer_vote() {
     let backend = TcpBackend::new(voter);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap().to_string();
-    let server = thread::spawn(move || backend.serve_replication_listener_once(listener).unwrap());
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (stream, _) = listener.accept().unwrap();
+            backend.handle_replication_stream(stream).unwrap();
+        }
+    });
 
     let replicator =
         Arc::new(TcpShardReplicator::new(routing_table.clone()).with_raft_transport(true));

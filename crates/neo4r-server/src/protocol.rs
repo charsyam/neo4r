@@ -187,6 +187,10 @@ pub enum BackendRequest {
     RepairInvariants,
     BackupNow,
     RaftStatus,
+    RaftLeaderTransfer {
+        shard_id: ShardId,
+        transferee_id: u64,
+    },
     MetadataLog,
     RegisterNode {
         server_id: u64,
@@ -225,6 +229,39 @@ pub enum BackendRequest {
         match_index: u64,
     },
     ApplyRebalanceStep(RebalanceStep),
+}
+
+pub fn backend_request_mutates_data(request: &BackendRequest) -> bool {
+    matches!(
+        request,
+        BackendRequest::CreateNode { .. }
+            | BackendRequest::CreateNodeOnShard { .. }
+            | BackendRequest::CreateRelationship { .. }
+            | BackendRequest::SetNodeProperty { .. }
+            | BackendRequest::RemoveNodeProperty { .. }
+            | BackendRequest::AddNodeLabel { .. }
+            | BackendRequest::RemoveNodeLabel { .. }
+            | BackendRequest::SetRelationshipProperty { .. }
+            | BackendRequest::RemoveRelationshipProperty { .. }
+            | BackendRequest::DeleteNode(_)
+            | BackendRequest::DeleteRelationship(_)
+            | BackendRequest::CreateIndex { .. }
+            | BackendRequest::CreateUniqueConstraint { .. }
+            | BackendRequest::CreateVectorIndex { .. }
+            | BackendRequest::RebuildVectorIndex { .. }
+            | BackendRequest::RebuildVectorIndexes
+            | BackendRequest::DropIndex { .. }
+            | BackendRequest::DropConstraint { .. }
+            | BackendRequest::InstallIndexCatalog(_)
+            | BackendRequest::InstallRoutingTable(_)
+            | BackendRequest::CheckpointNow
+            | BackendRequest::CompactStorage
+            | BackendRequest::SnapshotNow
+            | BackendRequest::RestoreSnapshot { .. }
+            | BackendRequest::RepairInvariants
+            | BackendRequest::QueryWriteShard { .. }
+            | BackendRequest::QueryWriteBatchShard { .. }
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -699,6 +736,19 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
         "RESTORE_SNAPSHOT" => Ok(BackendRequest::RestoreSnapshot {
             shard_id: parse_single_id(rest, "RESTORE_SNAPSHOT requires shard id")?,
         }),
+        "RAFT_LEADER_TRANSFER" => {
+            let mut parts = rest.split('\t');
+            let shard_id = parse_u64(parts.next(), "RAFT_LEADER_TRANSFER requires shard id")?;
+            let transferee_id =
+                parse_u64(parts.next(), "RAFT_LEADER_TRANSFER requires transferee id")?;
+            if parts.next().is_some() {
+                return Err("RAFT_LEADER_TRANSFER got extra fields".to_string());
+            }
+            Ok(BackendRequest::RaftLeaderTransfer {
+                shard_id,
+                transferee_id,
+            })
+        }
         "VERIFY_INVARIANTS" => Err("VERIFY_INVARIANTS does not take arguments".to_string()),
         "REPAIR_INVARIANTS" => Err("REPAIR_INVARIANTS does not take arguments".to_string()),
         "REGISTER_NODE" => {

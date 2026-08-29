@@ -553,6 +553,14 @@ pub trait ReplicationChannel: Send + Sync {
         request: RequestVoteRequest,
     ) -> DatabaseResult<RequestVoteResponse>;
 
+    fn pre_vote(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        config: &ReplicationChannelConfig,
+        shard_id: ShardId,
+        request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse>;
+
     fn install_snapshot(
         &self,
         endpoint: &ReplicationEndpoint,
@@ -659,6 +667,17 @@ impl ReplicationChannel for TcpReplicationChannel {
         request_tcp_raft_vote(&endpoint.address, config.connect_timeout, shard_id, request)
     }
 
+    fn pre_vote(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        config: &ReplicationChannelConfig,
+        shard_id: ShardId,
+        request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Tcp)?;
+        request_tcp_raft_pre_vote(&endpoint.address, config.connect_timeout, shard_id, request)
+    }
+
     fn install_snapshot(
         &self,
         endpoint: &ReplicationEndpoint,
@@ -684,23 +703,6 @@ impl ReplicationChannel for TcpReplicationChannel {
             shard_id,
             start_index,
             max_entries,
-        )
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct UdpReplicationChannel {
-    pub max_frame_bytes: usize,
-}
-
-impl UdpReplicationChannel {
-    pub fn prototype(max_frame_bytes: usize) -> Self {
-        Self { max_frame_bytes }
-    }
-
-    fn unsupported(&self) -> DatabaseError {
-        DatabaseError::Replication(
-            "udp replication channel negotiation is available, but reliable raft delivery is not implemented".to_string(),
         )
     }
 }
@@ -786,6 +788,16 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
         Err(self.unsupported())
     }
 
+    fn pre_vote(
+        &self,
+        _endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse> {
+        Err(self.unsupported())
+    }
+
     fn install_snapshot(
         &self,
         _endpoint: &ReplicationEndpoint,
@@ -803,89 +815,6 @@ impl ReplicationChannel for UnsupportedReplicationChannel {
         _start_index: LogIndex,
         _max_entries: Option<usize>,
     ) -> DatabaseResult<Vec<LogEntry>> {
-        Err(self.unsupported())
-    }
-}
-
-impl ReplicationChannel for UdpReplicationChannel {
-    fn kind(&self) -> ReplicationChannelKind {
-        ReplicationChannelKind::Udp
-    }
-
-    fn send_replication_batch(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _entries: &[LogEntry],
-    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn send_raft_append_batch(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _shard_id: ShardId,
-        _leader_commit: LogIndex,
-        _entries: &[LogEntry],
-    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn send_raft_append_batches_by_shard(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _entries: &[LogEntry],
-    ) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn send_raft_append_batch_once(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _shard_id: ShardId,
-        _leader_commit: LogIndex,
-        _entries: &[LogEntry],
-    ) -> DatabaseResult<RaftAppendChannelResponse> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn request_vote(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _shard_id: ShardId,
-        _request: RequestVoteRequest,
-    ) -> DatabaseResult<RequestVoteResponse> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn install_snapshot(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _request: InstallSnapshotRequest,
-    ) -> DatabaseResult<InstallSnapshotResponse> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
-        Err(self.unsupported())
-    }
-
-    fn catch_up(
-        &self,
-        endpoint: &ReplicationEndpoint,
-        _config: &ReplicationChannelConfig,
-        _shard_id: ShardId,
-        _start_index: LogIndex,
-        _max_entries: Option<usize>,
-    ) -> DatabaseResult<Vec<LogEntry>> {
-        endpoint.ensure_kind(ReplicationChannelKind::Udp)?;
         Err(self.unsupported())
     }
 }
@@ -959,6 +888,19 @@ impl ReplicationChannel for RdmaReplicationChannel {
         _shard_id: ShardId,
         _request: RequestVoteRequest,
     ) -> DatabaseResult<RequestVoteResponse> {
+        endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
+        Err(DatabaseError::Replication(
+            "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),
+        ))
+    }
+
+    fn pre_vote(
+        &self,
+        endpoint: &ReplicationEndpoint,
+        _config: &ReplicationChannelConfig,
+        _shard_id: ShardId,
+        _request: PreVoteRequest,
+    ) -> DatabaseResult<PreVoteResponse> {
         endpoint.ensure_kind(ReplicationChannelKind::Rdma)?;
         Err(DatabaseError::Replication(
             "rdma replication channel boundary is feature-gated; provider implementation is not linked".to_string(),

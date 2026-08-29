@@ -1,7 +1,7 @@
 use crate::{
-    AppendEntriesResponse, DatabaseError, DatabaseResult, InstallSnapshotRequest,
-    InstallSnapshotResponse, Neo4rDatabaseHandle, PreVoteRequest, PreVoteResponse,
-    RaftSnapshotMetadata, RequestVoteRequest, RequestVoteResponse,
+    raft::InstallSnapshotChunk, AppendEntriesResponse, DatabaseError, DatabaseResult,
+    InstallSnapshotRequest, InstallSnapshotResponse, Neo4rDatabaseHandle, PreVoteRequest,
+    PreVoteResponse, RaftSnapshotMetadata, RequestVoteRequest, RequestVoteResponse,
 };
 use neo4r_core::{LogEntry, LogIndex, ServerId, ShardId, ShardRole, ShardRoutingTable};
 use neo4r_storage::{decode_log_entry, encode_log_entry};
@@ -439,6 +439,9 @@ impl TcpShardReplicator {
             .clone();
         let mut elected = 0_usize;
         for shard_id in db.raft_election_candidates(election_timeout)? {
+            if !self.pre_vote_granted(db, shard_id, &peers)? {
+                continue;
+            }
             let request = match db.start_raft_election(shard_id) {
                 Ok(request) => request,
                 Err(DatabaseError::Replication(message))
@@ -468,6 +471,28 @@ impl TcpShardReplicator {
             }
         }
         Ok(elected)
+    }
+
+    fn pre_vote_granted(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        shard_id: ShardId,
+        peers: &BTreeMap<ServerId, ReplicationEndpoint>,
+    ) -> DatabaseResult<bool> {
+        let request = db.raft_pre_vote_request(shard_id)?;
+        let mut granted = BTreeSet::from([request.candidate_id]);
+        for (server_id, endpoint) in peers {
+            let Ok(response) =
+                self.channel
+                    .pre_vote(endpoint, &self.channel_config, shard_id, request.clone())
+            else {
+                continue;
+            };
+            if response.vote_granted {
+                granted.insert(*server_id);
+            }
+        }
+        Ok(granted.len() > peers.len().div_ceil(2))
     }
 
     fn replica_targets(&self, entry: &LogEntry) -> DatabaseResult<Vec<ServerId>> {

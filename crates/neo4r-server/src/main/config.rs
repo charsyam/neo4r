@@ -167,6 +167,11 @@ impl ServerConfigFile {
             "--replication-retry-backoff-ms",
             self.replication.retry_backoff_ms,
         );
+        push_option_display(
+            &mut args,
+            "--replication-max-in-flight-batches",
+            self.replication.max_in_flight_batches,
+        );
         for peer in self.replication.replica_peers {
             push_peer(&mut args, "--replica-peer", peer);
         }
@@ -422,6 +427,7 @@ struct ReplicationSection {
     connect_timeout_ms: Option<u64>,
     retry_attempts: Option<usize>,
     retry_backoff_ms: Option<u64>,
+    max_in_flight_batches: Option<usize>,
     #[serde(default)]
     peers: Vec<PeerConfig>,
     #[serde(default)]
@@ -601,6 +607,7 @@ fn append_config_arg(
         | "replication-connect-timeout-ms"
         | "replication-retry-attempts"
         | "replication-retry-backoff-ms"
+        | "replication-max-in-flight-batches"
         | "catch-up-interval-ms"
         | "catch-up-batch-size"
         | "sync-index-catalog-interval-ms"

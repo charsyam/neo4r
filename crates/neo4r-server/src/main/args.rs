@@ -30,6 +30,7 @@ pub(super) struct ServerArgs {
     pub(super) replication_connect_timeout_ms: u64,
     pub(super) replication_retry_attempts: usize,
     pub(super) replication_retry_backoff_ms: u64,
+    pub(super) replication_max_in_flight_batches: usize,
     pub(super) catch_up_on_startup: bool,
     pub(super) catch_up_interval_ms: Option<u64>,
     pub(super) catch_up_batch_size: Option<usize>,
@@ -135,6 +136,7 @@ impl ServerArgs {
             replication_connect_timeout_ms: 1000,
             replication_retry_attempts: 1,
             replication_retry_backoff_ms: 10,
+            replication_max_in_flight_batches: 1024,
             catch_up_on_startup: false,
             catch_up_interval_ms: None,
             catch_up_batch_size: None,
@@ -275,6 +277,10 @@ impl ServerArgs {
                 "--replication-retry-backoff-ms" => {
                     parsed.replication_retry_backoff_ms =
                         parse_next(&mut args, "--replication-retry-backoff-ms")?
+                }
+                "--replication-max-in-flight-batches" => {
+                    parsed.replication_max_in_flight_batches =
+                        parse_next(&mut args, "--replication-max-in-flight-batches")?
                 }
                 "--catch-up-on-startup" => parsed.catch_up_on_startup = true,
                 "--catch-up-interval-ms" => {
@@ -538,6 +544,10 @@ impl ServerArgs {
         output.push_str(&format!(
             "  retry_backoff_ms: {}\n",
             self.replication_retry_backoff_ms
+        ));
+        output.push_str(&format!(
+            "  max_in_flight_batches: {}\n",
+            self.replication_max_in_flight_batches
         ));
         output.push_str("  replica_peers:\n");
         for peer in &self.replica_peers {

@@ -115,6 +115,18 @@ impl WebMetricsSnapshot {
                 self.replication_sent_bytes,
             ),
             prometheus_metric(
+                "neo4r_replication_channel_in_flight_batches",
+                self.replication_in_flight_batches as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_max_in_flight_batches",
+                self.replication_max_in_flight_batches as u64,
+            ),
+            prometheus_metric(
+                "neo4r_replication_channel_backpressure_rejections_total",
+                self.replication_backpressure_rejections as u64,
+            ),
+            prometheus_metric(
                 "neo4r_raft_election_rounds_total",
                 self.raft_election_rounds as u64,
             ),
@@ -668,6 +680,10 @@ impl TcpBackend {
             .filter(|event| event.action == "repair.failure")
             .count() as u64;
         let replication = db.replication_channel_metrics().ok().flatten();
+        let replication_metric =
+            |read: fn(&neo4r_db::ReplicationChannelMetricsSnapshot) -> usize| {
+                replication.as_ref().map(read).unwrap_or_default()
+            };
         let queries = self.metrics.queries.load(Ordering::Relaxed);
         let query_errors = self.metrics.query_errors.load(Ordering::Relaxed);
         let slo_query_error_rate_ppm = if queries == 0 {
@@ -756,38 +772,24 @@ impl TcpBackend {
             raft_joint_consensus_count,
             web_user_token_count,
             web_audit_event_count,
-            replication_sent_batches: replication
-                .as_ref()
-                .map(|metrics| metrics.sent_batches)
-                .unwrap_or_default(),
-            replication_acked_batches: replication
-                .as_ref()
-                .map(|metrics| metrics.acked_batches)
-                .unwrap_or_default(),
-            replication_failed_batches: replication
-                .as_ref()
-                .map(|metrics| metrics.failed_batches)
-                .unwrap_or_default(),
-            replication_sent_entries: replication
-                .as_ref()
-                .map(|metrics| metrics.sent_entries)
-                .unwrap_or_default(),
+            replication_sent_batches: replication_metric(|metrics| metrics.sent_batches),
+            replication_acked_batches: replication_metric(|metrics| metrics.acked_batches),
+            replication_failed_batches: replication_metric(|metrics| metrics.failed_batches),
+            replication_sent_entries: replication_metric(|metrics| metrics.sent_entries),
             replication_sent_bytes: replication
                 .as_ref()
                 .map(|metrics| metrics.sent_bytes)
                 .unwrap_or_default(),
-            raft_election_rounds: replication
-                .as_ref()
-                .map(|metrics| metrics.election_rounds)
-                .unwrap_or_default(),
-            raft_append_conflicts: replication
-                .as_ref()
-                .map(|metrics| metrics.append_conflicts)
-                .unwrap_or_default(),
-            raft_snapshot_installs: replication
-                .as_ref()
-                .map(|metrics| metrics.snapshot_installs)
-                .unwrap_or_default(),
+            replication_in_flight_batches: replication_metric(|metrics| metrics.in_flight_batches),
+            replication_max_in_flight_batches: replication_metric(|metrics| {
+                metrics.max_in_flight_batches
+            }),
+            replication_backpressure_rejections: replication_metric(|metrics| {
+                metrics.backpressure_rejections
+            }),
+            raft_election_rounds: replication_metric(|metrics| metrics.election_rounds),
+            raft_append_conflicts: replication_metric(|metrics| metrics.append_conflicts),
+            raft_snapshot_installs: replication_metric(|metrics| metrics.snapshot_installs),
             raft_snapshot_install_millis: replication
                 .as_ref()
                 .map(|metrics| metrics.snapshot_install_millis)

@@ -51,6 +51,7 @@ pub(crate) fn web_action_for_request(request: &HttpRequest) -> Option<WebAction>
         | ("GET", "/api/capabilities")
         | ("GET", "/api/admin/system-policy")
         | ("GET", "/api/admin/distributed-query")
+        | ("GET", "/api/admin/gossip")
         | ("GET", "/api/statistics")
         | ("GET", "/api/storage")
         | ("GET", "/api/metadata-log")

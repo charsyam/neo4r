@@ -47,6 +47,9 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) replication_failed_batches: usize,
     pub(crate) replication_sent_entries: usize,
     pub(crate) replication_sent_bytes: u64,
+    pub(crate) replication_in_flight_batches: usize,
+    pub(crate) replication_max_in_flight_batches: usize,
+    pub(crate) replication_backpressure_rejections: usize,
     pub(crate) raft_election_rounds: usize,
     pub(crate) raft_append_conflicts: usize,
     pub(crate) raft_snapshot_installs: usize,
@@ -64,7 +67,7 @@ pub(crate) struct WebMetricsSnapshot {
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"gossip_live_nodes\":{},\"gossip_expired_nodes\":{},\"gossip_replication_negotiation_pending\":{},\"gossip_fanout_success\":{},\"gossip_fanout_failure\":{},\"gossip_auth_failures\":{},\"gossip_negotiation_success\":{},\"gossip_negotiation_failure\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{},\"slo_query_error_rate_ppm\":{},\"slo_latency_high_watermark_ms\":{},\"slo_replication_lag_entries\":{},\"slo_burn_rate_ppm\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"gossip_live_nodes\":{},\"gossip_expired_nodes\":{},\"gossip_replication_negotiation_pending\":{},\"gossip_fanout_success\":{},\"gossip_fanout_failure\":{},\"gossip_auth_failures\":{},\"gossip_negotiation_success\":{},\"gossip_negotiation_failure\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"replication_in_flight_batches\":{},\"replication_max_in_flight_batches\":{},\"replication_backpressure_rejections\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{},\"slo_query_error_rate_ppm\":{},\"slo_latency_high_watermark_ms\":{},\"slo_replication_lag_entries\":{},\"slo_burn_rate_ppm\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
@@ -119,6 +122,9 @@ impl WebMetricsSnapshot {
             self.replication_failed_batches,
             self.replication_sent_entries,
             self.replication_sent_bytes,
+            self.replication_in_flight_batches,
+            self.replication_max_in_flight_batches,
+            self.replication_backpressure_rejections,
             self.raft_election_rounds,
             self.raft_append_conflicts,
             self.raft_snapshot_installs,

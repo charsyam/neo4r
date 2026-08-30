@@ -201,6 +201,11 @@ impl TcpShardReplicator {
         self
     }
 
+    pub fn with_max_in_flight_batches(mut self, max_in_flight_batches: usize) -> Self {
+        self.channel_config.max_in_flight_batches = max_in_flight_batches.max(1);
+        self
+    }
+
     pub fn with_channel(mut self, channel: Arc<dyn ReplicationChannel>) -> Self {
         self.channel = channel;
         self
@@ -247,6 +252,7 @@ impl TcpShardReplicator {
         if !self.raft_transport {
             return Ok(());
         }
+        self.ensure_replication_capacity()?;
         let peers = self
             .peers
             .lock()
@@ -271,6 +277,7 @@ impl TcpShardReplicator {
         if !self.raft_transport {
             return Ok(0);
         }
+        self.ensure_replication_capacity()?;
         let peers = self
             .peers
             .lock()
@@ -429,6 +436,18 @@ impl TcpShardReplicator {
                 match_index: response.match_index.min(next_index.saturating_sub(1)),
             },
         )
+    }
+
+    fn ensure_replication_capacity(&self) -> DatabaseResult<()> {
+        let snapshot = self.channel_metrics.snapshot();
+        if snapshot.in_flight_batches >= self.channel_config.max_in_flight_batches {
+            self.channel_metrics.record_backpressure_rejection();
+            return Err(DatabaseError::Replication(format!(
+                "replication backpressure: in_flight_batches={} max_in_flight_batches={}",
+                snapshot.in_flight_batches, self.channel_config.max_in_flight_batches
+            )));
+        }
+        Ok(())
     }
 
     pub fn run_raft_election_round(&self, db: &Neo4rDatabaseHandle) -> DatabaseResult<usize> {

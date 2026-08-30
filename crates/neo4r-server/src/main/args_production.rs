@@ -26,6 +26,11 @@ impl ServerArgs {
         if self.replication_connect_timeout_ms == 0 {
             return Err("--replication-connect-timeout-ms must be greater than zero".to_string());
         }
+        if self.replication_max_in_flight_batches == 0 {
+            return Err(
+                "--replication-max-in-flight-batches must be greater than zero".to_string(),
+            );
+        }
         if self.catch_up_interval_ms == Some(0) {
             return Err("--catch-up-interval-ms must be greater than zero".to_string());
         }

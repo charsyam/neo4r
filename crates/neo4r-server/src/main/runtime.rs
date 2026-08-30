@@ -70,6 +70,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     args.replication_retry_attempts,
                     Duration::from_millis(args.replication_retry_backoff_ms),
                 )
+                .with_max_in_flight_batches(args.replication_max_in_flight_batches)
                 .with_channel(replication_channel(
                     args.replication_transport,
                     args.replication_tls_channel_config()?,

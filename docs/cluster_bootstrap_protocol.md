@@ -13,8 +13,8 @@
 5. `plan_node_catch_up(server_id)` returns a durable execution contract:
    shard id, primary server id/address, whether a snapshot is required, replay
    start index, target commit index, and current match index.
-6. `execute_node_catch_up_plan` installs the snapshot when required, replays WAL
-   entries through the target index, and returns per-shard match indexes.
+6. `execute_node_catch_up_plan` installs the snapshot when required, replays the
+   WAL tail through the target index, and returns per-shard match indexes.
 7. The authority records the reported match indexes with `mark_shard_caught_up`.
 8. Once every assigned shard has `match_index >= target_index`,
    `promote_caught_up_node_to_voter` applies the routing/Raft membership change
@@ -22,6 +22,10 @@
 
 The executor accepts a `NodeCatchUpDataSource` so TCP, UDP, RDMA, or fixture
 sources use the same state-machine apply path.
+
+Gossip is not membership authority. It only discovers query and replication
+addresses. Promotion to serving replica requires committed membership metadata,
+snapshot plus WAL tail catch-up, and `PROMOTE_CAUGHT_UP_NODE`.
 
 The native protocol exposes the same flow through:
 

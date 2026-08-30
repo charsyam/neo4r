@@ -35,3 +35,8 @@ STORAGE_STATUS
 VERIFY_INVARIANTS
 STATISTICS
 ```
+
+To seed a new cluster from restored data, first validate the restore drill
+evidence, write a recover-from-data bootstrap manifest, and require an explicit
+force-new-cluster confirmation. Graph records alone are never sufficient to
+infer cluster identity or voting membership.

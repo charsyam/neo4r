@@ -18,6 +18,7 @@ replication:
   connect_timeout_ms: 1000
   retry_attempts: 3
   retry_backoff_ms: 50
+  max_in_flight_batches: 1024
   catch_up_on_startup: true
   catch_up_interval_ms: 1000
   catch_up_batch_size: 1024
@@ -31,6 +32,20 @@ replication:
 
 query:
   read_preference: primary
+
+gossip:
+  advertise_query: 10.0.0.1:7687
+  advertise_replication: 10.0.0.1:18687
+  interval_ms: 1000
+  ttl_ms: 30000
+  fanout: 2
+  auth_token: production-gossip-token
+  auto_negotiate_replication: true
+  seed_peers:
+    - server_id: 2
+      address: 10.0.0.2:7687
+    - server_id: 3
+      address: 10.0.0.3:7687
 
 web:
   bind: 0.0.0.0:17687

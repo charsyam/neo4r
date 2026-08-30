@@ -21,6 +21,7 @@ replication:
   connect_timeout_ms: 750
   retry_attempts: 3
   retry_backoff_ms: 25
+  max_in_flight_batches: 64
   peers:
     - server_id: 3
       address: 127.0.0.1:9703
@@ -111,6 +112,7 @@ production:
     assert_eq!(args.replication_connect_timeout_ms, 750);
     assert_eq!(args.replication_retry_attempts, 3);
     assert_eq!(args.replication_retry_backoff_ms, 25);
+    assert_eq!(args.replication_max_in_flight_batches, 64);
     assert_eq!(
         args.replica_peers,
         vec![ReplicaPeer {

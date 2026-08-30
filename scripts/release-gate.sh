@@ -52,6 +52,7 @@ scripts/production-live-required-gate.sh
 scripts/production-chaos-longevity-gate.sh
 scripts/rdma-live-gate.sh
 scripts/production-hardening-gate.sh
+scripts/production-level-gate.sh
 scripts/runbook-drill-gate.sh
 scripts/grafana-alert-gate.sh
 scripts/packaged-observability-gate.sh

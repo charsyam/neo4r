@@ -52,6 +52,10 @@ allowed to own shard S?". A node discovered by gossip still has to pass join,
 catch-up, promotion, and committed membership changes before it becomes part of
 the replicated state machine.
 
+Reconciliation runs in one direction: gossip may seed address books and
+replication negotiation candidates, but it must not delete voters or promote a
+learner without committed metadata.
+
 ## Rolling Upgrade
 
 Nodes advertise support through `CAPABILITIES`:

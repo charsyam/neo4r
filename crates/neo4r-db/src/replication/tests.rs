@@ -27,6 +27,23 @@ fn tcp_replication_channel_reports_tcp_kind_and_default_config() {
         config.retransmit_timeout,
         std::time::Duration::from_millis(50)
     );
+    assert_eq!(config.max_in_flight_batches, 1024);
+}
+
+#[test]
+fn replication_channel_metrics_track_in_flight_and_backpressure() {
+    let metrics = ReplicationChannelMetrics::default();
+
+    metrics.record_send(2, 128);
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.in_flight_batches, 1);
+    assert_eq!(snapshot.max_in_flight_batches, 1);
+
+    metrics.record_backpressure_rejection();
+    metrics.record_failure();
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.in_flight_batches, 0);
+    assert_eq!(snapshot.backpressure_rejections, 1);
 }
 
 #[test]

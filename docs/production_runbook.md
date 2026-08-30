@@ -22,6 +22,9 @@
 
 - Cluster join drill: `neo4r-cli cluster topology`, then
   `neo4r-cli cluster reconcile 128`, then `neo4r-cli cluster chaos`.
+- New node catch-up drill: gossip the node address, accept the join, inspect
+  `CATCH_UP_PLAN_PRIMARY`, run `TOPOLOGY_RECONCILE`, verify snapshot plus WAL
+  tail replay, then promote only after every assigned shard reports caught up.
 - Gossip drill: `neo4r-cli cluster gossip-list`, add or restart a seed node,
   then confirm `neo4r_gossip_live_nodes` increases and expired records do not
   remove Raft membership.

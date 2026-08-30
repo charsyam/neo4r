@@ -207,6 +207,9 @@ pub struct ReplicationChannelMetrics {
     failed_batches: AtomicUsize,
     sent_entries: AtomicUsize,
     sent_bytes: AtomicU64,
+    in_flight_batches: AtomicUsize,
+    max_in_flight_batches: AtomicUsize,
+    backpressure_rejections: AtomicUsize,
     election_rounds: AtomicUsize,
     append_conflicts: AtomicUsize,
     snapshot_installs: AtomicUsize,
@@ -220,6 +223,9 @@ pub struct ReplicationChannelMetricsSnapshot {
     pub failed_batches: usize,
     pub sent_entries: usize,
     pub sent_bytes: u64,
+    pub in_flight_batches: usize,
+    pub max_in_flight_batches: usize,
+    pub backpressure_rejections: usize,
     pub election_rounds: usize,
     pub append_conflicts: usize,
     pub snapshot_installs: usize,
@@ -231,14 +237,31 @@ impl ReplicationChannelMetrics {
         self.sent_batches.fetch_add(1, Ordering::Relaxed);
         self.sent_entries.fetch_add(entries, Ordering::Relaxed);
         self.sent_bytes.fetch_add(bytes, Ordering::Relaxed);
+        let in_flight = self.in_flight_batches.fetch_add(1, Ordering::Relaxed) + 1;
+        self.max_in_flight_batches
+            .fetch_max(in_flight, Ordering::Relaxed);
     }
 
     pub fn record_ack(&self) {
         self.acked_batches.fetch_add(1, Ordering::Relaxed);
+        self.in_flight_batches
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_sub(1))
+            })
+            .ok();
     }
 
     pub fn record_failure(&self) {
         self.failed_batches.fetch_add(1, Ordering::Relaxed);
+        self.in_flight_batches
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_sub(1))
+            })
+            .ok();
+    }
+
+    pub fn record_backpressure_rejection(&self) {
+        self.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_election_round(&self) {
@@ -262,6 +285,9 @@ impl ReplicationChannelMetrics {
             failed_batches: self.failed_batches.load(Ordering::Relaxed),
             sent_entries: self.sent_entries.load(Ordering::Relaxed),
             sent_bytes: self.sent_bytes.load(Ordering::Relaxed),
+            in_flight_batches: self.in_flight_batches.load(Ordering::Relaxed),
+            max_in_flight_batches: self.max_in_flight_batches.load(Ordering::Relaxed),
+            backpressure_rejections: self.backpressure_rejections.load(Ordering::Relaxed),
             election_rounds: self.election_rounds.load(Ordering::Relaxed),
             append_conflicts: self.append_conflicts.load(Ordering::Relaxed),
             snapshot_installs: self.snapshot_installs.load(Ordering::Relaxed),
@@ -276,6 +302,7 @@ pub struct ReplicationChannelConfig {
     pub max_attempts: usize,
     pub retry_backoff: Duration,
     pub retransmit_timeout: Duration,
+    pub max_in_flight_batches: usize,
 }
 
 impl Default for ReplicationChannelConfig {
@@ -285,6 +312,7 @@ impl Default for ReplicationChannelConfig {
             max_attempts: 1,
             retry_backoff: Duration::from_millis(10),
             retransmit_timeout: Duration::from_millis(50),
+            max_in_flight_batches: 1024,
         }
     }
 }

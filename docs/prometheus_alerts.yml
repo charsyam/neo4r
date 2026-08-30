@@ -57,10 +57,17 @@ groups:
           severity: warning
         annotations:
           summary: "Neo4r gossip fanout is failing"
-      - alert: Neo4rGossipExpiredNodes
-        expr: neo4r_gossip_expired_nodes > 0
+  - alert: Neo4rGossipExpiredNodes
+    expr: neo4r_gossip_expired_nodes > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Neo4r gossip has expired node advertisements"
+      summary: "Neo4r gossip has expired node advertisements"
+  - alert: Neo4rReplicationBackpressure
+    expr: increase(neo4r_replication_channel_backpressure_rejections_total[5m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Neo4r replication is rejecting work due to backpressure"

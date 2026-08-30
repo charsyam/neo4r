@@ -113,6 +113,38 @@ production:
   logrotate: packaging/neo4r.logrotate
 ```
 
+## Production-Level Gate
+
+The production-level gate ties the next database-hardening work to executable
+checks:
+
+- snapshot plus WAL tail catch-up is validated by membership automation and
+  snapshot fetch tests.
+- gossip-to-membership reconciliation is validated by gossip discovery tests and
+  topology reconcile smoke checks.
+- transport security is validated by TLS rotation, certificate inventory, and
+  gossip shared-token production checks.
+- replication backpressure is exposed through JSON/Prometheus metrics and
+  bounded by `replication.max_in_flight_batches`.
+- PITR restore drills require snapshot, WAL replay, query corpus, and
+  seed-new-cluster evidence.
+- storage crash-point atomicity is validated by atomic batch tests and real
+  crash harnesses.
+- network chaos checks cover partition, delay, dropped batches, interrupted
+  snapshot fetch, and rolling restart contracts.
+- mixed-version rolling upgrade is gated by protocol, snapshot fetch, SDK, and
+  previous-release fixture compatibility.
+- admin API authorization is centralized in RBAC route mapping and audit events
+  cover token, tenant, backup, restore, repair, and cluster actions.
+- benchmark thresholds are parsed from `docs/performance_thresholds.txt` and
+  enforced by `scripts/bench-thresholds.sh`.
+
+Run:
+
+```bash
+scripts/production-level-gate.sh
+```
+
 ## Remaining Production Blockers
 
 - continuous WAL archive shipping and timestamp-targeted PITR replay

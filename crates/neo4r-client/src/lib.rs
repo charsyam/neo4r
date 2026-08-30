@@ -9,8 +9,11 @@ pub use neo4r_query::{QueryParams, QueryRow, QueryValue};
 use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::thread;
 use std::time::{Duration, Instant};
+
+mod transport;
+use transport::{connect_tls_transport, connect_with_retry};
+pub use transport::{ClientTransport, NativeTlsClientConfig};
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -77,9 +80,10 @@ impl Default for ClientConfig {
 }
 
 pub struct Client {
-    stream: TcpStream,
+    stream: Box<dyn ClientTransport>,
     next_request_id: u64,
     config: ClientConfig,
+    tls_config: Option<NativeTlsClientConfig>,
     topology_cache: TopologyCache,
 }
 
@@ -276,6 +280,15 @@ impl HttpAdminClient {
         self.request_json("GET", "/api/admin/audit-log", "", None)
     }
 
+    pub fn prune_audit_log(&self, retention_days: u64) -> ClientResult<String> {
+        self.request_json(
+            "POST",
+            "/api/admin/prune-audit-log",
+            &format!(r#"{{"retention_days":{retention_days}}}"#),
+            None,
+        )
+    }
+
     pub fn query_plan_http(
         &self,
         query: &str,
@@ -439,9 +452,38 @@ impl Client {
         stream.set_read_timeout(config.read_timeout)?;
         stream.set_write_timeout(config.write_timeout)?;
         Ok(Self {
+            stream: Box::new(stream),
+            next_request_id: 1,
+            config,
+            tls_config: None,
+            topology_cache: TopologyCache::default(),
+        })
+    }
+
+    pub fn connect_tls(
+        address: impl ToSocketAddrs,
+        tls_config: NativeTlsClientConfig,
+    ) -> ClientResult<Self> {
+        Self::connect_tls_with_config(address, tls_config, ClientConfig::default())
+    }
+
+    pub fn connect_tls_with_config(
+        address: impl ToSocketAddrs,
+        tls_config: NativeTlsClientConfig,
+        config: ClientConfig,
+    ) -> ClientResult<Self> {
+        let mut addrs = address.to_socket_addrs()?;
+        let Some(address) = addrs.next() else {
+            return Err(ClientError::Protocol(
+                "address did not resolve to a socket address".to_string(),
+            ));
+        };
+        let stream = connect_tls_transport(&address, &config, &tls_config)?;
+        Ok(Self {
             stream,
             next_request_id: 1,
             config,
+            tls_config: Some(tls_config),
             topology_cache: TopologyCache::default(),
         })
     }
@@ -556,10 +598,7 @@ impl Client {
         let Some(address) = self.topology_cache.routable_address() else {
             return Ok(false);
         };
-        let stream = TcpStream::connect(address)?;
-        stream.set_read_timeout(self.config.read_timeout)?;
-        stream.set_write_timeout(self.config.write_timeout)?;
-        self.stream = stream;
+        self.stream = self.connect_transport(address)?;
         Ok(true)
     }
 
@@ -616,7 +655,15 @@ impl Client {
                 Err(ClientError::Redirect(redirect))
                     if redirect.retryable && redirect.address.is_some() =>
                 {
-                    let address = redirect.address.as_deref().unwrap().to_string();
+                    let address = redirect
+                        .address
+                        .as_deref()
+                        .ok_or_else(|| {
+                            ClientError::Protocol(
+                                "retryable redirect did not include an address".to_string(),
+                            )
+                        })?
+                        .to_string();
                     if visited.contains(&address) {
                         return Err(ClientError::Protocol(format!(
                             "redirect loop detected after visiting {}",
@@ -630,10 +677,7 @@ impl Client {
                     }
                     self.update_topology_cache_from_redirect(&redirect);
                     visited.push(address.clone());
-                    let stream = TcpStream::connect(address)?;
-                    stream.set_read_timeout(self.config.read_timeout)?;
-                    stream.set_write_timeout(self.config.write_timeout)?;
-                    self.stream = stream;
+                    self.stream = self.connect_transport(&address)?;
                 }
                 result => return result,
             }
@@ -676,6 +720,25 @@ impl Client {
                 "unexpected response message type: {other:?}"
             ))),
         }
+    }
+
+    fn connect_transport(
+        &self,
+        address: impl ToSocketAddrs,
+    ) -> ClientResult<Box<dyn ClientTransport>> {
+        let mut addrs = address.to_socket_addrs()?;
+        let Some(address) = addrs.next() else {
+            return Err(ClientError::Protocol(
+                "address did not resolve to a socket address".to_string(),
+            ));
+        };
+        if let Some(tls_config) = &self.tls_config {
+            return connect_tls_transport(&address, &self.config, tls_config);
+        }
+        let stream = connect_with_retry(&address, &self.config)?;
+        stream.set_read_timeout(self.config.read_timeout)?;
+        stream.set_write_timeout(self.config.write_timeout)?;
+        Ok(Box::new(stream))
     }
 
     fn allocate_request_id(&mut self) -> u64 {
@@ -804,30 +867,6 @@ fn parse_redirect_response(input: &str) -> Option<RedirectInfo> {
     Some(redirect)
 }
 
-fn connect_with_retry(
-    address: &std::net::SocketAddr,
-    config: &ClientConfig,
-) -> ClientResult<TcpStream> {
-    let mut attempt = 0;
-    loop {
-        let result = match config.connect_timeout {
-            Some(timeout) => TcpStream::connect_timeout(address, timeout),
-            None => TcpStream::connect(address),
-        };
-        match result {
-            Ok(stream) => return Ok(stream),
-            Err(err) if attempt < config.retry_attempts => {
-                attempt += 1;
-                thread::sleep(config.retry_backoff);
-                if attempt > config.retry_attempts {
-                    return Err(ClientError::Io(err));
-                }
-            }
-            Err(err) => return Err(ClientError::Io(err)),
-        }
-    }
-}
-
 fn json_escape(input: &str) -> String {
     let mut escaped = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -845,202 +884,4 @@ fn json_escape(input: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use neo4r_db::{DatabaseConfig, Neo4rDatabaseHandle};
-    use neo4r_server::{TcpBackend, TcpBackendConfig};
-    use std::fs;
-    use std::net::TcpListener;
-    use std::path::PathBuf;
-    use std::thread;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn client_executes_query_and_decodes_rows() {
-        let dir = temp_dir("client-sdk-query");
-        let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
-        let backend = TcpBackend::with_config(
-            db,
-            TcpBackendConfig {
-                default_page_size: 2,
-                ..TcpBackendConfig::default()
-            },
-        );
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            backend.handle_native_stream(stream).unwrap();
-        });
-
-        let mut client = Client::connect(address).unwrap();
-        client.ping().unwrap();
-        let mut params = QueryParams::new();
-        params.insert("name".to_string(), Value::String("Alice".to_string()));
-        let rows = client
-            .execute_with_params("CREATE (n:Person {name: $name}) RETURN n.name", &params)
-            .unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].get("n.name"),
-            Some(&QueryValue::Scalar(Value::String("Alice".to_string())))
-        );
-
-        let rows = client.query("MATCH (n:Person) RETURN n.name").unwrap();
-        assert_eq!(rows.len(), 1);
-        assert!(client
-            .profile("MATCH (n:Person) RETURN n", &QueryParams::new())
-            .unwrap()
-            .contains("rows=1"));
-        assert!(client
-            .query_plan("MATCH (n:Person) RETURN n", &QueryParams::new())
-            .unwrap()
-            .contains("access="));
-        assert!(client
-            .cluster_status()
-            .unwrap()
-            .contains("routing_version="));
-        assert!(client
-            .capabilities()
-            .unwrap()
-            .contains("ownership_epoch=true"));
-        client.close().unwrap();
-        server.join().unwrap();
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn client_parses_redirect_response() {
-        let redirect = parse_redirect_response(
-            "ERR\tMOVED\tshard=3\tleader=2\taddress=127.0.0.1:17688\trouting_version=17\tdatabase=tenant_a\tretryable=true",
-        )
-        .unwrap();
-        assert_eq!(redirect.kind, "MOVED");
-        assert_eq!(redirect.shard_id, 3);
-        assert_eq!(redirect.leader, Some(2));
-        assert_eq!(redirect.address.as_deref(), Some("127.0.0.1:17688"));
-        assert_eq!(redirect.routing_version, 17);
-        assert_eq!(redirect.ownership_epoch, 17);
-        assert_eq!(redirect.database, "tenant_a");
-        assert!(redirect.retryable);
-    }
-
-    #[test]
-    fn client_parses_typed_stale_epoch_response() {
-        let redirect = parse_redirect_response(
-            "ERR\tSTALE_EPOCH\ttx_epoch=1\tcurrent_epoch=2\trouting_version=2\townership_epoch=2\tretryable=true",
-        )
-        .unwrap();
-        assert_eq!(redirect.kind, "STALE_EPOCH");
-        assert_eq!(redirect.routing_version, 2);
-        assert_eq!(redirect.ownership_epoch, 2);
-        assert!(redirect.retryable);
-    }
-
-    #[test]
-    fn client_follows_redirect_once() {
-        let target_listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let target_addr = target_listener.local_addr().unwrap();
-        let target_server = thread::spawn(move || {
-            let (mut stream, _) = target_listener.accept().unwrap();
-            let frame = read_frame(&mut stream).unwrap().unwrap();
-            assert_eq!(frame.message_type, NativeMessageType::Ping);
-            write_frame(
-                &mut stream,
-                &NativeFrame::new(
-                    NativeMessageType::Response,
-                    frame.request_id,
-                    b"OK\tPONG".to_vec(),
-                ),
-            )
-            .unwrap();
-        });
-
-        let redirect_listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let redirect_addr = redirect_listener.local_addr().unwrap();
-        let redirect_server = thread::spawn(move || {
-            let (mut stream, _) = redirect_listener.accept().unwrap();
-            let frame = read_frame(&mut stream).unwrap().unwrap();
-            write_frame(
-                &mut stream,
-                &NativeFrame::new(
-                    NativeMessageType::Error,
-                    frame.request_id,
-                    format!(
-                        "ERR\tMOVED\tshard=0\tleader=2\taddress={target_addr}\trouting_version=1\tdatabase=default\tretryable=true"
-                    )
-                    .into_bytes(),
-                ),
-            )
-            .unwrap();
-        });
-
-        let mut client = Client::connect(redirect_addr).unwrap();
-        client.ping().unwrap();
-        assert_eq!(client.topology_cache().routing_version, 1);
-        assert_eq!(client.topology_cache().ownership_epoch, 1);
-
-        redirect_server.join().unwrap();
-        target_server.join().unwrap();
-    }
-
-    #[test]
-    fn client_rejects_redirect_loop() {
-        let loop_listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let loop_addr = loop_listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            for _ in 0..2 {
-                let (mut stream, _) = loop_listener.accept().unwrap();
-                let frame = read_frame(&mut stream).unwrap().unwrap();
-                write_frame(
-                    &mut stream,
-                    &NativeFrame::new(
-                        NativeMessageType::Error,
-                        frame.request_id,
-                        format!(
-                            "ERR\tMOVED\tshard=0\tleader=1\taddress={loop_addr}\trouting_version=2\townership_epoch=2\tdatabase=default\tretryable=true"
-                        )
-                        .into_bytes(),
-                    ),
-                )
-                .unwrap();
-            }
-        });
-
-        let mut client = Client::connect(loop_addr).unwrap();
-        let err = client.ping().unwrap_err();
-        assert!(format!("{err}").contains("redirect loop detected"));
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn client_registry_address_prefers_remote_query_peer() {
-        let address = first_registry_address(
-            Some(1),
-            Some("1:127.0.0.1:17687|2:127.0.0.1:17688"),
-            Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688"),
-        );
-        assert_eq!(address.as_deref(), Some("127.0.0.1:17688"));
-    }
-
-    #[test]
-    fn client_registry_address_falls_back_to_active_remote_node() {
-        let address = first_registry_address(
-            Some(1),
-            Some("none"),
-            Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688|3:down:127.0.0.1:17689"),
-        );
-        assert_eq!(address.as_deref(), Some("127.0.0.1:17688"));
-    }
-
-    fn temp_dir(prefix: &str) -> PathBuf {
-        let mut path = std::env::temp_dir();
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!("neo4r-{prefix}-{}-{nanos}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        path
-    }
-}
+mod tests;

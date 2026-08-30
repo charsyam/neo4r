@@ -1,5 +1,6 @@
 use neo4r_client::{
-    Client, ClientError, HttpAdminClient, QueryParams, QueryRow, QueryValue, Value,
+    Client, ClientError, HttpAdminClient, NativeTlsClientConfig, QueryParams, QueryRow, QueryValue,
+    Value,
 };
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -31,7 +32,7 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
 
-    let mut client = Client::connect(args.address.as_str())?;
+    let mut client = connect_native_client(&args)?;
     if let Some(command) = &args.command {
         let response = client.command(command)?;
         println!("{response}");
@@ -66,6 +67,34 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
     repl(client, args)
+}
+
+fn connect_native_client(args: &CliArgs) -> Result<Client, CliError> {
+    let Some(ca_cert_path) = args.tls_ca.clone() else {
+        return Ok(Client::connect(args.address.as_str())?);
+    };
+    Ok(Client::connect_tls(
+        args.address.as_str(),
+        NativeTlsClientConfig {
+            server_name: args
+                .tls_server_name
+                .clone()
+                .unwrap_or_else(|| default_tls_server_name(&args.address)),
+            ca_cert_path,
+            client_cert_path: args.tls_client_cert.clone(),
+            client_key_path: args.tls_client_key.clone(),
+        },
+    )?)
+}
+
+fn default_tls_server_name(address: &str) -> String {
+    address
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .filter(|host| !host.is_empty())
+        .unwrap_or(address)
+        .trim_matches(['[', ']'])
+        .to_string()
 }
 
 fn repl(mut client: Client, args: CliArgs) -> Result<(), CliError> {
@@ -322,6 +351,9 @@ fn execute_admin_action(args: &CliArgs) -> Result<(), CliError> {
     if args.admin_audit_log {
         println!("{}", admin.audit_log()?);
     }
+    if let Some(days) = args.prune_audit_retention_days {
+        println!("{}", admin.prune_audit_log(days)?);
+    }
     Ok(())
 }
 
@@ -445,6 +477,10 @@ fn trim_query_terminator(input: &str) -> String {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CliArgs {
     address: String,
+    tls_ca: Option<PathBuf>,
+    tls_server_name: Option<String>,
+    tls_client_cert: Option<PathBuf>,
+    tls_client_key: Option<PathBuf>,
     query: Option<String>,
     plan: Option<String>,
     profile: Option<String>,
@@ -479,12 +515,18 @@ struct CliArgs {
     revoke_token_id: Option<String>,
     admin_raft_status: bool,
     admin_audit_log: bool,
+    prune_audit_retention_days: Option<u64>,
 }
 
 impl CliArgs {
     fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, CliError> {
+        let normalized_args = normalize_subcommand_args(args.into_iter().collect::<Vec<_>>())?;
         let mut parsed = Self {
             address: DEFAULT_ADDRESS.to_string(),
+            tls_ca: None,
+            tls_server_name: None,
+            tls_client_cert: None,
+            tls_client_key: None,
             query: None,
             plan: None,
             profile: None,
@@ -519,11 +561,20 @@ impl CliArgs {
             revoke_token_id: None,
             admin_raft_status: false,
             admin_audit_log: false,
+            prune_audit_retention_days: None,
         };
-        let mut args = args.into_iter();
+        let mut args = normalized_args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--addr" | "--address" => parsed.address = next_arg(&mut args, &arg)?,
+                "--tls-ca" => parsed.tls_ca = Some(PathBuf::from(next_arg(&mut args, &arg)?)),
+                "--tls-server-name" => parsed.tls_server_name = Some(next_arg(&mut args, &arg)?),
+                "--tls-client-cert" => {
+                    parsed.tls_client_cert = Some(PathBuf::from(next_arg(&mut args, &arg)?))
+                }
+                "--tls-client-key" => {
+                    parsed.tls_client_key = Some(PathBuf::from(next_arg(&mut args, &arg)?))
+                }
                 "--query" | "-q" => parsed.query = Some(next_arg(&mut args, &arg)?),
                 "--plan" => parsed.plan = Some(next_arg(&mut args, &arg)?),
                 "--profile" => parsed.profile = Some(next_arg(&mut args, &arg)?),
@@ -565,6 +616,10 @@ impl CliArgs {
                 "--revoke-token-id" => parsed.revoke_token_id = Some(next_arg(&mut args, &arg)?),
                 "--admin-raft-status" => parsed.admin_raft_status = true,
                 "--admin-audit-log" => parsed.admin_audit_log = true,
+                "--prune-audit-retention-days" => {
+                    parsed.prune_audit_retention_days =
+                        Some(parse_u64_arg(next_arg(&mut args, &arg)?, &arg)?)
+                }
                 "--help" | "-h" => parsed.show_help = true,
                 value => return Err(CliError::Usage(format!("unknown argument: {value}"))),
             }
@@ -581,6 +636,11 @@ impl CliArgs {
         if parsed.has_admin_action() && native_actions > 0 {
             return Err(CliError::Usage(
                 "admin HTTP actions cannot be combined with native query actions".to_string(),
+            ));
+        }
+        if parsed.tls_client_cert.is_some() != parsed.tls_client_key.is_some() {
+            return Err(CliError::Usage(
+                "--tls-client-cert and --tls-client-key must be provided together".to_string(),
             ));
         }
         if parsed.restore_path.is_some()
@@ -610,6 +670,7 @@ impl CliArgs {
             || self.revoke_user.is_some()
             || self.admin_raft_status
             || self.admin_audit_log
+            || self.prune_audit_retention_days.is_some()
     }
 
     fn history_path(&self) -> Result<PathBuf, CliError> {
@@ -625,6 +686,89 @@ impl CliArgs {
     }
 }
 
+fn normalize_subcommand_args(args: Vec<String>) -> Result<Vec<String>, CliError> {
+    let Some(first) = args.first().map(String::as_str) else {
+        return Ok(args);
+    };
+    if first.starts_with('-') {
+        return Ok(args);
+    }
+    match first {
+        "query" => subcommand_with_payload("--query", &args),
+        "plan" => subcommand_with_payload("--plan", &args),
+        "profile" => subcommand_with_payload("--profile", &args),
+        "command" => subcommand_with_payload("--command", &args),
+        "cluster" => {
+            if args.get(1).map(String::as_str).unwrap_or("status") != "status" {
+                return Err(CliError::Usage(
+                    "cluster subcommand supports: status".to_string(),
+                ));
+            }
+            Ok(vec!["--command".to_string(), "CLUSTER_STATUS".to_string()])
+        }
+        "backup" => normalize_backup_subcommand(&args),
+        "admin" => normalize_admin_subcommand(&args),
+        _ => Ok(args),
+    }
+}
+
+fn subcommand_with_payload(flag: &str, args: &[String]) -> Result<Vec<String>, CliError> {
+    if args.len() < 2 {
+        return Err(CliError::Usage(format!("{} requires a payload", args[0])));
+    }
+    let mut normalized = vec![flag.to_string(), args[1].clone()];
+    normalized.extend_from_slice(&args[2..]);
+    Ok(normalized)
+}
+
+fn normalize_backup_subcommand(args: &[String]) -> Result<Vec<String>, CliError> {
+    match args.get(1).map(String::as_str) {
+        Some("create") if args.len() >= 3 => {
+            let mut normalized = vec!["--backup".to_string(), args[2].clone()];
+            normalized.extend_from_slice(&args[3..]);
+            Ok(normalized)
+        }
+        Some("restore") if args.len() >= 3 => {
+            let mut normalized = vec!["--restore".to_string(), args[2].clone()];
+            normalized.extend_from_slice(&args[3..]);
+            Ok(normalized)
+        }
+        _ => Err(CliError::Usage(
+            "backup subcommand supports: create PATH, restore PATH".to_string(),
+        )),
+    }
+}
+
+fn normalize_admin_subcommand(args: &[String]) -> Result<Vec<String>, CliError> {
+    match args.get(1).map(String::as_str) {
+        Some("users") => Ok(with_tail(vec!["--list-users".to_string()], args, 2)),
+        Some("databases") => Ok(with_tail(vec!["--list-databases".to_string()], args, 2)),
+        Some("audit") => Ok(with_tail(vec!["--admin-audit-log".to_string()], args, 2)),
+        Some("raft") => Ok(with_tail(vec!["--admin-raft-status".to_string()], args, 2)),
+        Some("cleanup-tokens") => Ok(with_tail(
+            vec!["--cleanup-expired-tokens".to_string()],
+            args,
+            2,
+        )),
+        Some("prune-audit") if args.len() >= 3 => {
+            let mut normalized = vec![
+                "--prune-audit-retention-days".to_string(),
+                args[2].clone(),
+            ];
+            normalized.extend_from_slice(&args[3..]);
+            Ok(normalized)
+        }
+        _ => Err(CliError::Usage(
+            "admin subcommand supports: users, databases, audit, raft, cleanup-tokens, prune-audit DAYS".to_string(),
+        )),
+    }
+}
+
+fn with_tail(mut normalized: Vec<String>, args: &[String], start: usize) -> Vec<String> {
+    normalized.extend_from_slice(&args[start..]);
+    normalized
+}
+
 fn next_arg(args: &mut impl Iterator<Item = String>, name: &str) -> Result<String, CliError> {
     args.next()
         .ok_or_else(|| CliError::Usage(format!("{name} requires a value")))
@@ -636,9 +780,18 @@ fn parse_u16_arg(value: String, name: &str) -> Result<u16, CliError> {
         .map_err(|_| CliError::Usage(format!("{name} requires a valid u16 value")))
 }
 
+fn parse_u64_arg(value: String, name: &str) -> Result<u64, CliError> {
+    value
+        .parse::<u64>()
+        .map_err(|_| CliError::Usage(format!("{name} requires a valid u64 value")))
+}
+
 fn usage() -> &'static str {
-    "usage: neo4r-cli [--addr ADDR] [--query CYPHER|--plan CYPHER|--profile CYPHER|--command COMMAND] [--history] [--history-file PATH] [--no-history]
-       neo4r-cli [--http-host HOST] [--http-port PORT] [--admin-token TOKEN] [--database DB] [--backup PATH|--restore PATH|--list-users|--invoke-user USER|--list-databases]"
+    "usage: neo4r-cli [--addr ADDR] [--tls-ca CA.pem] [--tls-server-name NAME] [--tls-client-cert CERT.pem --tls-client-key KEY.pem] [--query CYPHER|--plan CYPHER|--profile CYPHER|--command COMMAND] [--history] [--history-file PATH] [--no-history]
+       neo4r-cli [--http-host HOST] [--http-port PORT] [--admin-token TOKEN] [--database DB] [--backup PATH|--restore PATH|--list-users|--invoke-user USER|--list-databases]
+       neo4r-cli query|plan|profile|command PAYLOAD
+       neo4r-cli admin users|databases|audit|raft|cleanup-tokens|prune-audit DAYS
+       neo4r-cli backup create|restore PATH"
 }
 
 fn repl_help() -> &'static str {
@@ -695,93 +848,5 @@ impl From<ClientError> for CliError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_cli_args() {
-        let args = CliArgs::parse([
-            "--addr".to_string(),
-            "127.0.0.1:9000".to_string(),
-            "--query".to_string(),
-            "MATCH (n) RETURN n".to_string(),
-            "--history-file".to_string(),
-            "/tmp/neo4r-history".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(args.address, "127.0.0.1:9000");
-        assert_eq!(args.query, Some("MATCH (n) RETURN n".to_string()));
-        assert_eq!(args.history_file, Some(PathBuf::from("/tmp/neo4r-history")));
-    }
-
-    #[test]
-    fn parses_plan_and_admin_args() {
-        let plan =
-            CliArgs::parse(["--plan".to_string(), "MATCH (n) RETURN n".to_string()]).unwrap();
-        assert_eq!(plan.plan, Some("MATCH (n) RETURN n".to_string()));
-
-        let admin = CliArgs::parse([
-            "--http-host".to_string(),
-            "127.0.0.1".to_string(),
-            "--http-port".to_string(),
-            "18080".to_string(),
-            "--admin-token".to_string(),
-            "admin:secret".to_string(),
-            "--database".to_string(),
-            "tenant_a".to_string(),
-            "--backup".to_string(),
-            "/tmp/neo4r-backup".to_string(),
-        ])
-        .unwrap();
-        assert_eq!(admin.http_port, 18080);
-        assert_eq!(admin.database, Some("tenant_a".to_string()));
-        assert_eq!(admin.backup_path, Some("/tmp/neo4r-backup".to_string()));
-        assert!(admin.has_admin_action());
-    }
-
-    #[test]
-    fn rejects_restore_without_confirmation() {
-        let err = CliArgs::parse(["--restore".to_string(), "/tmp/neo4r-backup".to_string()])
-            .unwrap_err()
-            .to_string();
-
-        assert!(err.contains("--restore requires --restore-confirm RESTORE"));
-    }
-
-    #[test]
-    fn trims_query_terminator() {
-        assert_eq!(
-            trim_query_terminator("MATCH (n) RETURN n;\n"),
-            "MATCH (n) RETURN n"
-        );
-    }
-
-    #[test]
-    fn keeps_history_deduplicated_in_execution_order() {
-        let path = std::env::temp_dir().join(format!("neo4r-cli-history-{}", std::process::id()));
-        let _ = fs::remove_file(&path);
-
-        remember_query(true, &path, "MATCH (n) RETURN n").unwrap();
-        remember_query(true, &path, "MATCH (m) RETURN m").unwrap();
-        remember_query(true, &path, "MATCH (n) RETURN n").unwrap();
-
-        assert_eq!(
-            read_history(&path),
-            vec![
-                "MATCH (m) RETURN m".to_string(),
-                "MATCH (n) RETURN n".to_string()
-            ]
-        );
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn parses_transaction_begin_response() {
-        assert_eq!(
-            parse_tx_id("OK\tTX_BEGIN\t42\tREAD_ONLY\tSNAPSHOT").unwrap(),
-            42
-        );
-        assert!(parse_tx_id("OK").is_err());
-    }
-}
+#[path = "../neo4r_cli_tests.rs"]
+mod neo4r_cli_tests;

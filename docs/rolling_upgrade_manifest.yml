@@ -1,0 +1,14 @@
+version: 1
+from:
+  data_format_version: 1
+  native_protocol_min: 1
+  native_protocol_max: 1
+to:
+  data_format_version: 1
+  native_protocol_min: 1
+  native_protocol_max: 1
+checks:
+  - backup-before-upgrade
+  - mixed-version-protocol-compat
+  - metadata-format-compatible
+  - rollback-before-data-format-bump

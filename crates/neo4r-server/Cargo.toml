@@ -15,5 +15,7 @@ neo4r-db = { path = "../neo4r-db" }
 neo4r-protocol = { path = "../neo4r-protocol" }
 neo4r-query = { path = "../neo4r-query" }
 neo4r-storage = { path = "../neo4r-storage" }
+rustls = { version = "=0.23.31", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"

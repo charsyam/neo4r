@@ -39,6 +39,21 @@ pub(in crate::replication) fn request_tcp_catch_up_limited(
     Ok(entries)
 }
 
+pub fn request_tcp_catch_up_on_stream(
+    stream: &mut (impl Read + Write),
+    shard_id: ShardId,
+    start_index: LogIndex,
+    max_entries: Option<usize>,
+) -> DatabaseResult<Vec<LogEntry>> {
+    write_tcp_catch_up_request(stream, shard_id, start_index, max_entries)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush catch-up request: {err}")))?;
+    let entries = read_tcp_catch_up_response(stream)?;
+    validate_tcp_catch_up_entries(shard_id, start_index, max_entries, &entries)?;
+    Ok(entries)
+}
+
 pub(super) fn write_tcp_catch_up_request(
     writer: &mut impl Write,
     shard_id: ShardId,

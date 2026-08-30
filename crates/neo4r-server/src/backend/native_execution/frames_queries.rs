@@ -171,8 +171,15 @@ impl NativeExecutionContext {
                 node_id,
             } => {
                 validate_replication_peer_membership(&self.db, server_id)?;
-                let remote = request_tcp_replication_hello(&address, self.catch_up_connect_timeout)
-                    .map_err(|err| err.to_string())?;
+                let remote = match self.replication_tls_channel_config.get() {
+                    Some(config) => request_tls_replication_hello(
+                        &address,
+                        self.catch_up_connect_timeout,
+                        &config,
+                    ),
+                    None => request_tcp_replication_hello(&address, self.catch_up_connect_timeout),
+                }
+                .map_err(|err| err.to_string())?;
                 validate_remote_replication_identity(&self.db, server_id, node_id, &remote)?;
                 validate_replication_peer_identity(&self.db, server_id, Some(remote.node_id))?;
                 if self
@@ -262,6 +269,7 @@ impl NativeExecutionContext {
                     &self.replication_peers,
                     self.catch_up_connect_timeout,
                     max_entries_per_request,
+                    &self.replication_tls_channel_config,
                 )?;
                 Ok(format_response(&BackendResponse::OkCatchUp(
                     format_catch_up_results(&results),
@@ -277,6 +285,7 @@ impl NativeExecutionContext {
                     self.catch_up_connect_timeout,
                     server_id,
                     max_entries_per_request,
+                    &self.replication_tls_channel_config,
                 )?;
                 Ok(format_response(&BackendResponse::OkCatchUp(
                     format_catch_up_results(&results),
@@ -348,6 +357,7 @@ impl NativeExecutionContext {
         query: &str,
         params: neo4r_query::QueryParams,
     ) -> Result<String, String> {
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         let cursor: Box<dyn QueryCursor> = if is_write_cypher(query) {
             let rows = self.execute_write_query_with_routing(query, params)?;
             Box::new(VecQueryCursor::new(rows))
@@ -359,7 +369,10 @@ impl NativeExecutionContext {
                 .map_err(|err| err.to_string())?
         };
         let total_rows = cursor.total_rows();
-        let cursor_id = self.cursors.insert(session_id, cursor);
+        self.validate_native_result_rows(total_rows)?;
+        let cursor_id = self
+            .cursors
+            .insert_with_permit(session_id, cursor, Some(quota_permit));
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -485,6 +498,7 @@ impl NativeExecutionContext {
         if is_write_cypher(query) {
             return Err("QUERY_DISTRIBUTED only supports read queries".to_string());
         }
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         let cursor = build_distributed_query_cursor(
             &self.db,
             &self.query_peers,
@@ -493,7 +507,10 @@ impl NativeExecutionContext {
             &params,
         )?;
         let total_rows = cursor.total_rows();
-        let cursor_id = self.cursors.insert(session_id, cursor);
+        self.validate_native_result_rows(total_rows)?;
+        let cursor_id = self
+            .cursors
+            .insert_with_permit(session_id, cursor, Some(quota_permit));
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -510,14 +527,18 @@ impl NativeExecutionContext {
         if is_write_cypher(query) {
             return Err("QUERY_SHARD only supports read queries in native cursor mode".to_string());
         }
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         let rows = self
             .db
             .query_shard_with_params(shard_id, query, params)
             .map_err(|err| err.to_string())?;
         let total_rows = Some(rows.len());
-        let cursor_id = self
-            .cursors
-            .insert(session_id, Box::new(VecQueryCursor::new(rows)));
+        self.validate_native_result_rows(total_rows)?;
+        let cursor_id = self.cursors.insert_with_permit(
+            session_id,
+            Box::new(VecQueryCursor::new(rows)),
+            Some(quota_permit),
+        );
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -532,6 +553,7 @@ impl NativeExecutionContext {
         params: neo4r_query::QueryParams,
         staged_writes: &[(String, neo4r_query::QueryParams)],
     ) -> Result<String, String> {
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         let rows = self
             .db
             .query_shard_with_staged_writes(
@@ -544,7 +566,10 @@ impl NativeExecutionContext {
             .map_err(|err| err.to_string())?;
         let cursor: Box<dyn QueryCursor> = Box::new(VecQueryCursor::new(rows));
         let total_rows = cursor.total_rows();
-        let cursor_id = self.cursors.insert(session_id, cursor);
+        self.validate_native_result_rows(total_rows)?;
+        let cursor_id = self
+            .cursors
+            .insert_with_permit(session_id, cursor, Some(quota_permit));
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -558,14 +583,18 @@ impl NativeExecutionContext {
         query: &str,
         params: neo4r_query::QueryParams,
     ) -> Result<String, String> {
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         let rows = self
             .db
             .execute_cypher_on_shard(shard_id, query, params)
             .map_err(|err| err.to_string())?;
         let total_rows = Some(rows.len());
-        let cursor_id = self
-            .cursors
-            .insert(session_id, Box::new(VecQueryCursor::new(rows)));
+        self.validate_native_result_rows(total_rows)?;
+        let cursor_id = self.cursors.insert_with_permit(
+            session_id,
+            Box::new(VecQueryCursor::new(rows)),
+            Some(quota_permit),
+        );
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -578,16 +607,30 @@ impl NativeExecutionContext {
         shard_id: u64,
         writes: Vec<(String, neo4r_query::QueryParams)>,
     ) -> Result<String, String> {
+        let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
         self.db
             .execute_cypher_mutation_batch_on_shard(shard_id, writes)
             .map_err(|err| err.to_string())?;
-        let cursor_id = self
-            .cursors
-            .insert(session_id, Box::new(VecQueryCursor::new(Vec::new())));
+        let cursor_id = self.cursors.insert_with_permit(
+            session_id,
+            Box::new(VecQueryCursor::new(Vec::new())),
+            Some(quota_permit),
+        );
         let page = self
             .cursors
             .fetch(session_id, cursor_id, self.default_page_size)?;
         Ok(format_result_start(cursor_id, Some(0), page))
+    }
+
+    pub(crate) fn validate_native_result_rows(
+        &self,
+        total_rows: Option<usize>,
+    ) -> Result<(), String> {
+        if let Some(rows) = total_rows {
+            self.tenant_quota
+                .validate_result_rows(DEFAULT_DATABASE, rows)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn fetch_cursor(

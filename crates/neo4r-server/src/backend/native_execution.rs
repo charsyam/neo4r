@@ -13,6 +13,8 @@ pub(crate) struct NativeExecutionContext {
     pub(crate) read_preference: QueryReadPreference,
     pub(crate) catch_up_connect_timeout: Duration,
     pub(crate) pending_requests: PendingRequestStore,
+    pub(crate) tenant_quota: TenantQuota,
+    pub(crate) replication_tls_channel_config: ReplicationTlsChannelConfigStore,
 }
 
 #[path = "native_execution/frames_queries.rs"]

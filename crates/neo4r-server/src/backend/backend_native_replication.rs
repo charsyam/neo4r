@@ -3,7 +3,7 @@ use crate::protocol::format_rebalance_execution;
 impl TcpBackend {
     pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
         let (stream, _) = listener.accept()?;
-        self.handle_replication_stream(stream)
+        self.handle_replication_tcp_stream(stream)
     }
 
     pub fn serve_replication_addr(&self, addr: impl ToSocketAddrs) -> io::Result<SocketAddr> {
@@ -19,7 +19,7 @@ impl TcpBackend {
             let stream = stream?;
             let backend = backend.clone();
             thread::spawn(move || {
-                let _ = backend.handle_replication_stream(stream);
+                let _ = backend.handle_replication_tcp_stream(stream);
             });
         }
         Ok(())
@@ -55,7 +55,7 @@ impl TcpBackend {
                 Ok((stream, _)) => {
                     let backend = backend.clone();
                     thread::spawn(move || {
-                        let _ = backend.handle_replication_stream(stream);
+                        let _ = backend.handle_replication_tcp_stream(stream);
                     });
                 }
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -68,11 +68,35 @@ impl TcpBackend {
     }
 
     pub fn handle_native_stream(&self, stream: TcpStream) -> io::Result<()> {
+        self.handle_native_transport(PlainNativeStream::new(stream))
+    }
+
+    pub(crate) fn handle_native_transport(
+        &self,
+        stream: impl IntoNativeStreamParts,
+    ) -> io::Result<()> {
+        let parts = stream.into_native_stream_parts()?;
+        self.handle_native_stream_parts(parts)
+    }
+
+    pub(crate) fn handle_native_stream_parts(&self, parts: NativeStreamParts) -> io::Result<()> {
+        match parts {
+            NativeStreamParts::Split { reader, writer } => {
+                self.handle_split_native_stream(reader, writer)
+            }
+            NativeStreamParts::Unified(stream) => self.handle_unified_native_stream(stream),
+        }
+    }
+
+    fn handle_split_native_stream(
+        &self,
+        reader: Box<dyn Read + Send>,
+        writer_stream: Box<dyn Write + Send>,
+    ) -> io::Result<()> {
         let session_id = self.transactions.next_session_id();
-        let reader_stream = stream.try_clone()?;
-        let mut reader = BufReader::new(reader_stream);
+        let mut reader = BufReader::new(reader);
         let (response_tx, response_rx) = mpsc::channel::<NativeFrame>();
-        let writer = thread::spawn(move || write_native_responses(stream, response_rx));
+        let writer = thread::spawn(move || write_native_responses(writer_stream, response_rx));
 
         while let Some(frame) = read_frame(&mut reader)? {
             if matches!(frame.message_type, NativeMessageType::Quit) {
@@ -121,11 +145,65 @@ impl TcpBackend {
         writer
             .join()
             .map_err(|_| io::Error::other("native response writer thread panicked"))??;
+        self.close_native_session(session_id);
+        Ok(())
+    }
+
+    fn handle_unified_native_stream(&self, stream: Box<dyn NativeTransport>) -> io::Result<()> {
+        let session_id = self.transactions.next_session_id();
+        let mut stream = BufReader::new(stream);
+        while let Some(frame) = read_frame(&mut stream)? {
+            let request_id = frame.request_id;
+            let response = if matches!(frame.message_type, NativeMessageType::Quit) {
+                native_response_frame(request_id, execute_request(&self.db, BackendRequest::Quit))
+            } else if matches!(frame.message_type, NativeMessageType::Cancel) {
+                match frame
+                    .payload_text()
+                    .map_err(|err| err.to_string())
+                    .and_then(parse_cancel_payload)
+                    .and_then(|target_request_id| {
+                        self.cancel_pending_request(session_id, target_request_id)
+                            .map(|cancelled| (target_request_id, cancelled))
+                    }) {
+                    Ok((target_request_id, true)) => NativeFrame::new(
+                        NativeMessageType::Response,
+                        request_id,
+                        format!("OK\tCANCELLED\t{target_request_id}").into_bytes(),
+                    ),
+                    Ok((target_request_id, false)) => NativeFrame::new(
+                        NativeMessageType::Response,
+                        request_id,
+                        format!("OK\tCANCEL_MISSED\t{target_request_id}").into_bytes(),
+                    ),
+                    Err(err) => NativeFrame::new(
+                        NativeMessageType::Error,
+                        request_id,
+                        format!("ERR\t{}", escape_payload(&err)).into_bytes(),
+                    ),
+                }
+            } else {
+                let (response_tx, response_rx) = mpsc::channel::<NativeFrame>();
+                self.workers.submit(session_id, frame, response_tx)?;
+                response_rx.recv().map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "native worker stopped")
+                })?
+            };
+            write_frame(stream.get_mut(), &response)?;
+            if matches!(response.message_type, NativeMessageType::Response)
+                && response.payload_text().unwrap_or("") == "OK\tBYE"
+            {
+                break;
+            }
+        }
+        self.close_native_session(session_id);
+        Ok(())
+    }
+
+    fn close_native_session(&self, session_id: u64) {
         let _ = self.cursors.close_session(session_id);
         let _ = self.transactions.close_session(session_id);
         let _ = self.prepared_queries.close_session(session_id);
         let _ = self.pending_requests.close_session(session_id);
-        Ok(())
     }
 
     pub(crate) fn cancel_pending_request(

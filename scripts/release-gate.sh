@@ -27,6 +27,8 @@ scripts/bench-thresholds.sh
 scripts/bench-regression.sh
 scripts/crash-consistency-gate.sh
 scripts/rdma-live-gate.sh
+scripts/production-hardening-gate.sh
+scripts/production-artifacts.sh
 
 if [[ "${NEO4R_RUN_RELEASE_LIVE:-0}" == "1" ]]; then
   NEO4R_RUN_SDK_LIVE=1 scripts/sdk-live.sh

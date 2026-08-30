@@ -857,6 +857,7 @@ mod udp;
 pub use channel::*;
 pub use rdma::*;
 pub use tcp_requests::*;
+pub use tcp_responses::request_tcp_catch_up_on_stream;
 pub use udp::*;
 
 #[cfg(test)]

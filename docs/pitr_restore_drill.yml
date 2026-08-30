@@ -1,0 +1,10 @@
+version: 1
+policy: snapshot-plus-wal-archive
+max_age_hours: 24
+restore_targets:
+  - database: default
+    restore_mode: drill
+    expected_checks:
+      - metadata-reopens
+      - wal-archive-readable
+      - query-regression-corpus-runs

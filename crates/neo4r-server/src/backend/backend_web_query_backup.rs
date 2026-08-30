@@ -365,6 +365,7 @@ impl TcpBackend {
         options: QueryOptions,
     ) -> Result<String, String> {
         self.metrics.queries.fetch_add(1, Ordering::Relaxed);
+        let _quota_permit = self.tenant_quota.acquire_query(database_name)?;
         let started = Instant::now();
         let rows = match if is_write_cypher(query) {
             db.execute_cypher_with_params(query, params)
@@ -377,6 +378,13 @@ impl TcpBackend {
                 return Err(err.to_string());
             }
         };
+        if let Err(err) = self
+            .tenant_quota
+            .validate_result_rows(database_name, rows.len())
+        {
+            self.metrics.query_errors.fetch_add(1, Ordering::Relaxed);
+            return Err(err);
+        }
         let elapsed = started.elapsed();
         if elapsed >= self.slow_query_threshold {
             self.record_slow_query(query, elapsed);
@@ -803,7 +811,10 @@ impl TcpBackend {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        let mut entries = self.slow_queries.entries.lock().unwrap();
+        let Ok(mut entries) = self.slow_queries.entries.lock() else {
+            self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
         entries.push(SlowQueryEntry {
             unix_ms,
             elapsed_ms: elapsed.as_millis(),
@@ -815,7 +826,9 @@ impl TcpBackend {
     }
 
     pub(crate) fn slow_queries_json(&self) -> String {
-        let entries = self.slow_queries.entries.lock().unwrap();
+        let Ok(entries) = self.slow_queries.entries.lock() else {
+            return "{\"queries\":[],\"error\":\"slow query log lock poisoned\"}".to_string();
+        };
         format!(
             "{{\"queries\":[{}]}}",
             entries

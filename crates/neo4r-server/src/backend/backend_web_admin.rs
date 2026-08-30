@@ -189,6 +189,21 @@ impl TcpBackend {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
+            ("POST", "/api/admin/prune-audit-log") if !role.allows(WebRole::Admin) => {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/prune-audit-log") => {
+                match extract_optional_json_u64_field(&request.body, "retention_days").and_then(
+                    |days| {
+                        self.prune_web_audit_log(
+                            days.ok_or_else(|| "retention_days is required".to_string())?,
+                        )
+                    },
+                ) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
             ("GET", "/api/admin/raft-status") if !role.allows(WebRole::Admin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -741,6 +756,29 @@ impl TcpBackend {
             .collect::<Vec<_>>()
             .join(",");
         Ok(format!("{{\"events\":[{events}]}}"))
+    }
+
+    pub(crate) fn prune_web_audit_log(&self, retention_days: u64) -> Result<String, String> {
+        if retention_days == 0 {
+            return Err("retention_days must be greater than zero".to_string());
+        }
+        let retention_ms = u128::from(retention_days) * 24 * 60 * 60 * 1000;
+        let now = unix_millis_now();
+        let cutoff = now.saturating_sub(retention_ms);
+        let removed = self
+            .web_audit
+            .as_ref()
+            .ok_or_else(|| "web audit store is unavailable".to_string())?
+            .prune_older_than(cutoff)?;
+        self.audit_admin(
+            "audit.prune",
+            "web-audit",
+            &format!("retention_days={retention_days} removed={removed}"),
+        );
+        Ok(format!(
+            "{{\"removed\":{},\"retention_days\":{},\"cutoff_unix_ms\":{}}}",
+            removed, retention_days, cutoff
+        ))
     }
 
     pub(crate) fn audit_admin(&self, action: &str, target: &str, detail: &str) {

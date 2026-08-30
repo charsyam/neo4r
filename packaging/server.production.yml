@@ -18,34 +18,33 @@ replication:
   connect_timeout_ms: 1000
   retry_attempts: 3
   retry_backoff_ms: 50
-  peers: []
+  catch_up_on_startup: true
+  catch_up_interval_ms: 1000
+  catch_up_batch_size: 1024
+  peers:
+    - server_id: 2
+      address: 10.0.0.2:18687
+      role: replica
+    - server_id: 3
+      address: 10.0.0.3:18687
+      role: replica
 
 query:
   read_preference: primary
 
 web:
   bind: 0.0.0.0:17687
-  auth_token: admin:change-me
+  auth_token: admin:0123456789abcdef0123456789abcdef
   slow_query_threshold_ms: 1000
+
+maintenance:
+  sync_index_catalog_on_startup: true
+  recover_transactions_on_startup: true
 
 production:
   tls_mode: external
   replication_tls_mode: external
   web_tls_mode: external
-  # For in-process native TLS, set tls_mode: required and configure:
-  # native_tls_cert: /etc/neo4r/tls/server.crt
-  # native_tls_key: /etc/neo4r/tls/server.key
-  # native_tls_client_ca: /etc/neo4r/tls/ca.crt
-  # native_tls_require_client_auth: true
-  # For in-process TCP replication TLS, set replication_tls_mode: required and configure:
-  # replication_tls_cert: /etc/neo4r/tls/replication.crt
-  # replication_tls_key: /etc/neo4r/tls/replication.key
-  # replication_tls_client_ca: /etc/neo4r/tls/peer-ca.crt
-  # replication_tls_require_client_auth: true
-  # replication_tls_ca: /etc/neo4r/tls/peer-ca.crt
-  # replication_tls_server_name: neo4r-replication.internal
-  # replication_tls_client_cert: /etc/neo4r/tls/replication-client.crt
-  # replication_tls_client_key: /etc/neo4r/tls/replication-client.key
   min_native_protocol_version: 1
   max_native_protocol_version: 1
   backup_drill_max_age_hours: 24

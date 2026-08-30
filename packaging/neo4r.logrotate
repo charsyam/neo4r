@@ -1,0 +1,8 @@
+/var/log/neo4r/*.log {
+  daily
+  rotate 14
+  compress
+  missingok
+  notifempty
+  copytruncate
+}

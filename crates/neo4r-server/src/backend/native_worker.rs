@@ -6,12 +6,26 @@ pub(crate) struct CursorStore {
 }
 
 impl CursorStore {
+    #[cfg(test)]
     pub(crate) fn insert(&self, session_id: u64, cursor: Box<dyn QueryCursor>) -> u64 {
+        self.insert_with_permit(session_id, cursor, None)
+    }
+
+    pub(crate) fn insert_with_permit(
+        &self,
+        session_id: u64,
+        cursor: Box<dyn QueryCursor>,
+        _tenant_permit: Option<TenantQueryPermit>,
+    ) -> u64 {
         let cursor_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-        self.cursors
-            .lock()
-            .unwrap()
-            .insert(cursor_id, CursorState { session_id, cursor });
+        self.cursors.lock().unwrap().insert(
+            cursor_id,
+            CursorState {
+                session_id,
+                cursor,
+                _tenant_permit,
+            },
+        );
         cursor_id
     }
 
@@ -65,6 +79,7 @@ impl CursorStore {
 pub(crate) struct CursorState {
     session_id: u64,
     cursor: Box<dyn QueryCursor>,
+    _tenant_permit: Option<TenantQueryPermit>,
 }
 
 pub(crate) fn ensure_cursor_owner(
@@ -403,7 +418,7 @@ pub(crate) fn native_worker_loop(
 }
 
 pub(crate) fn write_native_responses(
-    stream: TcpStream,
+    stream: Box<dyn Write + Send>,
     responses: Receiver<NativeFrame>,
 ) -> io::Result<()> {
     let mut writer = BufWriter::new(stream);

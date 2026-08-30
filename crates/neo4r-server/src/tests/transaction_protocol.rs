@@ -80,24 +80,28 @@ pub(super) fn parses_transaction_status_commands() {
 #[test]
 pub(super) fn transaction_store_lists_all_session_transactions() {
     let store = TransactionStore::default();
-    let first_tx = store.insert(
-        7,
-        NativeTransaction::ReadWrite {
-            isolation: ReadIsolation::ReadCommitted,
-            ownership_epoch: 1,
-            staged_writes: Vec::new(),
-            conflict_keys: BTreeSet::new(),
-        },
-    );
-    let second_tx = store.insert(
-        9,
-        NativeTransaction::ReadWrite {
-            isolation: ReadIsolation::Snapshot,
-            ownership_epoch: 1,
-            staged_writes: Vec::new(),
-            conflict_keys: BTreeSet::new(),
-        },
-    );
+    let first_tx = store
+        .insert(
+            7,
+            NativeTransaction::ReadWrite {
+                isolation: ReadIsolation::ReadCommitted,
+                ownership_epoch: 1,
+                staged_writes: Vec::new(),
+                conflict_keys: BTreeSet::new(),
+            },
+        )
+        .unwrap();
+    let second_tx = store
+        .insert(
+            9,
+            NativeTransaction::ReadWrite {
+                isolation: ReadIsolation::Snapshot,
+                ownership_epoch: 1,
+                staged_writes: Vec::new(),
+                conflict_keys: BTreeSet::new(),
+            },
+        )
+        .unwrap();
     store
         .stage_write(
             7,
@@ -122,15 +126,17 @@ pub(super) fn transaction_store_lists_all_session_transactions() {
 #[test]
 pub(super) fn transaction_store_rejects_duplicate_staged_write_conflicts() {
     let store = TransactionStore::default();
-    let tx_id = store.insert(
-        7,
-        NativeTransaction::ReadWrite {
-            isolation: ReadIsolation::ReadCommitted,
-            ownership_epoch: 1,
-            staged_writes: Vec::new(),
-            conflict_keys: BTreeSet::new(),
-        },
-    );
+    let tx_id = store
+        .insert(
+            7,
+            NativeTransaction::ReadWrite {
+                isolation: ReadIsolation::ReadCommitted,
+                ownership_epoch: 1,
+                staged_writes: Vec::new(),
+                conflict_keys: BTreeSet::new(),
+            },
+        )
+        .unwrap();
     let query = "MATCH (n:Person {name: \"Alice\"}) SET n.age = 31 RETURN n".to_string();
     store
         .stage_write(7, tx_id, query.clone(), neo4r_query::QueryParams::new())

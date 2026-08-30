@@ -30,7 +30,7 @@ impl NativeExecutionContext {
                         conflict_keys: BTreeSet::new(),
                     },
                 };
-                let tx_id = self.transactions.insert(session_id, tx);
+                let tx_id = self.transactions.insert(session_id, tx)?;
                 Ok(format!(
                     "OK\tTX_BEGIN\t{tx_id}\t{}\t{}\townership_epoch={ownership_epoch}",
                     format_transaction_mode(mode),
@@ -48,12 +48,16 @@ impl NativeExecutionContext {
                         .stage_write(session_id, tx_id, query, params)?;
                     Ok(format!("OK\tTX_STAGED\t{tx_id}\t{staged_count}"))
                 } else {
+                    let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
                     let cursor = self
                         .transactions
                         .query_cursor(&self.db, session_id, tx_id, &query, &params)
                         .map_err(|err| err.to_string())?;
                     let total_rows = cursor.total_rows();
-                    let cursor_id = self.cursors.insert(session_id, cursor);
+                    self.validate_native_result_rows(total_rows)?;
+                    let cursor_id =
+                        self.cursors
+                            .insert_with_permit(session_id, cursor, Some(quota_permit));
                     let page = self
                         .cursors
                         .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -73,12 +77,16 @@ impl NativeExecutionContext {
                         .stage_write(session_id, tx_id, query, params)?;
                     Ok(format!("OK\tTX_STAGED\t{tx_id}\t{staged_count}"))
                 } else {
+                    let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
                     let cursor = self
                         .transactions
                         .query_cursor(&self.db, session_id, tx_id, &query, &params)
                         .map_err(|err| err.to_string())?;
                     let total_rows = cursor.total_rows();
-                    let cursor_id = self.cursors.insert(session_id, cursor);
+                    self.validate_native_result_rows(total_rows)?;
+                    let cursor_id =
+                        self.cursors
+                            .insert_with_permit(session_id, cursor, Some(quota_permit));
                     let page = self
                         .cursors
                         .fetch(session_id, cursor_id, self.default_page_size)?;
@@ -126,6 +134,7 @@ impl NativeExecutionContext {
                 if is_write_cypher(&query) {
                     return Err("TX_QUERY_DISTRIBUTED only supports read queries".to_string());
                 }
+                let quota_permit = self.tenant_quota.acquire_query(DEFAULT_DATABASE)?;
                 let cursor = self
                     .transactions
                     .distributed_query_cursor(
@@ -139,7 +148,10 @@ impl NativeExecutionContext {
                     )
                     .map_err(|err| err.to_string())?;
                 let total_rows = cursor.total_rows();
-                let cursor_id = self.cursors.insert(session_id, cursor);
+                self.validate_native_result_rows(total_rows)?;
+                let cursor_id =
+                    self.cursors
+                        .insert_with_permit(session_id, cursor, Some(quota_permit));
                 let page = self
                     .cursors
                     .fetch(session_id, cursor_id, self.default_page_size)?;

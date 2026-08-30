@@ -1,0 +1,11 @@
+version: 1
+queries:
+  - name: node-label-scan
+    query: MATCH (n:Person) RETURN n.name ORDER BY n.name
+    expected_columns: ["n.name"]
+  - name: relationship-traversal
+    query: MATCH (a)-[r:KNOWS]->(b) RETURN a.name, b.name
+    expected_columns: ["a.name", "b.name"]
+  - name: vector-knn
+    query: MATCH (n:Person) WHERE n.embedding <-> [0.1, 0.2, 0.3] < 1.0 RETURN n.name
+    expected_columns: ["n.name"]

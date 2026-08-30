@@ -124,6 +124,29 @@ impl WebAuditStore {
             .map(|(_, value)| decode_web_audit_event(&value))
             .collect()
     }
+
+    pub(super) fn prune_older_than(&self, cutoff_unix_ms: u128) -> Result<usize, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web audit store lock poisoned".to_string())?;
+        let keys = kv
+            .scan_prefix(WEB_AUDIT_PREFIX)
+            .map_err(|err| err.to_string())?
+            .into_iter()
+            .filter_map(|(key, value)| {
+                decode_web_audit_event(&value)
+                    .ok()
+                    .filter(|event| event.unix_ms < cutoff_unix_ms)
+                    .map(|_| key)
+            })
+            .collect::<Vec<_>>();
+        let removed = keys.len();
+        for key in keys {
+            kv.delete(&key).map_err(|err| err.to_string())?;
+        }
+        Ok(removed)
+    }
 }
 
 impl WebUserTokenStore {
@@ -864,5 +887,43 @@ mod tests {
         assert!(constant_time_token_eq("secret", "secret"));
         assert!(!constant_time_token_eq("secret", "secreu"));
         assert!(!constant_time_token_eq("secret", "secret-longer"));
+    }
+
+    #[test]
+    fn web_audit_store_prunes_events_older_than_cutoff() {
+        let dir = temp_dir("audit-prune");
+        let store = WebAuditStore::open(dir.clone()).unwrap();
+        {
+            let mut kv = store.kv.lock().unwrap();
+            let old = WebAuditEvent {
+                unix_ms: 10,
+                action: "old".to_string(),
+                target: "target".to_string(),
+                detail: "detail".to_string(),
+            };
+            let new = WebAuditEvent {
+                unix_ms: 20,
+                action: "new".to_string(),
+                target: "target".to_string(),
+                detail: "detail".to_string(),
+            };
+            kv.put(
+                &web_audit_key(old.unix_ms, &old.action, &old.target),
+                encode_web_audit_event(&old).as_bytes(),
+            )
+            .unwrap();
+            kv.put(
+                &web_audit_key(new.unix_ms, &new.action, &new.target),
+                encode_web_audit_event(&new).as_bytes(),
+            )
+            .unwrap();
+        }
+
+        assert_eq!(store.prune_older_than(15).unwrap(), 1);
+        let events = store.list().unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "new");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

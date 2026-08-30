@@ -24,7 +24,9 @@ scripts/production-preflight.sh /etc/neo4r/server.yml
 
 The production check rejects development defaults such as loopback-only binds,
 relative or temp data directories, missing/weak web admin tokens, async
-replication ACKs, and clustered configs without catch-up controls.
+replication ACKs, missing TLS boundary declarations, unpinned protocol
+compatibility windows, missing retention/rotation/quota policy, and clustered
+configs without catch-up controls.
 
 Start three local nodes with separate data directories and replication ports:
 
@@ -236,4 +238,8 @@ candidate as needing at least:
 ```bash
 scripts/release-gate.sh
 scripts/crash-consistency-gate.sh
+scripts/production-hardening-gate.sh
 ```
+
+The productionization contract is documented in
+[productionization.md](productionization.md).

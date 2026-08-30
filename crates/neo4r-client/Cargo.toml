@@ -9,6 +9,8 @@ repository.workspace = true
 neo4r-core = { path = "../neo4r-core" }
 neo4r-protocol = { path = "../neo4r-protocol" }
 neo4r-query = { path = "../neo4r-query" }
+rustls = { version = "=0.23.31", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2.2.0"
 
 [dev-dependencies]
 neo4r-db = { path = "../neo4r-db" }

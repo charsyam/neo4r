@@ -11,16 +11,19 @@ impl TransactionStore {
         self.next_session_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    pub(crate) fn insert(&self, session_id: u64, tx: NativeTransaction) -> u64 {
+    pub(crate) fn insert(&self, session_id: u64, tx: NativeTransaction) -> Result<u64, String> {
         let tx_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-        self.transactions.lock().unwrap().insert(
-            tx_id,
-            TransactionState {
-                session_id,
-                transaction: tx,
-            },
-        );
-        tx_id
+        self.transactions
+            .lock()
+            .map_err(|_| "transaction store lock poisoned".to_string())?
+            .insert(
+                tx_id,
+                TransactionState {
+                    session_id,
+                    transaction: tx,
+                },
+            );
+        Ok(tx_id)
     }
 
     pub(crate) fn query_cursor(

@@ -91,6 +91,8 @@ struct ServerConfigFile {
     web: WebSection,
     #[serde(default)]
     maintenance: MaintenanceSection,
+    #[serde(default)]
+    production: ProductionSection,
 }
 
 impl ServerConfigFile {
@@ -194,6 +196,161 @@ impl ServerConfigFile {
             "--recover-transactions-interval-ms",
             self.maintenance.recover_transactions_interval_ms,
         );
+        push_option(&mut args, "--tls-mode", self.production.tls_mode);
+        push_option(
+            &mut args,
+            "--replication-tls-mode",
+            self.production.replication_tls_mode,
+        );
+        push_option(&mut args, "--web-tls-mode", self.production.web_tls_mode);
+        push_option_path(
+            &mut args,
+            "--native-tls-cert",
+            self.production.native_tls_cert,
+        );
+        push_option_path(
+            &mut args,
+            "--native-tls-key",
+            self.production.native_tls_key,
+        );
+        push_option_path(
+            &mut args,
+            "--native-tls-client-ca",
+            self.production.native_tls_client_ca,
+        );
+        push_bool(
+            &mut args,
+            "--native-tls-require-client-auth",
+            self.production.native_tls_require_client_auth,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-cert",
+            self.production.replication_tls_cert,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-key",
+            self.production.replication_tls_key,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-client-ca",
+            self.production.replication_tls_client_ca,
+        );
+        push_bool(
+            &mut args,
+            "--replication-tls-require-client-auth",
+            self.production.replication_tls_require_client_auth,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-ca",
+            self.production.replication_tls_ca,
+        );
+        push_option(
+            &mut args,
+            "--replication-tls-server-name",
+            self.production.replication_tls_server_name,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-client-cert",
+            self.production.replication_tls_client_cert,
+        );
+        push_option_path(
+            &mut args,
+            "--replication-tls-client-key",
+            self.production.replication_tls_client_key,
+        );
+        push_option_display(
+            &mut args,
+            "--min-native-protocol-version",
+            self.production.min_native_protocol_version,
+        );
+        push_option_display(
+            &mut args,
+            "--max-native-protocol-version",
+            self.production.max_native_protocol_version,
+        );
+        push_option_display(
+            &mut args,
+            "--backup-drill-max-age-hours",
+            self.production.backup_drill_max_age_hours,
+        );
+        push_option_path(
+            &mut args,
+            "--wal-archive-dir",
+            self.production.wal_archive_dir,
+        );
+        push_option_path(
+            &mut args,
+            "--restore-drill-manifest",
+            self.production.restore_drill_manifest,
+        );
+        push_option_display(
+            &mut args,
+            "--audit-retention-days",
+            self.production.audit_retention_days,
+        );
+        push_option_display(
+            &mut args,
+            "--secret-rotation-days",
+            self.production.secret_rotation_days,
+        );
+        push_option_display(
+            &mut args,
+            "--tenant-max-concurrent-queries",
+            self.production.tenant_max_concurrent_queries,
+        );
+        push_option_display(
+            &mut args,
+            "--tenant-max-result-rows",
+            self.production.tenant_max_result_rows,
+        );
+        push_option_display(
+            &mut args,
+            "--data-format-version",
+            self.production.data_format_version,
+        );
+        push_option_path(
+            &mut args,
+            "--upgrade-manifest",
+            self.production.upgrade_manifest,
+        );
+        push_option_display(
+            &mut args,
+            "--raft-lease-clock-drift-bound-ms",
+            self.production.raft_lease_clock_drift_bound_ms,
+        );
+        push_option_display(
+            &mut args,
+            "--raft-lease-message-delay-bound-ms",
+            self.production.raft_lease_message_delay_bound_ms,
+        );
+        push_option_path(
+            &mut args,
+            "--observability-alerts",
+            self.production.observability_alerts,
+        );
+        push_bool(
+            &mut args,
+            "--repair-check-on-startup",
+            self.production.repair_check_on_startup,
+        );
+        push_option_path(
+            &mut args,
+            "--query-regression-corpus",
+            self.production.query_regression_corpus,
+        );
+        push_bool(
+            &mut args,
+            "--chaos-gate-required",
+            self.production.chaos_gate_required,
+        );
+        push_option_path(&mut args, "--runbook", self.production.runbook);
+        push_option_path(&mut args, "--systemd-unit", self.production.systemd_unit);
+        push_option_path(&mut args, "--logrotate", self.production.logrotate);
         args
     }
 }
@@ -260,6 +417,46 @@ struct MaintenanceSection {
     sync_index_catalog_interval_ms: Option<u64>,
     recover_transactions_on_startup: Option<bool>,
     recover_transactions_interval_ms: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProductionSection {
+    tls_mode: Option<String>,
+    replication_tls_mode: Option<String>,
+    web_tls_mode: Option<String>,
+    native_tls_cert: Option<PathBuf>,
+    native_tls_key: Option<PathBuf>,
+    native_tls_client_ca: Option<PathBuf>,
+    native_tls_require_client_auth: Option<bool>,
+    replication_tls_cert: Option<PathBuf>,
+    replication_tls_key: Option<PathBuf>,
+    replication_tls_client_ca: Option<PathBuf>,
+    replication_tls_require_client_auth: Option<bool>,
+    replication_tls_ca: Option<PathBuf>,
+    replication_tls_server_name: Option<String>,
+    replication_tls_client_cert: Option<PathBuf>,
+    replication_tls_client_key: Option<PathBuf>,
+    min_native_protocol_version: Option<u8>,
+    max_native_protocol_version: Option<u8>,
+    backup_drill_max_age_hours: Option<u64>,
+    wal_archive_dir: Option<PathBuf>,
+    restore_drill_manifest: Option<PathBuf>,
+    audit_retention_days: Option<u64>,
+    secret_rotation_days: Option<u64>,
+    tenant_max_concurrent_queries: Option<usize>,
+    tenant_max_result_rows: Option<usize>,
+    data_format_version: Option<u32>,
+    upgrade_manifest: Option<PathBuf>,
+    raft_lease_clock_drift_bound_ms: Option<u64>,
+    raft_lease_message_delay_bound_ms: Option<u64>,
+    observability_alerts: Option<PathBuf>,
+    repair_check_on_startup: Option<bool>,
+    query_regression_corpus: Option<PathBuf>,
+    chaos_gate_required: Option<bool>,
+    runbook: Option<PathBuf>,
+    systemd_unit: Option<PathBuf>,
+    logrotate: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,12 +544,51 @@ fn append_config_arg(
         | "recover-transactions-interval-ms"
         | "web-bind"
         | "web-auth-token"
-        | "slow-query-threshold-ms" => {
+        | "slow-query-threshold-ms"
+        | "tls-mode"
+        | "replication-tls-mode"
+        | "web-tls-mode"
+        | "native-tls-cert"
+        | "native-tls-key"
+        | "native-tls-client-ca"
+        | "replication-tls-cert"
+        | "replication-tls-key"
+        | "replication-tls-client-ca"
+        | "replication-tls-ca"
+        | "replication-tls-server-name"
+        | "replication-tls-client-cert"
+        | "replication-tls-client-key"
+        | "min-native-protocol-version"
+        | "max-native-protocol-version"
+        | "backup-drill-max-age-hours"
+        | "wal-archive-dir"
+        | "restore-drill-manifest"
+        | "audit-retention-days"
+        | "secret-rotation-days"
+        | "tenant-max-concurrent-queries"
+        | "tenant-max-result-rows"
+        | "data-format-version"
+        | "upgrade-manifest"
+        | "raft-lease-clock-drift-bound-ms"
+        | "raft-lease-message-delay-bound-ms"
+        | "observability-alerts"
+        | "query-regression-corpus"
+        | "runbook"
+        | "systemd-unit"
+        | "logrotate" => {
             if value.is_empty() {
                 return Err(format!("config line {} value cannot be empty", line_no + 1));
             }
             args.push(format!("--{key}"));
             args.push(value.to_string());
+        }
+        "native-tls-require-client-auth"
+        | "replication-tls-require-client-auth"
+        | "repair-check-on-startup"
+        | "chaos-gate-required" => {
+            if parse_config_bool(value, line_no)? {
+                args.push(format!("--{key}"));
+            }
         }
         _ => return Err(format!("config line {} has unknown key {key}", line_no + 1)),
     }

@@ -88,6 +88,8 @@ impl TcpBackend {
         let transactions = TransactionStore::default();
         let pending_requests = PendingRequestStore::default();
         let prepared_queries = PreparedQueryStore::default();
+        let tenant_quota = TenantQuota::default();
+        let replication_tls_channel_config = ReplicationTlsChannelConfigStore::default();
         let web_user_tokens = db.data_dir().ok().and_then(|data_dir| {
             WebUserTokenStore::open(data_dir.join(WEB_AUTH_ROCKS_DIR))
                 .or_else(|_| WebUserTokenStore::open(data_dir.join("web-auth-rocksdb")))
@@ -116,6 +118,8 @@ impl TcpBackend {
                     read_preference: config.read_preference,
                     catch_up_connect_timeout: config.catch_up_connect_timeout,
                     pending_requests: pending_requests.clone(),
+                    tenant_quota: tenant_quota.clone(),
+                    replication_tls_channel_config: replication_tls_channel_config.clone(),
                 },
                 config.worker_count,
                 config.queue_capacity,
@@ -140,7 +144,36 @@ impl TcpBackend {
             web_audit,
             web_sessions,
             tenant_databases: None,
+            tenant_quota,
+            native_tls_acceptor: None,
+            replication_tls_acceptor: None,
+            replication_tls_channel_config,
         }
+    }
+
+    pub fn with_native_tls_config(mut self, config: NativeTlsConfig) -> io::Result<Self> {
+        self.native_tls_acceptor = Some(NativeTlsAcceptor::from_config(&config)?);
+        Ok(self)
+    }
+
+    pub fn with_replication_tls_config(mut self, config: NativeTlsConfig) -> io::Result<Self> {
+        self.replication_tls_acceptor = Some(NativeTlsAcceptor::from_config(&config)?);
+        Ok(self)
+    }
+
+    pub fn with_replication_tls_channel_config(self, config: Option<ReplicationTlsConfig>) -> Self {
+        self.replication_tls_channel_config.set(config);
+        self
+    }
+
+    pub fn with_tenant_quota(
+        self,
+        max_concurrent_queries: Option<usize>,
+        max_result_rows: Option<usize>,
+    ) -> Self {
+        self.tenant_quota
+            .configure(max_concurrent_queries, max_result_rows);
+        self
     }
 
     pub fn with_web_options(
@@ -225,8 +258,13 @@ impl TcpBackend {
     ) -> io::Result<()> {
         let address = address.into();
         validate_replication_peer_membership(&self.db, server_id).map_err(io::Error::other)?;
-        let remote = request_tcp_replication_hello(&address, self.catch_up_connect_timeout)
-            .map_err(io::Error::other)?;
+        let remote = match self.replication_tls_channel_config.get() {
+            Some(config) => {
+                request_tls_replication_hello(&address, self.catch_up_connect_timeout, &config)
+            }
+            None => request_tcp_replication_hello(&address, self.catch_up_connect_timeout),
+        }
+        .map_err(io::Error::other)?;
         validate_remote_replication_identity(&self.db, server_id, node_id, &remote)
             .map_err(io::Error::other)?;
         validate_replication_peer_identity(&self.db, server_id, Some(remote.node_id))
@@ -295,6 +333,7 @@ impl TcpBackend {
             &self.replication_peers,
             self.catch_up_connect_timeout,
             max_entries_per_request,
+            &self.replication_tls_channel_config,
         )
     }
 
@@ -309,6 +348,7 @@ impl TcpBackend {
             self.catch_up_connect_timeout,
             server_id,
             max_entries_per_request,
+            &self.replication_tls_channel_config,
         )
     }
 
@@ -375,6 +415,9 @@ impl TcpBackend {
     }
 
     pub fn handle_stream(&self, stream: TcpStream) -> io::Result<()> {
+        if let Some(acceptor) = &self.native_tls_acceptor {
+            return self.handle_native_transport(acceptor.accept(stream)?);
+        }
         self.handle_native_stream(stream)
     }
 
@@ -401,6 +444,14 @@ impl TcpBackend {
             }
         }
         Ok(())
+    }
+
+    pub fn handle_replication_tcp_stream(&self, stream: TcpStream) -> io::Result<()> {
+        if let Some(acceptor) = &self.replication_tls_acceptor {
+            let mut stream = acceptor.accept(stream)?.into_stream();
+            return handle_tcp_replication_stream(&self.db, &mut stream).map_err(io::Error::other);
+        }
+        self.handle_replication_stream(stream)
     }
 
     pub fn handle_replication_stream(&self, mut stream: impl Read + Write) -> io::Result<()> {

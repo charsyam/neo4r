@@ -1,4 +1,5 @@
 use super::*;
+use neo4r_db::ReplicationChannel;
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ReplicationPeerStatusEntry {
     server_id: u64,
@@ -329,7 +330,17 @@ pub(crate) fn catch_up_from_primaries(
     replication_peers: &QueryPeerStore,
     connect_timeout: Duration,
     max_entries_per_request: Option<usize>,
+    tls_config: &ReplicationTlsChannelConfigStore,
 ) -> Result<Vec<neo4r_db::TcpCatchUpResult>, String> {
+    if let Some(tls_config) = tls_config.get() {
+        return catch_up_from_primaries_with_tls(
+            db,
+            replication_peers,
+            connect_timeout,
+            max_entries_per_request,
+            tls_config,
+        );
+    }
     let routing_table = db.routing_table().map_err(|err| err.to_string())?;
     let status = db.cluster_status().map_err(|err| err.to_string())?;
     let peer_addresses = replication_peers
@@ -363,7 +374,18 @@ pub(crate) fn catch_up_from_primary(
     connect_timeout: Duration,
     server_id: u64,
     max_entries_per_request: Option<usize>,
+    tls_config: &ReplicationTlsChannelConfigStore,
 ) -> Result<Vec<neo4r_db::TcpCatchUpResult>, String> {
+    if let Some(tls_config) = tls_config.get() {
+        return catch_up_from_primary_with_tls(
+            db,
+            replication_peers,
+            connect_timeout,
+            server_id,
+            max_entries_per_request,
+            tls_config,
+        );
+    }
     let routing_table = db.routing_table().map_err(|err| err.to_string())?;
     let status = db.cluster_status().map_err(|err| err.to_string())?;
     let peer_addresses = replication_peers
@@ -418,6 +440,142 @@ pub(crate) fn catch_up_from_primary(
         });
     }
     Ok(results)
+}
+
+fn catch_up_from_primaries_with_tls(
+    db: &Neo4rDatabaseHandle,
+    replication_peers: &QueryPeerStore,
+    connect_timeout: Duration,
+    max_entries_per_request: Option<usize>,
+    tls_config: ReplicationTlsConfig,
+) -> Result<Vec<neo4r_db::TcpCatchUpResult>, String> {
+    let routing_table = db.routing_table().map_err(|err| err.to_string())?;
+    let status = db.cluster_status().map_err(|err| err.to_string())?;
+    let peer_addresses = replication_peers
+        .list()
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let mut results = Vec::new();
+    for placement in &routing_table.placements {
+        let Some(primary_server_id) = placement.primary_server_id() else {
+            return Err(format!("missing primary for shard {}", placement.shard_id));
+        };
+        if !placement.has_server(status.server_id) || primary_server_id == status.server_id {
+            continue;
+        }
+        let Some(address) = peer_addresses.get(&primary_server_id) else {
+            return Err(format!(
+                "missing peer address for primary server {primary_server_id} on shard {}",
+                placement.shard_id
+            ));
+        };
+        let committed_indexes = db.committed_indexes().map_err(|err| err.to_string())?;
+        let start_index = committed_indexes
+            .get(placement.shard_id as usize)
+            .copied()
+            .ok_or_else(|| format!("missing committed index for shard {}", placement.shard_id))?
+            + 1;
+        let fetched_entries = catch_up_tls_shard(
+            db,
+            address,
+            connect_timeout,
+            placement.shard_id,
+            start_index,
+            max_entries_per_request,
+            &tls_config,
+        )?;
+        results.push(neo4r_db::TcpCatchUpResult {
+            shard_id: placement.shard_id,
+            start_index,
+            end_index: catch_up_end_index(start_index, fetched_entries),
+            fetched_entries,
+            primary_server_id,
+        });
+    }
+    Ok(results)
+}
+
+fn catch_up_from_primary_with_tls(
+    db: &Neo4rDatabaseHandle,
+    replication_peers: &QueryPeerStore,
+    connect_timeout: Duration,
+    server_id: u64,
+    max_entries_per_request: Option<usize>,
+    tls_config: ReplicationTlsConfig,
+) -> Result<Vec<neo4r_db::TcpCatchUpResult>, String> {
+    let routing_table = db.routing_table().map_err(|err| err.to_string())?;
+    let status = db.cluster_status().map_err(|err| err.to_string())?;
+    let peer_addresses = replication_peers
+        .list()
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let address = peer_addresses
+        .get(&server_id)
+        .ok_or_else(|| format!("missing peer address for primary server {server_id}"))?;
+    let committed_indexes = db.committed_indexes().map_err(|err| err.to_string())?;
+    let mut results = Vec::new();
+    for placement in &routing_table.placements {
+        if !placement.has_server(status.server_id)
+            || placement.primary_server_id() != Some(server_id)
+            || server_id == status.server_id
+        {
+            continue;
+        }
+        let start_index = committed_indexes
+            .get(placement.shard_id as usize)
+            .copied()
+            .ok_or_else(|| format!("missing committed index for shard {}", placement.shard_id))?
+            + 1;
+        let fetched_entries = catch_up_tls_shard(
+            db,
+            address,
+            connect_timeout,
+            placement.shard_id,
+            start_index,
+            max_entries_per_request,
+            &tls_config,
+        )?;
+        results.push(neo4r_db::TcpCatchUpResult {
+            shard_id: placement.shard_id,
+            start_index,
+            end_index: catch_up_end_index(start_index, fetched_entries),
+            fetched_entries,
+            primary_server_id: server_id,
+        });
+    }
+    Ok(results)
+}
+
+fn catch_up_tls_shard(
+    db: &Neo4rDatabaseHandle,
+    address: &str,
+    connect_timeout: Duration,
+    shard_id: u64,
+    start_index: u64,
+    max_entries_per_request: Option<usize>,
+    tls_config: &ReplicationTlsConfig,
+) -> Result<usize, String> {
+    let endpoint = ReplicationEndpoint::tcp(address.to_string());
+    let channel = TlsReplicationChannel::new(tls_config.clone());
+    let config = neo4r_db::ReplicationChannelConfig {
+        connect_timeout,
+        ..neo4r_db::ReplicationChannelConfig::default()
+    };
+    let entries = channel
+        .catch_up(
+            &endpoint,
+            &config,
+            shard_id,
+            start_index,
+            max_entries_per_request,
+        )
+        .map_err(|err| err.to_string())?;
+    let count = entries.len();
+    db.apply_replicated_entries(entries)
+        .map_err(|err| err.to_string())?;
+    Ok(count)
 }
 
 #[derive(Debug, Eq, PartialEq)]

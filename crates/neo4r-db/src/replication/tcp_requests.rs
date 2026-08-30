@@ -201,6 +201,18 @@ pub fn request_tcp_replication_hello(
     read_tcp_replication_hello_response(&mut stream)
 }
 
+pub fn request_tcp_replication_hello_on_stream(
+    stream: &mut (impl Read + Write),
+) -> DatabaseResult<ReplicationNodeIdentity> {
+    stream
+        .write_all(TCP_REPLICATION_HELLO_MAGIC)
+        .map_err(|err| DatabaseError::Replication(format!("write replication hello: {err}")))?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush replication hello: {err}")))?;
+    read_tcp_replication_hello_response(stream)
+}
+
 pub fn request_tcp_install_snapshot(
     address: &str,
     connect_timeout: Duration,
@@ -579,6 +591,55 @@ pub(super) fn send_tcp_raft_append_batch_once(
     read_tcp_raft_append_response(&mut stream)
 }
 
+pub fn send_tcp_raft_append_batch_on_stream(
+    stream: &mut (impl Read + Write),
+    shard_id: ShardId,
+    leader_commit: LogIndex,
+    entries: &[LogEntry],
+) -> DatabaseResult<TcpRaftAppendResponse> {
+    write_tcp_raft_append_request(stream, shard_id, leader_commit, entries)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush raft append request: {err}")))?;
+    read_tcp_raft_append_response(stream)
+}
+
+pub fn request_tcp_raft_vote_on_stream(
+    stream: &mut (impl Read + Write),
+    shard_id: ShardId,
+    request: RequestVoteRequest,
+) -> DatabaseResult<RequestVoteResponse> {
+    write_tcp_raft_vote_request(stream, shard_id, &request)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush raft vote request: {err}")))?;
+    read_tcp_raft_vote_response(stream)
+}
+
+pub fn request_tcp_raft_pre_vote_on_stream(
+    stream: &mut (impl Read + Write),
+    shard_id: ShardId,
+    request: PreVoteRequest,
+) -> DatabaseResult<PreVoteResponse> {
+    write_tcp_raft_pre_vote_request(stream, shard_id, &request)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush raft pre-vote request: {err}")))?;
+    read_tcp_raft_pre_vote_response(stream)
+}
+
+pub fn request_tcp_install_snapshot_on_stream(
+    stream: &mut (impl Read + Write),
+    request: InstallSnapshotRequest,
+) -> DatabaseResult<InstallSnapshotResponse> {
+    let request = validate_snapshot_chunks_for_tcp(request)?;
+    write_tcp_install_snapshot_request(stream, &request)?;
+    stream.flush().map_err(|err| {
+        DatabaseError::Replication(format!("flush install snapshot request: {err}"))
+    })?;
+    read_tcp_install_snapshot_response(stream)
+}
+
 pub(super) fn write_tcp_raft_append_request(
     writer: &mut impl Write,
     shard_id: ShardId,
@@ -741,6 +802,17 @@ pub(super) fn send_tcp_replication_batch_once(
         .flush()
         .map_err(|err| DatabaseError::Replication(format!("flush replication request: {err}")))?;
     read_tcp_replication_response(&mut stream)
+}
+
+pub fn send_tcp_replication_batch_on_stream(
+    stream: &mut (impl Read + Write),
+    entries: &[LogEntry],
+) -> DatabaseResult<Vec<(ShardId, LogIndex)>> {
+    write_tcp_replication_request(stream, entries)?;
+    stream
+        .flush()
+        .map_err(|err| DatabaseError::Replication(format!("flush replication request: {err}")))?;
+    read_tcp_replication_response(stream)
 }
 
 pub(super) fn write_tcp_replication_request(

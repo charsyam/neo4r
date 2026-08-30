@@ -21,12 +21,13 @@ Production configs must declare encrypted network boundaries:
 - `production.tls_mode`: `external` or `required`
 - `production.replication_tls_mode`: `external` or `required`. Use `required`
   for the built-in TCP replication TLS channel and configure peer CA validation.
-- `production.web_tls_mode`: `external` for the current web admin listener.
+- `production.web_tls_mode`: `external` or `required` for the web admin listener.
 
 `external` means TLS/mTLS is terminated by a sidecar, load balancer, service
 mesh, stunnel, or host-level transport policy. `required` enables in-process
-TLS for the native client protocol or TCP replication protocol. Native TLS
-requires `native_tls_cert` plus `native_tls_key`; replication TLS requires
+TLS for the native client protocol, web admin listener, or TCP replication
+protocol. Native TLS requires `native_tls_cert` plus `native_tls_key`; web TLS
+requires `web_tls_cert` plus `web_tls_key`; replication TLS requires
 `replication_tls_cert`, `replication_tls_key`, `replication_tls_ca`, and
 `replication_tls_server_name`. Set the corresponding `*_require_client_auth`
 field with a client CA to require mTLS client certificates. `disabled` is
@@ -65,10 +66,9 @@ production:
   restore_drill_manifest: docs/pitr_restore_drill.yml
 ```
 
-Point-in-time recovery is not complete until WAL/archive shipping is implemented
-and covered by crash tests. Production configs must still declare the archive
-target and restore drill manifest now, so deployments cannot graduate without a
-PITR operating contract.
+Point-in-time recovery now has a production gate for the declared archive
+contract, segmented WAL replay, and uncommitted WAL rejection. Continuous archive
+shipping and timestamp-targeted replay remain the next PITR runtime expansion.
 
 ## Audit And Secret Rotation
 
@@ -115,6 +115,5 @@ production:
 
 ## Remaining Production Blockers
 
-- WAL archive replay implementation behind the declared PITR contract
-- full in-process web TLS/mTLS
+- continuous WAL archive shipping and timestamp-targeted PITR replay
 - sustained multi-node chaos tests with real network faults enabled in CI

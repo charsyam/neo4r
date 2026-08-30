@@ -5,9 +5,16 @@ CONFIG="${1:-packaging/server.production.yml}"
 
 required_files=(
   docs/pitr_restore_drill.yml
+  docs/pitr_archive_contract.yml
+  docs/backup_consistency_contract.yml
   docs/rolling_upgrade_manifest.yml
   docs/query_regression_corpus.yml
+  docs/query_cost_model.yml
   docs/prometheus_alerts.yml
+  docs/observability_slo.yml
+  docs/security_hardening_contract.yml
+  docs/repair_automation_contract.yml
+  docs/packaging_readiness.yml
   docs/production_runbook.md
   packaging/neo4r-server.service
   packaging/neo4r.logrotate
@@ -22,6 +29,9 @@ for path in "${required_files[@]}"; do
 done
 
 grep -q "wal_archive_dir:" "$CONFIG"
+grep -q "web_tls_mode: required" "$CONFIG"
+grep -q "web_tls_cert:" "$CONFIG"
+grep -q "web_tls_key:" "$CONFIG"
 grep -q "restore_drill_manifest:" "$CONFIG"
 grep -q "upgrade_manifest:" "$CONFIG"
 grep -q "query_regression_corpus:" "$CONFIG"
@@ -33,5 +43,8 @@ grep -q "logrotate:" "$CONFIG"
 grep -q "Neo4rRaftNoLeader" docs/prometheus_alerts.yml
 grep -q "data_format_version: 1" docs/rolling_upgrade_manifest.yml
 grep -q "query:" docs/query_regression_corpus.yml
+grep -q "tls-web-admin" docs/security_hardening_contract.yml
+grep -q "health-probe" docs/packaging_readiness.yml
+grep -q "startup_check: required" docs/repair_automation_contract.yml
 
 echo "neo4r production artifact checks passed"

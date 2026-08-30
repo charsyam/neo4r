@@ -16,9 +16,9 @@ operational hardening, failure semantics, and long-running compatibility.
 | Replication | Medium-low | Proven Raft behavior under partitions, lag, replay, and membership churn |
 | RDMA transport | Low-medium | Real transport path exists, but needs sustained live/chaos testing |
 | Multi-tenancy | Medium | Per-DB lifecycle, auth scope, backup/restore boundaries are present |
-| Security | Medium | Token expiry/revoke and native/replication TLS exist; web TLS is external |
+| Security | Medium | Token expiry/revoke and native/replication/web TLS exist; needs deeper RBAC hardening |
 | Observability | Medium | Metrics and alert rules exist; needs SLO dashboards and log correlation |
-| Backup/restore | Medium | API and restore drill contract exist; needs WAL archive replay |
+| Backup/restore | Medium | API, checksum manifest, and PITR archive gates exist; needs continuous archive replay |
 | Operations | Medium-high | Config, preflight, release gates, systemd, logrotate, and runbook exist |
 
 ## Practical Status
@@ -45,7 +45,7 @@ Neo4r is not yet suitable for:
 3. Run live RDMA and TCP replication tests in CI/lab environments.
 4. Add transport-specific observability.
 5. Expand crash consistency tests around storage materialization.
-6. Implement WAL archive replay for the declared PITR contract.
+6. Implement continuous WAL archive shipping and timestamp-targeted PITR replay.
 7. Run opt-in live chaos/RDMA gates continuously in lab CI.
 
 ## Production Preflight

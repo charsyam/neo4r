@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+grep -q "health-probe" docs/packaging_readiness.yml
+grep -q "ExecStartPre" packaging/neo4r-server.service
+grep -q "web_tls_cert:" packaging/server.production.yml
+scripts/production-preflight.sh packaging/server.production.yml
+echo "neo4r packaging readiness gate passed"

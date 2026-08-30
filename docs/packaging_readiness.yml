@@ -1,0 +1,11 @@
+version: 1
+artifacts:
+  - packaging/server.production.yml
+  - packaging/neo4r-server.service
+  - packaging/neo4r-server.env
+  - packaging/neo4r.logrotate
+commands:
+  - production-preflight
+  - release-gate
+  - health-probe
+  - readiness-probe

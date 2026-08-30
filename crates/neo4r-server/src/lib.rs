@@ -81,6 +81,7 @@ pub struct TcpBackend {
     tenant_databases: Option<TenantDatabaseManager>,
     tenant_quota: TenantQuota,
     native_tls_acceptor: Option<NativeTlsAcceptor>,
+    web_tls_acceptor: Option<NativeTlsAcceptor>,
     replication_tls_acceptor: Option<NativeTlsAcceptor>,
     replication_tls_channel_config: ReplicationTlsChannelConfigStore,
 }

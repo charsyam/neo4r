@@ -1,0 +1,11 @@
+version: 1
+required_controls:
+  - token-digest-only
+  - token-expiry
+  - token-revoke
+  - per-database-roles
+  - audit-retention
+  - auth-rate-limit
+  - tls-native
+  - tls-replication
+  - tls-web-admin

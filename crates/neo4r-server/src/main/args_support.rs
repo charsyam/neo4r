@@ -125,6 +125,21 @@ pub(in crate::runtime) fn daemon_child_args(args: &ServerArgs) -> Vec<String> {
     if args.native_tls_require_client_auth {
         child_args.push("--native-tls-require-client-auth".to_string());
     }
+    if let Some(path) = &args.web_tls_cert_path {
+        child_args.push("--web-tls-cert".to_string());
+        child_args.push(path.display().to_string());
+    }
+    if let Some(path) = &args.web_tls_key_path {
+        child_args.push("--web-tls-key".to_string());
+        child_args.push(path.display().to_string());
+    }
+    if let Some(path) = &args.web_tls_client_ca_path {
+        child_args.push("--web-tls-client-ca".to_string());
+        child_args.push(path.display().to_string());
+    }
+    if args.web_tls_require_client_auth {
+        child_args.push("--web-tls-require-client-auth".to_string());
+    }
     if let Some(path) = &args.replication_tls_cert_path {
         child_args.push("--replication-tls-cert".to_string());
         child_args.push(path.display().to_string());
@@ -568,7 +583,7 @@ pub(in crate::runtime) fn parse_next<T: std::str::FromStr>(
 }
 
 pub(in crate::runtime) fn usage() -> String {
-    "usage: neo4r-server [--config PATH] [--check-config] [--production-check] [--dump-config] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--tls-mode disabled|external|required] [--replication-tls-mode disabled|external|required] [--web-tls-mode disabled|external|required] [--native-tls-cert CERT.pem] [--native-tls-key KEY.pem] [--native-tls-client-ca CA.pem] [--native-tls-require-client-auth] [--replication-tls-cert CERT.pem] [--replication-tls-key KEY.pem] [--replication-tls-client-ca CA.pem] [--replication-tls-require-client-auth] [--replication-tls-ca CA.pem] [--replication-tls-server-name DNS_NAME] [--replication-tls-client-cert CERT.pem] [--replication-tls-client-key KEY.pem] [--min-native-protocol-version N] [--max-native-protocol-version N] [--backup-drill-max-age-hours N] [--wal-archive-dir DIR] [--restore-drill-manifest PATH] [--audit-retention-days N] [--secret-rotation-days N] [--tenant-max-concurrent-queries N] [--tenant-max-result-rows N] [--data-format-version N] [--upgrade-manifest PATH] [--raft-lease-clock-drift-bound-ms N] [--raft-lease-message-delay-bound-ms N] [--observability-alerts PATH] [--repair-check-on-startup] [--query-regression-corpus PATH] [--chaos-gate-required] [--runbook PATH] [--systemd-unit PATH] [--logrotate PATH] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--config PATH] [--check-config] [--production-check] [--dump-config] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--tls-mode disabled|external|required] [--replication-tls-mode disabled|external|required] [--web-tls-mode disabled|external|required] [--native-tls-cert CERT.pem] [--native-tls-key KEY.pem] [--native-tls-client-ca CA.pem] [--native-tls-require-client-auth] [--web-tls-cert CERT.pem] [--web-tls-key KEY.pem] [--web-tls-client-ca CA.pem] [--web-tls-require-client-auth] [--replication-tls-cert CERT.pem] [--replication-tls-key KEY.pem] [--replication-tls-client-ca CA.pem] [--replication-tls-require-client-auth] [--replication-tls-ca CA.pem] [--replication-tls-server-name DNS_NAME] [--replication-tls-client-cert CERT.pem] [--replication-tls-client-key KEY.pem] [--min-native-protocol-version N] [--max-native-protocol-version N] [--backup-drill-max-age-hours N] [--wal-archive-dir DIR] [--restore-drill-manifest PATH] [--audit-retention-days N] [--secret-rotation-days N] [--tenant-max-concurrent-queries N] [--tenant-max-result-rows N] [--data-format-version N] [--upgrade-manifest PATH] [--raft-lease-clock-drift-bound-ms N] [--raft-lease-message-delay-bound-ms N] [--observability-alerts PATH] [--repair-check-on-startup] [--query-regression-corpus PATH] [--chaos-gate-required] [--runbook PATH] [--systemd-unit PATH] [--logrotate PATH] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 pub(in crate::runtime) fn default_worker_count() -> usize {

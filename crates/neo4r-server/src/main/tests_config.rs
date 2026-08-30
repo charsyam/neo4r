@@ -42,11 +42,15 @@ maintenance:
 production:
   tls_mode: external
   replication_tls_mode: required
-  web_tls_mode: external
+  web_tls_mode: required
   native_tls_cert: /etc/neo4r/tls/server.crt
   native_tls_key: /etc/neo4r/tls/server.key
   native_tls_client_ca: /etc/neo4r/tls/ca.crt
   native_tls_require_client_auth: true
+  web_tls_cert: /etc/neo4r/tls/web.crt
+  web_tls_key: /etc/neo4r/tls/web.key
+  web_tls_client_ca: /etc/neo4r/tls/ca.crt
+  web_tls_require_client_auth: true
   replication_tls_cert: /etc/neo4r/tls/replication.crt
   replication_tls_key: /etc/neo4r/tls/replication.key
   replication_tls_client_ca: /etc/neo4r/tls/ca.crt
@@ -125,7 +129,7 @@ production:
     assert!(args.recover_transactions_on_startup);
     assert_eq!(args.tls_mode, ProductionSecurityMode::External);
     assert_eq!(args.replication_tls_mode, ProductionSecurityMode::Required);
-    assert_eq!(args.web_tls_mode, ProductionSecurityMode::External);
+    assert_eq!(args.web_tls_mode, ProductionSecurityMode::Required);
     assert_eq!(
         args.native_tls_cert_path,
         Some(PathBuf::from("/etc/neo4r/tls/server.crt"))
@@ -139,6 +143,19 @@ production:
         Some(PathBuf::from("/etc/neo4r/tls/ca.crt"))
     );
     assert!(args.native_tls_require_client_auth);
+    assert_eq!(
+        args.web_tls_cert_path,
+        Some(PathBuf::from("/etc/neo4r/tls/web.crt"))
+    );
+    assert_eq!(
+        args.web_tls_key_path,
+        Some(PathBuf::from("/etc/neo4r/tls/web.key"))
+    );
+    assert_eq!(
+        args.web_tls_client_ca_path,
+        Some(PathBuf::from("/etc/neo4r/tls/ca.crt"))
+    );
+    assert!(args.web_tls_require_client_auth);
     assert_eq!(
         args.replication_tls_cert_path,
         Some(PathBuf::from("/etc/neo4r/tls/replication.crt"))

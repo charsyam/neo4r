@@ -135,6 +135,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tls_config) = args.native_tls_config()? {
         backend = backend.with_native_tls_config(tls_config)?;
     }
+    if let Some(tls_config) = args.web_tls_config()? {
+        backend = backend.with_web_tls_config(tls_config)?;
+    }
     if let Some(tls_config) = args.replication_tls_acceptor_config()? {
         backend = backend.with_replication_tls_config(tls_config)?;
     }

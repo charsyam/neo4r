@@ -299,6 +299,82 @@ fn production_check_accepts_native_tls_required_when_cert_and_key_are_configured
 }
 
 #[test]
+fn production_check_accepts_web_tls_required_when_cert_and_key_are_configured() {
+    let err =
+        ServerArgs::parse(["--web-tls-mode".to_string(), "required".to_string()]).unwrap_err();
+    assert!(err.contains("--web-tls-cert is required"));
+
+    let args = ServerArgs::parse([
+        "--production-check".to_string(),
+        "--bind".to_string(),
+        "0.0.0.0:7687".to_string(),
+        "--web-bind".to_string(),
+        "0.0.0.0:17687".to_string(),
+        "--web-auth-token".to_string(),
+        "admin:long-production-token".to_string(),
+        "--data-dir".to_string(),
+        "/var/lib/neo4r".to_string(),
+        "--tls-mode".to_string(),
+        "external".to_string(),
+        "--replication-tls-mode".to_string(),
+        "external".to_string(),
+        "--web-tls-mode".to_string(),
+        "required".to_string(),
+        "--web-tls-cert".to_string(),
+        "/etc/neo4r/tls/web.crt".to_string(),
+        "--web-tls-key".to_string(),
+        "/etc/neo4r/tls/web.key".to_string(),
+        "--web-tls-client-ca".to_string(),
+        "/etc/neo4r/tls/ca.crt".to_string(),
+        "--web-tls-require-client-auth".to_string(),
+        "--min-native-protocol-version".to_string(),
+        "1".to_string(),
+        "--max-native-protocol-version".to_string(),
+        "1".to_string(),
+        "--backup-drill-max-age-hours".to_string(),
+        "24".to_string(),
+        "--wal-archive-dir".to_string(),
+        "/var/lib/neo4r/wal-archive".to_string(),
+        "--restore-drill-manifest".to_string(),
+        "docs/pitr_restore_drill.yml".to_string(),
+        "--audit-retention-days".to_string(),
+        "90".to_string(),
+        "--secret-rotation-days".to_string(),
+        "30".to_string(),
+        "--tenant-max-concurrent-queries".to_string(),
+        "128".to_string(),
+        "--tenant-max-result-rows".to_string(),
+        "100000".to_string(),
+        "--data-format-version".to_string(),
+        "1".to_string(),
+        "--upgrade-manifest".to_string(),
+        "docs/rolling_upgrade_manifest.yml".to_string(),
+        "--raft-lease-clock-drift-bound-ms".to_string(),
+        "50".to_string(),
+        "--raft-lease-message-delay-bound-ms".to_string(),
+        "200".to_string(),
+        "--observability-alerts".to_string(),
+        "docs/prometheus_alerts.yml".to_string(),
+        "--repair-check-on-startup".to_string(),
+        "--query-regression-corpus".to_string(),
+        "docs/query_regression_corpus.yml".to_string(),
+        "--chaos-gate-required".to_string(),
+        "--runbook".to_string(),
+        "docs/production_runbook.md".to_string(),
+        "--systemd-unit".to_string(),
+        "packaging/neo4r-server.service".to_string(),
+        "--logrotate".to_string(),
+        "packaging/neo4r.logrotate".to_string(),
+    ])
+    .unwrap();
+
+    args.validate_production().unwrap();
+    let web_tls = args.web_tls_config().unwrap().unwrap();
+    assert_eq!(web_tls.cert_path, PathBuf::from("/etc/neo4r/tls/web.crt"));
+    assert!(web_tls.require_client_auth);
+}
+
+#[test]
 fn production_check_accepts_replication_tls_required_when_configured() {
     let err = ServerArgs::parse(["--replication-tls-mode".to_string(), "required".to_string()])
         .unwrap_err();

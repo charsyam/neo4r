@@ -1,0 +1,15 @@
+version: 1
+online_backup:
+  isolation: read-snapshot
+  manifest:
+    - database
+    - source
+    - target
+    - file_count
+    - total_bytes
+    - checksum
+    - commit_indexes
+  required_checks:
+    - manifest-checksum-verifies
+    - restore-dry-run-before-apply
+    - mutating-restore-drain

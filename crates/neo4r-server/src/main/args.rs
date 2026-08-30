@@ -39,6 +39,10 @@ pub(super) struct ServerArgs {
     pub(super) native_tls_key_path: Option<PathBuf>,
     pub(super) native_tls_client_ca_path: Option<PathBuf>,
     pub(super) native_tls_require_client_auth: bool,
+    pub(super) web_tls_cert_path: Option<PathBuf>,
+    pub(super) web_tls_key_path: Option<PathBuf>,
+    pub(super) web_tls_client_ca_path: Option<PathBuf>,
+    pub(super) web_tls_require_client_auth: bool,
     pub(super) replication_tls_cert_path: Option<PathBuf>,
     pub(super) replication_tls_key_path: Option<PathBuf>,
     pub(super) replication_tls_client_ca_path: Option<PathBuf>,
@@ -132,6 +136,10 @@ impl ServerArgs {
             native_tls_key_path: None,
             native_tls_client_ca_path: None,
             native_tls_require_client_auth: false,
+            web_tls_cert_path: None,
+            web_tls_key_path: None,
+            web_tls_client_ca_path: None,
+            web_tls_require_client_auth: false,
             replication_tls_cert_path: None,
             replication_tls_key_path: None,
             replication_tls_client_ca_path: None,
@@ -283,6 +291,19 @@ impl ServerArgs {
                     )?))
                 }
                 "--native-tls-require-client-auth" => parsed.native_tls_require_client_auth = true,
+                "--web-tls-cert" => {
+                    parsed.web_tls_cert_path =
+                        Some(PathBuf::from(next_arg(&mut args, "--web-tls-cert")?))
+                }
+                "--web-tls-key" => {
+                    parsed.web_tls_key_path =
+                        Some(PathBuf::from(next_arg(&mut args, "--web-tls-key")?))
+                }
+                "--web-tls-client-ca" => {
+                    parsed.web_tls_client_ca_path =
+                        Some(PathBuf::from(next_arg(&mut args, "--web-tls-client-ca")?))
+                }
+                "--web-tls-require-client-auth" => parsed.web_tls_require_client_auth = true,
                 "--replication-tls-cert" => {
                     parsed.replication_tls_cert_path = Some(PathBuf::from(next_arg(
                         &mut args,
@@ -549,6 +570,19 @@ impl ServerArgs {
         output.push_str(&format!(
             "  native_tls_require_client_auth: {}\n",
             self.native_tls_require_client_auth
+        ));
+        if let Some(path) = &self.web_tls_cert_path {
+            output.push_str(&format!("  web_tls_cert: {}\n", path.display()));
+        }
+        if let Some(path) = &self.web_tls_key_path {
+            output.push_str(&format!("  web_tls_key: {}\n", path.display()));
+        }
+        if let Some(path) = &self.web_tls_client_ca_path {
+            output.push_str(&format!("  web_tls_client_ca: {}\n", path.display()));
+        }
+        output.push_str(&format!(
+            "  web_tls_require_client_auth: {}\n",
+            self.web_tls_require_client_auth
         ));
         if let Some(path) = &self.replication_tls_cert_path {
             output.push_str(&format!("  replication_tls_cert: {}\n", path.display()));

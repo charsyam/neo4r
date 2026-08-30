@@ -1,0 +1,13 @@
+version: 1
+archive:
+  format: segmented-shard-wal
+  durability: fsync-before-ack
+  replay_order:
+    - snapshot
+    - shard-wal-segments
+    - committed-index-cutoff
+  required_checks:
+    - archive-readable
+    - segment-contiguity
+    - checksum-manifest
+    - restore-target-isolated

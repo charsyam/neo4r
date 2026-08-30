@@ -74,7 +74,7 @@ impl HttpResponse {
     }
 }
 
-pub(crate) fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
+pub(crate) fn read_http_request(stream: impl Read) -> io::Result<HttpRequest> {
     let mut reader = BufReader::new(stream);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line)? == 0 {
@@ -122,7 +122,10 @@ pub(crate) fn read_http_request(stream: TcpStream) -> io::Result<HttpRequest> {
     })
 }
 
-pub(crate) fn write_http_response(mut stream: TcpStream, response: HttpResponse) -> io::Result<()> {
+pub(crate) fn write_http_response(
+    mut stream: impl Write,
+    response: HttpResponse,
+) -> io::Result<()> {
     let body = response.body.as_bytes();
     write!(
         stream,

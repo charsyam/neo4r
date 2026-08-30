@@ -1,0 +1,12 @@
+version: 1
+repair:
+  startup_check: required
+  dry_run: required
+  report:
+    - graph-invariant-summary
+    - index-rebuild-actions
+    - relationship-adjacency-actions
+required_checks:
+  - verify-invariants
+  - repair-invariants
+  - storage-atomicity

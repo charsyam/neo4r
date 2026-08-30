@@ -1,0 +1,13 @@
+version: 1
+slo:
+  native_query_p99_ms: 250
+  web_query_p99_ms: 500
+  raft_no_leader_max_seconds: 30
+  replication_lag_max_entries: 100
+  backup_restore_drill_max_age_hours: 24
+required_metrics:
+  - neo4r_http_requests_total
+  - neo4r_queries_total
+  - neo4r_raft_group_leaders
+  - neo4r_database_shard_lag
+  - neo4r_raft_append_conflicts_total

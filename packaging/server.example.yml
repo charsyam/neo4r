@@ -32,6 +32,11 @@ production:
   tls_mode: external
   replication_tls_mode: external
   web_tls_mode: external
+  # For in-process web admin TLS/mTLS, set web_tls_mode: required and configure:
+  # web_tls_cert: /etc/neo4r/tls/web.crt
+  # web_tls_key: /etc/neo4r/tls/web.key
+  # web_tls_client_ca: /etc/neo4r/tls/admin-ca.crt
+  # web_tls_require_client_auth: true
   # For in-process native TLS, set tls_mode: required and configure:
   # native_tls_cert: /etc/neo4r/tls/server.crt
   # native_tls_key: /etc/neo4r/tls/server.key

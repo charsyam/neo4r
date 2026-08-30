@@ -44,7 +44,11 @@ maintenance:
 production:
   tls_mode: external
   replication_tls_mode: external
-  web_tls_mode: external
+  web_tls_mode: required
+  web_tls_cert: /etc/neo4r/tls/web.crt
+  web_tls_key: /etc/neo4r/tls/web.key
+  web_tls_client_ca: /etc/neo4r/tls/ca.crt
+  web_tls_require_client_auth: true
   min_native_protocol_version: 1
   max_native_protocol_version: 1
   backup_drill_max_age_hours: 24

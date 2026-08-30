@@ -146,6 +146,7 @@ impl TcpBackend {
             tenant_databases: None,
             tenant_quota,
             native_tls_acceptor: None,
+            web_tls_acceptor: None,
             replication_tls_acceptor: None,
             replication_tls_channel_config,
         }
@@ -153,6 +154,11 @@ impl TcpBackend {
 
     pub fn with_native_tls_config(mut self, config: NativeTlsConfig) -> io::Result<Self> {
         self.native_tls_acceptor = Some(NativeTlsAcceptor::from_config(&config)?);
+        Ok(self)
+    }
+
+    pub fn with_web_tls_config(mut self, config: NativeTlsConfig) -> io::Result<Self> {
+        self.web_tls_acceptor = Some(NativeTlsAcceptor::from_config(&config)?);
         Ok(self)
     }
 
@@ -409,7 +415,16 @@ impl TcpBackend {
     }
 
     pub fn handle_web_stream(&self, stream: TcpStream) -> io::Result<()> {
-        let request = read_http_request(stream.try_clone()?)?;
+        if let Some(acceptor) = &self.web_tls_acceptor {
+            let stream = acceptor.accept(stream)?.into_stream();
+            return self.handle_web_transport(stream);
+        }
+        self.handle_web_transport(stream)
+    }
+
+    fn handle_web_transport(&self, stream: impl Read + Write) -> io::Result<()> {
+        let mut stream = stream;
+        let request = read_http_request(&mut stream)?;
         let response = self.execute_http_request(&request);
         write_http_response(stream, response)
     }

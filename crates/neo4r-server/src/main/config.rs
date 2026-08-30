@@ -223,6 +223,18 @@ impl ServerConfigFile {
             "--native-tls-require-client-auth",
             self.production.native_tls_require_client_auth,
         );
+        push_option_path(&mut args, "--web-tls-cert", self.production.web_tls_cert);
+        push_option_path(&mut args, "--web-tls-key", self.production.web_tls_key);
+        push_option_path(
+            &mut args,
+            "--web-tls-client-ca",
+            self.production.web_tls_client_ca,
+        );
+        push_bool(
+            &mut args,
+            "--web-tls-require-client-auth",
+            self.production.web_tls_require_client_auth,
+        );
         push_option_path(
             &mut args,
             "--replication-tls-cert",
@@ -429,6 +441,10 @@ struct ProductionSection {
     native_tls_key: Option<PathBuf>,
     native_tls_client_ca: Option<PathBuf>,
     native_tls_require_client_auth: Option<bool>,
+    web_tls_cert: Option<PathBuf>,
+    web_tls_key: Option<PathBuf>,
+    web_tls_client_ca: Option<PathBuf>,
+    web_tls_require_client_auth: Option<bool>,
     replication_tls_cert: Option<PathBuf>,
     replication_tls_key: Option<PathBuf>,
     replication_tls_client_ca: Option<PathBuf>,
@@ -551,6 +567,9 @@ fn append_config_arg(
         | "native-tls-cert"
         | "native-tls-key"
         | "native-tls-client-ca"
+        | "web-tls-cert"
+        | "web-tls-key"
+        | "web-tls-client-ca"
         | "replication-tls-cert"
         | "replication-tls-key"
         | "replication-tls-client-ca"
@@ -583,6 +602,7 @@ fn append_config_arg(
             args.push(value.to_string());
         }
         "native-tls-require-client-auth"
+        | "web-tls-require-client-auth"
         | "replication-tls-require-client-auth"
         | "repair-check-on-startup"
         | "chaos-gate-required" => {

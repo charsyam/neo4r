@@ -23,6 +23,8 @@ Current hardening:
   admin tokens, and missing audit/secret rotation policy.
 - native client connections can use in-process TLS, including optional mTLS via
   configured client CA verification.
+- web admin connections can use in-process TLS, including optional mTLS via
+  configured client CA verification.
 - TCP replication channels can use in-process TLS, including optional inbound
   peer certificate verification and outbound client certificates.
 
@@ -31,7 +33,7 @@ Next hardening targets:
 - replace the built-in stable digest with a dedicated KDF or keyed MAC.
 - redact token-like values from audit and slow query output.
 - replace the static CSRF marker with per-session CSRF secrets.
-- add in-process TLS/mTLS for web admin listeners.
+- replace broad admin role checks with command-level RBAC permissions.
 
 Until token storage is fully migrated, operators should rotate tokens after
 backup/restore and avoid sharing tenant admin tokens across environments.

@@ -1,0 +1,14 @@
+version: 1
+statistics:
+  - label_cardinality
+  - property_selectivity
+  - relationship_type_cardinality
+operators:
+  node_label_scan: 1000
+  node_index_seek: 10
+  relationship_expand: 100
+  vector_knn: 50
+required_checks:
+  - query-plan-golden
+  - query-regression-corpus
+  - performance-thresholds

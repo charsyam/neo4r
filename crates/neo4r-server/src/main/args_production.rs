@@ -54,6 +54,19 @@ impl ServerArgs {
                 "--native-tls-client-ca is required when native client auth is enabled".to_string(),
             );
         }
+        if self.web_tls_mode == ProductionSecurityMode::Required {
+            if self.web_tls_cert_path.is_none() {
+                return Err("--web-tls-cert is required when --web-tls-mode required".to_string());
+            }
+            if self.web_tls_key_path.is_none() {
+                return Err("--web-tls-key is required when --web-tls-mode required".to_string());
+            }
+        }
+        if self.web_tls_require_client_auth && self.web_tls_client_ca_path.is_none() {
+            return Err(
+                "--web-tls-client-ca is required when web client auth is enabled".to_string(),
+            );
+        }
         if self.replication_tls_mode == ProductionSecurityMode::Required {
             if self.replication_transport != ReplicationChannelKind::Tcp {
                 return Err(
@@ -181,12 +194,6 @@ impl ServerArgs {
         }
         if self.web_tls_mode == ProductionSecurityMode::Disabled {
             issues.push("--web-tls-mode must be external or required for production".to_string());
-        }
-        if self.web_tls_mode == ProductionSecurityMode::Required {
-            issues.push(
-                "--web-tls-mode required is reserved until the web listener supports in-process TLS"
-                    .to_string(),
-            );
         }
         if self.cluster_requested() && self.replication_tls_mode == ProductionSecurityMode::Disabled
         {
@@ -337,6 +344,24 @@ impl ServerArgs {
                 .ok_or("--replication-tls-key is required when --replication-tls-mode required")?,
             client_ca_path: self.replication_tls_client_ca_path.clone(),
             require_client_auth: self.replication_tls_require_client_auth,
+        }))
+    }
+
+    pub(in crate::runtime) fn web_tls_config(&self) -> Result<Option<NativeTlsConfig>, String> {
+        if self.web_tls_mode != ProductionSecurityMode::Required {
+            return Ok(None);
+        }
+        Ok(Some(NativeTlsConfig {
+            cert_path: self
+                .web_tls_cert_path
+                .clone()
+                .ok_or("--web-tls-cert is required when --web-tls-mode required")?,
+            key_path: self
+                .web_tls_key_path
+                .clone()
+                .ok_or("--web-tls-key is required when --web-tls-mode required")?,
+            client_ca_path: self.web_tls_client_ca_path.clone(),
+            require_client_auth: self.web_tls_require_client_auth,
         }))
     }
 

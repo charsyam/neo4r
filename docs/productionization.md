@@ -145,6 +145,34 @@ Run:
 scripts/production-level-gate.sh
 ```
 
+## Production Readiness Contract
+
+`docs/production_readiness_contract.yml` is the explicit checklist for the ten
+production readiness axes:
+
+1. Raft/metadata-log authority for membership and shard ownership.
+2. seed-array client bootstrap through `CLUSTER_REGISTRY`.
+3. automated three-or-more-node failover coverage.
+4. replica replacement gated by replay completion.
+5. explicit read consistency modes.
+6. restore drill that seeds a new cluster from restored data.
+7. storage crash-point atomicity gates.
+8. shard health, replay, lag, election, and snapshot observability.
+9. TLS/mTLS, inter-node auth, RBAC, token, audit, and admin hardening gates.
+10. executable production test matrix in the release gate.
+
+`scripts/production-readiness-gate.sh` validates that these contract entries,
+their evidence files, and the server-side `ProductionReadinessContract` test stay
+in sync. The release gate invokes it before packaging checks.
+
+The same gate also enforces maturity depth for the highest-risk eight blockers:
+at least two automated three-node failover tests, three authoritative
+membership/ownership tests, two replica replacement tests, two replay write
+rejection tests, five storage crash points, two PITR restore drills, five rolling
+upgrade checks, and four performance/chaos gates. These thresholds are still
+pre-production thresholds, but they prevent the project from claiming production
+readiness using documentation-only evidence.
+
 ## Remaining Production Blockers
 
 - continuous WAL archive shipping and timestamp-targeted PITR replay

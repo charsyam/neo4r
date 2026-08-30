@@ -15,5 +15,6 @@ scripts/failure-injection.sh
 scripts/rolling-upgrade-gate.sh
 scripts/bench-thresholds.sh
 scripts/explicit-rbac-policy-gate.sh
+scripts/production-readiness-gate.sh
 
 echo "neo4r production-level gate passed"

@@ -276,6 +276,7 @@ Additional operator and contributor contracts:
 - [Disk lifecycle policy](docs/disk_lifecycle.md)
 - [API compatibility](docs/api_compatibility.md)
 - [SDK API parity](docs/sdk_api_parity.md)
+- [Production readiness contract](docs/production_readiness_contract.yml)
 - [Security notes](docs/security.md)
 - [Backup/restore contract](docs/backup_restore.md)
 

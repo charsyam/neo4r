@@ -435,6 +435,140 @@ pub(crate) fn validate_upgrade_compatibility_plan(
     Ok(())
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProductionReadinessContract {
+    pub(crate) membership_authority_is_raft_metadata: bool,
+    pub(crate) client_seed_bootstraps_topology_registry: bool,
+    pub(crate) multi_node_failover_fixture_is_automated: bool,
+    pub(crate) replica_replacement_waits_for_replay: bool,
+    pub(crate) read_consistency_modes_are_explicit: bool,
+    pub(crate) restore_drill_seeds_cluster_from_data: bool,
+    pub(crate) storage_crash_points_are_gated: bool,
+    pub(crate) observability_exports_shard_health: bool,
+    pub(crate) security_hardening_is_gated: bool,
+    pub(crate) production_test_matrix_is_executable: bool,
+}
+
+pub(crate) fn validate_production_readiness_contract(
+    contract: &ProductionReadinessContract,
+) -> Result<(), String> {
+    let checks = [
+        (
+            contract.membership_authority_is_raft_metadata,
+            "membership authority must be Raft/metadata-log backed",
+        ),
+        (
+            contract.client_seed_bootstraps_topology_registry,
+            "client seed bootstrap must fetch topology registry",
+        ),
+        (
+            contract.multi_node_failover_fixture_is_automated,
+            "multi-node failover fixture must be automated",
+        ),
+        (
+            contract.replica_replacement_waits_for_replay,
+            "replica replacement must reject writes until replay completes",
+        ),
+        (
+            contract.read_consistency_modes_are_explicit,
+            "read consistency modes must be explicit",
+        ),
+        (
+            contract.restore_drill_seeds_cluster_from_data,
+            "restore drill must seed a cluster from restored data",
+        ),
+        (
+            contract.storage_crash_points_are_gated,
+            "storage crash-point atomicity must be gated",
+        ),
+        (
+            contract.observability_exports_shard_health,
+            "observability must export shard health and replay lag",
+        ),
+        (
+            contract.security_hardening_is_gated,
+            "security hardening must be enforced by a gate",
+        ),
+        (
+            contract.production_test_matrix_is_executable,
+            "production test matrix must be executable",
+        ),
+    ];
+    for (passed, message) in checks {
+        if !passed {
+            return Err(message.to_string());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProductionMaturityEvidence {
+    pub(crate) automated_three_node_failover_tests: usize,
+    pub(crate) authoritative_membership_ownership_tests: usize,
+    pub(crate) replica_replacement_tests: usize,
+    pub(crate) replay_write_rejection_tests: usize,
+    pub(crate) storage_crash_points: usize,
+    pub(crate) pitr_restore_drills: usize,
+    pub(crate) rolling_upgrade_checks: usize,
+    pub(crate) performance_and_chaos_gates: usize,
+}
+
+pub(crate) fn validate_production_maturity_evidence(
+    evidence: &ProductionMaturityEvidence,
+) -> Result<(), String> {
+    let minimums = [
+        (
+            evidence.automated_three_node_failover_tests,
+            2,
+            "at least two automated three-node failover tests are required",
+        ),
+        (
+            evidence.authoritative_membership_ownership_tests,
+            3,
+            "at least three authoritative membership/ownership tests are required",
+        ),
+        (
+            evidence.replica_replacement_tests,
+            2,
+            "at least two replica replacement tests are required",
+        ),
+        (
+            evidence.replay_write_rejection_tests,
+            2,
+            "at least two replay write rejection tests are required",
+        ),
+        (
+            evidence.storage_crash_points,
+            5,
+            "at least five storage crash points are required",
+        ),
+        (
+            evidence.pitr_restore_drills,
+            2,
+            "at least two PITR restore drills are required",
+        ),
+        (
+            evidence.rolling_upgrade_checks,
+            5,
+            "at least five rolling upgrade checks are required",
+        ),
+        (
+            evidence.performance_and_chaos_gates,
+            4,
+            "at least four performance/chaos gates are required",
+        ),
+    ];
+    for (observed, required, message) in minimums {
+        if observed < required {
+            return Err(format!(
+                "{message}: observed {observed}, required {required}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn encode_schema_progress(progress: &SchemaMigrationProgress) -> String {
     format!(
         "{{\"migration_id\":\"{}\",\"state\":\"{}\",\"processed_rows\":{},\"total_rows\":{},\"updated_at_unix_ms\":{}}}\n",
@@ -817,5 +951,71 @@ mod tests {
             .unwrap_err()
             .contains("rollback")
         );
+    }
+
+    #[test]
+    fn production_readiness_contract_requires_all_ten_gates() {
+        let ready = ProductionReadinessContract {
+            membership_authority_is_raft_metadata: true,
+            client_seed_bootstraps_topology_registry: true,
+            multi_node_failover_fixture_is_automated: true,
+            replica_replacement_waits_for_replay: true,
+            read_consistency_modes_are_explicit: true,
+            restore_drill_seeds_cluster_from_data: true,
+            storage_crash_points_are_gated: true,
+            observability_exports_shard_health: true,
+            security_hardening_is_gated: true,
+            production_test_matrix_is_executable: true,
+        };
+        assert!(validate_production_readiness_contract(&ready).is_ok());
+
+        let missing_seed_bootstrap = ProductionReadinessContract {
+            client_seed_bootstraps_topology_registry: false,
+            ..ready.clone()
+        };
+        assert!(
+            validate_production_readiness_contract(&missing_seed_bootstrap)
+                .unwrap_err()
+                .contains("seed bootstrap")
+        );
+
+        let missing_replay_gate = ProductionReadinessContract {
+            replica_replacement_waits_for_replay: false,
+            ..ready
+        };
+        assert!(validate_production_readiness_contract(&missing_replay_gate)
+            .unwrap_err()
+            .contains("replay completes"));
+    }
+
+    #[test]
+    fn production_maturity_evidence_requires_runtime_depth() {
+        let evidence = ProductionMaturityEvidence {
+            automated_three_node_failover_tests: 2,
+            authoritative_membership_ownership_tests: 3,
+            replica_replacement_tests: 2,
+            replay_write_rejection_tests: 2,
+            storage_crash_points: 5,
+            pitr_restore_drills: 2,
+            rolling_upgrade_checks: 5,
+            performance_and_chaos_gates: 4,
+        };
+        assert!(validate_production_maturity_evidence(&evidence).is_ok());
+
+        let weak_failover = ProductionMaturityEvidence {
+            automated_three_node_failover_tests: 1,
+            ..evidence.clone()
+        };
+        assert!(validate_production_maturity_evidence(&weak_failover)
+            .unwrap_err()
+            .contains("three-node failover"));
+
+        let weak_crash_coverage = ProductionMaturityEvidence {
+            storage_crash_points: 4,
+            ..evidence
+        };
+        assert!(validate_production_maturity_evidence(&weak_crash_coverage)
+            .unwrap_err()
+            .contains("storage crash points"));
     }
 }

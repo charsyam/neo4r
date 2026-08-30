@@ -58,6 +58,7 @@ scripts/grafana-alert-gate.sh
 scripts/packaged-observability-gate.sh
 scripts/compatibility-matrix-gate.sh
 scripts/previous-release-compat-gate.sh
+scripts/production-readiness-gate.sh
 scripts/production-artifacts.sh
 scripts/packaging-readiness-gate.sh
 scripts/kubernetes-manifest-smoke.sh

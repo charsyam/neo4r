@@ -1,0 +1,81 @@
+version: 1
+contract: neo4r-production-readiness
+required_gates:
+  - id: membership-authority
+    area: cluster
+    requirement: Raft and metadata log are authoritative for membership and shard ownership.
+    evidence:
+      - docs/cluster_bootstrap_protocol.md
+      - scripts/membership-automation.sh
+  - id: client-seed-topology-bootstrap
+    area: sdk
+    requirement: Clients accept seed address arrays and fetch CLUSTER_REGISTRY before routing.
+    evidence:
+      - docs/sdk_api_parity.md
+      - crates/neo4r-client/src/tests.rs
+      - sdks/python/tests/test_protocol.py
+  - id: automated-multi-node-failover
+    area: cluster
+    requirement: Three-or-more-node fixtures verify join, catch-up, redirect, and leader failover.
+    evidence:
+      - scripts/multi-node-live-gate.sh
+      - scripts/sdk-failover.sh
+  - id: replica-replacement-replay-gate
+    area: replication
+    requirement: Replacement replicas reject writes until applied index reaches committed index.
+    evidence:
+      - crates/neo4r-db/src/database/db_raft_apply.rs
+      - crates/neo4r-server/src/backend/command_executor.rs
+  - id: explicit-read-consistency
+    area: query
+    requirement: Strong, follower, and bounded-staleness reads are explicit API choices.
+    evidence:
+      - docs/read_consistency.md
+      - scripts/read-consistency.sh
+  - id: restore-seeds-cluster-from-data
+    area: backup
+    requirement: Restore drills prove a new cluster can be seeded from restored snapshot plus WAL.
+    evidence:
+      - docs/pitr_restore_drill.yml
+      - scripts/pitr-restore-worker-gate.sh
+  - id: storage-crash-point-gate
+    area: storage
+    requirement: Atomic apply and index repair are covered by crash-point gates.
+    evidence:
+      - docs/atomic_apply_audit.md
+      - scripts/crash-consistency-gate.sh
+  - id: shard-health-observability
+    area: observability
+    requirement: Metrics expose shard leader, lag, replay, election, snapshot, and error health.
+    evidence:
+      - docs/prometheus_alerts.yml
+      - scripts/observability-slo-gate.sh
+  - id: security-hardening
+    area: security
+    requirement: TLS/mTLS, inter-node auth, RBAC, token expiry, audit, and admin CSRF are gated.
+    evidence:
+      - docs/security_hardening_contract.yml
+      - scripts/security-hardening-gate.sh
+  - id: executable-production-test-matrix
+    area: ci
+    requirement: Release gate runs compatibility, correctness, crash, chaos, performance, and packaging checks.
+    evidence:
+      - scripts/release-gate.sh
+      - docs/release_checklist.md
+maturity_evidence:
+  automated_three_node_failover_tests: 2
+  authoritative_membership_ownership_tests: 3
+  replica_replacement_tests: 2
+  replay_write_rejection_tests: 2
+  storage_crash_points: 5
+  pitr_restore_drills: 2
+  rolling_upgrade_checks: 5
+  performance_and_chaos_gates: 4
+  required_scripts:
+    - scripts/multi-node-live-gate.sh
+    - scripts/membership-automation.sh
+    - scripts/crash-consistency-gate.sh
+    - scripts/pitr-restore-worker-gate.sh
+    - scripts/rolling-upgrade-gate.sh
+    - scripts/bench-regression.sh
+    - scripts/production-chaos-longevity-gate.sh

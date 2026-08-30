@@ -131,6 +131,43 @@ pub fn catch_up_from_tcp_primary(
     Ok(count)
 }
 
+pub struct TcpNodeCatchUpDataSource {
+    connect_timeout: Duration,
+}
+
+impl TcpNodeCatchUpDataSource {
+    pub fn new(connect_timeout: Duration) -> Self {
+        Self { connect_timeout }
+    }
+}
+
+impl NodeCatchUpDataSource for TcpNodeCatchUpDataSource {
+    fn install_snapshot_request(
+        &mut self,
+        source: &NodeCatchUpSource,
+    ) -> DatabaseResult<Option<InstallSnapshotRequest>> {
+        Err(DatabaseError::Replication(format!(
+            "snapshot fetch from primary {} for shard {} is not exposed by tcp protocol yet",
+            source.primary_server_id, source.shard_id
+        )))
+    }
+
+    fn log_entries(
+        &mut self,
+        source: &NodeCatchUpSource,
+        start_index: LogIndex,
+        max_entries: Option<usize>,
+    ) -> DatabaseResult<Vec<LogEntry>> {
+        request_tcp_catch_up_limited(
+            &source.primary_address,
+            self.connect_timeout,
+            source.shard_id,
+            start_index,
+            max_entries,
+        )
+    }
+}
+
 pub fn request_tcp_raft_vote(
     address: &str,
     connect_timeout: Duration,

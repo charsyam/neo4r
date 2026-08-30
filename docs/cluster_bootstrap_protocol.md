@@ -20,6 +20,20 @@
 The executor accepts a `NodeCatchUpDataSource` so TCP, UDP, RDMA, or fixture
 sources use the same state-machine apply path.
 
+The native protocol exposes the same flow through:
+
+- `CATCH_UP_PLAN_PRIMARY <server_id>` to inspect per-shard snapshot/WAL targets.
+- `PROMOTE_CAUGHT_UP_NODE <server_id>` to promote a fully caught-up learner.
+- `TOPOLOGY_OBSERVE` to ask the controller for the next control-loop action.
+- `CHAOS_CHECKS` to expose join, retry, and promotion invariants for smoke
+  gates.
+
+`neo4r-cli cluster topology`, `neo4r-cli cluster chaos`, and
+`neo4r-cli cluster promote <server_id>` wrap these commands for operators.
+The TCP catch-up data source can request bounded WAL tails from a primary. Full
+snapshot fetch over TCP is still blocked at the datasource boundary until the
+snapshot streaming RPC is exposed by the native protocol.
+
 ## Recover From Data
 
 Data-only cluster recovery must not infer safety from graph records alone. The
@@ -51,3 +65,9 @@ identity and must not race with a still-live old cluster.
   and rebalance control-loop smoke gates.
 - `SnapshotChunkAssembler::resume_token` reports the next byte offset and
   snapshot boundary for interrupted snapshot streaming.
+- `WRITE_BOOTSTRAP_MANIFEST <mode> <cluster_id> <database_id>` writes the
+  recovery manifest through the DB API.
+- `BOOTSTRAP_SAFETY <expected_cluster_id> <force_new_cluster>` verifies whether
+  a data-only recovery can proceed.
+- `OPERATIONAL_SAFETY <operation> [confirmation_token]` returns or verifies the
+  confirmation token for destructive operations.

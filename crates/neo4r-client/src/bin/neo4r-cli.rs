@@ -7,6 +7,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+#[path = "../neo4r_cli_cluster.rs"]
+mod neo4r_cli_cluster;
+
 const DEFAULT_ADDRESS: &str = "127.0.0.1:7687";
 const MAX_HISTORY: usize = 200;
 
@@ -805,14 +808,7 @@ fn normalize_subcommand_args(args: Vec<String>) -> Result<Vec<String>, CliError>
         "plan" => subcommand_with_payload("--plan", &args),
         "profile" => subcommand_with_payload("--profile", &args),
         "command" => subcommand_with_payload("--command", &args),
-        "cluster" => {
-            if args.get(1).map(String::as_str).unwrap_or("status") != "status" {
-                return Err(CliError::Usage(
-                    "cluster subcommand supports: status".to_string(),
-                ));
-            }
-            Ok(vec!["--command".to_string(), "CLUSTER_STATUS".to_string()])
-        }
+        "cluster" => neo4r_cli_cluster::normalize_cluster_subcommand(&args),
         "backup" => normalize_backup_subcommand(&args),
         "admin" => normalize_admin_subcommand(&args),
         _ => Ok(args),
@@ -938,6 +934,7 @@ fn usage() -> &'static str {
     "usage: neo4r-cli [--addr ADDR] [--tls-ca CA.pem] [--tls-server-name NAME] [--tls-client-cert CERT.pem --tls-client-key KEY.pem] [--query CYPHER|--plan CYPHER|--profile CYPHER|--command COMMAND] [--history] [--history-file PATH] [--no-history]
        neo4r-cli [--http-host HOST] [--http-port PORT] [--admin-token TOKEN] [--database DB] [--backup PATH|--restore PATH|--list-users|--invoke-user USER|--list-databases]
        neo4r-cli query|plan|profile|command PAYLOAD
+       neo4r-cli cluster status|topology|chaos|promote SERVER_ID|bootstrap-manifest MODE CLUSTER_ID DB_ID|bootstrap-safety EXPECTED_CLUSTER_ID FORCE|safety OPERATION [TOKEN]
        neo4r-cli admin users|databases|audit|raft|restore-pitr TARGET_MS|restore-pitr-apply TARGET_MS|grant-role USER TOKEN_ID DB ROLE|revoke-role USER TOKEN_ID DB|cleanup-tokens|prune-audit DAYS
        neo4r-cli backup create|restore PATH"
 }

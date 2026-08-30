@@ -1,7 +1,8 @@
 use crate::{
     raft::InstallSnapshotChunk, AppendEntriesResponse, DatabaseError, DatabaseResult,
-    InstallSnapshotRequest, InstallSnapshotResponse, Neo4rDatabaseHandle, PreVoteRequest,
-    PreVoteResponse, RaftSnapshotMetadata, RequestVoteRequest, RequestVoteResponse,
+    InstallSnapshotRequest, InstallSnapshotResponse, Neo4rDatabaseHandle, NodeCatchUpDataSource,
+    NodeCatchUpSource, PreVoteRequest, PreVoteResponse, RaftSnapshotMetadata, RequestVoteRequest,
+    RequestVoteResponse,
 };
 use neo4r_core::{LogEntry, LogIndex, ServerId, ShardId, ShardRole, ShardRoutingTable};
 use neo4r_storage::{decode_log_entry, encode_log_entry};

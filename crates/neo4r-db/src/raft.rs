@@ -5,10 +5,13 @@ use std::time::{Duration, Instant};
 
 const RAFT_STATE_MAGIC: &str = "N4RRAFT1";
 
+#[path = "raft/membership.rs"]
+mod membership;
 #[path = "raft/persistent.rs"]
 mod persistent;
 #[path = "raft/snapshot_chunks.rs"]
 mod snapshot_chunks;
+pub use membership::{RaftMembership, RaftMembershipChange};
 pub use persistent::{RaftPersistentState, RaftPersistentStateStore};
 pub use snapshot_chunks::SnapshotChunkAssembler;
 
@@ -95,106 +98,6 @@ pub enum RaftRole {
     Leader,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RaftMembership {
-    voters: BTreeSet<ServerId>,
-    outgoing_voters: Option<BTreeSet<ServerId>>,
-}
-
-impl RaftMembership {
-    pub fn new(voters: impl IntoIterator<Item = ServerId>) -> DatabaseResult<Self> {
-        let voters = voters.into_iter().collect::<BTreeSet<_>>();
-        if voters.is_empty() {
-            return Err(DatabaseError::InvalidConfig(
-                "raft membership must contain at least one voter".to_string(),
-            ));
-        }
-        Ok(Self {
-            voters,
-            outgoing_voters: None,
-        })
-    }
-
-    pub fn voters(&self) -> &BTreeSet<ServerId> {
-        &self.voters
-    }
-
-    pub fn outgoing_voters(&self) -> Option<&BTreeSet<ServerId>> {
-        self.outgoing_voters.as_ref()
-    }
-
-    pub fn is_joint(&self) -> bool {
-        self.outgoing_voters.is_some()
-    }
-
-    pub fn quorum_size(&self) -> usize {
-        (self.voters.len() / 2) + 1
-    }
-
-    pub fn contains(&self, server_id: ServerId) -> bool {
-        self.voters.contains(&server_id)
-            || self
-                .outgoing_voters
-                .as_ref()
-                .is_some_and(|voters| voters.contains(&server_id))
-    }
-
-    fn has_quorum(&self, matched: &BTreeSet<ServerId>) -> bool {
-        has_majority(&self.voters, matched)
-            && self
-                .outgoing_voters
-                .as_ref()
-                .is_none_or(|voters| has_majority(voters, matched))
-    }
-
-    fn all_voters(&self) -> BTreeSet<ServerId> {
-        let mut voters = self.voters.clone();
-        if let Some(outgoing) = &self.outgoing_voters {
-            voters.extend(outgoing.iter().copied());
-        }
-        voters
-    }
-
-    fn enter_joint(&mut self, next_voters: BTreeSet<ServerId>) -> DatabaseResult<()> {
-        if next_voters.is_empty() {
-            return Err(DatabaseError::InvalidConfig(
-                "raft joint membership cannot be empty".to_string(),
-            ));
-        }
-        self.outgoing_voters = Some(self.voters.clone());
-        self.voters = next_voters;
-        Ok(())
-    }
-
-    fn finalize_joint(&mut self) {
-        self.outgoing_voters = None;
-    }
-
-    fn add_voter(&mut self, server_id: ServerId) {
-        self.voters.insert(server_id);
-    }
-
-    fn remove_voter(&mut self, server_id: ServerId) -> DatabaseResult<()> {
-        if self.voters.len() == 1 && self.voters.contains(&server_id) {
-            return Err(DatabaseError::InvalidConfig(
-                "raft membership cannot remove the last voter".to_string(),
-            ));
-        }
-        self.voters.remove(&server_id);
-        Ok(())
-    }
-}
-
-fn has_majority(voters: &BTreeSet<ServerId>, matched: &BTreeSet<ServerId>) -> bool {
-    matched.intersection(voters).count() >= voters.len() / 2 + 1
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RaftMembershipChange {
-    AddVoter(ServerId),
-    RemoveVoter(ServerId),
-}
-
 pub struct RaftCore {
     server_id: ServerId,
     shard_id: ShardId,
@@ -234,9 +137,9 @@ impl RaftCore {
         state_store: RaftPersistentStateStore,
         membership: RaftMembership,
     ) -> DatabaseResult<Self> {
-        if !membership.contains(server_id) {
+        if !membership.is_member(server_id) {
             return Err(DatabaseError::InvalidConfig(format!(
-                "local server {server_id} is not a raft voter"
+                "local server {server_id} is not a raft member"
             )));
         }
         let persistent = state_store.load()?;
@@ -747,9 +650,9 @@ impl RaftCore {
                 "cannot record raft replication match when not leader".to_string(),
             ));
         }
-        if !self.membership.contains(server_id) {
+        if !self.membership.is_member(server_id) {
             return Err(DatabaseError::InvalidConfig(format!(
-                "server {server_id} is not a raft voter"
+                "server {server_id} is not a raft member"
             )));
         }
         self.match_indexes.insert(server_id, match_index);
@@ -837,6 +740,12 @@ impl RaftCore {
         change: RaftMembershipChange,
     ) -> DatabaseResult<()> {
         match change {
+            RaftMembershipChange::AddLearner(server_id) => {
+                self.membership.add_learner(server_id)?;
+            }
+            RaftMembershipChange::PromoteLearner(server_id) => {
+                self.membership.promote_learner(server_id)?;
+            }
             RaftMembershipChange::AddVoter(server_id) => self.membership.add_voter(server_id),
             RaftMembershipChange::RemoveVoter(server_id) => {
                 self.membership.remove_voter(server_id)?;

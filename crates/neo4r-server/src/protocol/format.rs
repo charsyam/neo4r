@@ -246,6 +246,90 @@ pub(crate) fn format_rebalance_automation(
     )
 }
 
+pub(crate) fn format_bootstrap_manifest(manifest: &neo4r_db::ClusterBootstrapManifest) -> String {
+    let shards = manifest
+        .shards
+        .iter()
+        .map(|shard| {
+            format!(
+                "shard={}:commit={}:snapshot={}:term={}:checksum={}",
+                shard.shard_id,
+                shard.commit_index,
+                shard.snapshot_index,
+                shard.snapshot_term,
+                shard.snapshot_checksum
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "version={} mode={} cluster_id={} database_id={} seed={} shards={} routing_version={} config_epoch={} force_new_cluster_required={} [{}]",
+        manifest.format_version,
+        format_bootstrap_mode(manifest.mode),
+        manifest.cluster_id,
+        manifest.database_id,
+        manifest.seed_server_id,
+        manifest.shard_count,
+        manifest.routing_version,
+        manifest.config_epoch,
+        manifest.force_new_cluster_required,
+        shards
+    )
+}
+
+pub(crate) fn format_bootstrap_mode(mode: neo4r_db::ClusterBootstrapMode) -> &'static str {
+    match mode {
+        neo4r_db::ClusterBootstrapMode::JoinExisting => "join_existing",
+        neo4r_db::ClusterBootstrapMode::RecoverFromData => "recover_from_data",
+    }
+}
+
+pub(crate) fn format_bootstrap_safety(decision: &neo4r_db::BootstrapSafetyDecision) -> String {
+    format!(
+        "allowed={} mode={} requires_force_new_cluster={} expected_cluster_id={} observed_cluster_id={} reason={}",
+        decision.allowed,
+        format_bootstrap_mode(decision.mode),
+        decision.requires_force_new_cluster,
+        decision.expected_cluster_id,
+        decision.observed_cluster_id,
+        decision.reason
+    )
+}
+
+pub(crate) fn format_topology_observation(observation: &neo4r_db::TopologyObservation) -> String {
+    format!(
+        "joining_nodes={} catching_up_assignments={} caught_up_assignments={} draining_nodes={} recommended_action={}",
+        observation.joining_nodes,
+        observation.catching_up_assignments,
+        observation.caught_up_assignments,
+        observation.draining_nodes,
+        observation.recommended_action
+    )
+}
+
+pub(crate) fn format_operational_safety(decision: &neo4r_db::OperationalSafetyDecision) -> String {
+    format!(
+        "allowed={} confirmation_required={} confirmation_token={} reason={}",
+        decision.allowed,
+        decision.confirmation_required,
+        decision.confirmation_token,
+        decision.reason
+    )
+}
+
+pub(crate) fn format_chaos_checks(checks: &[neo4r_db::ClusterChaosCheck]) -> String {
+    checks
+        .iter()
+        .map(|check| {
+            format!(
+                "{}:passed={}:invariant={}",
+                check.scenario, check.passed, check.checked_invariant
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 pub(crate) fn format_rebalance_plan(plan: &RebalancePlan) -> String {
     let steps = plan
         .steps

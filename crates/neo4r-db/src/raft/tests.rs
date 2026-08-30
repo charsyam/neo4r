@@ -173,6 +173,35 @@ fn leader_advances_commit_after_majority_match_and_serves_read_index() {
 }
 
 #[test]
+fn learner_does_not_vote_until_promoted() {
+    let dir = temp_dir("neo4r-raft-learner-promotion");
+    let store = RaftPersistentStateStore::open(dir.join("state.txt"));
+    let membership = RaftMembership::new([1, 2]).unwrap();
+    let mut raft = RaftCore::open_with_membership(1, 0, store, membership).unwrap();
+
+    raft.apply_committed_membership_change(RaftMembershipChange::AddLearner(3))
+        .unwrap();
+    assert!(raft.membership().learners().contains(&3));
+    assert!(!raft.membership().contains(3));
+    assert_eq!(raft.membership().quorum_size(), 2);
+
+    raft.start_election().unwrap();
+    raft.become_leader();
+    let entry = raft.append_local_entry(command(1)).unwrap();
+    assert_eq!(raft.record_replication_match(3, entry.index).unwrap(), 0);
+    assert_eq!(raft.commit_index(), 0);
+    assert_eq!(raft.record_replication_match(2, entry.index).unwrap(), 1);
+
+    raft.apply_committed_membership_change(RaftMembershipChange::PromoteLearner(3))
+        .unwrap();
+    assert!(!raft.membership().learners().contains(&3));
+    assert!(raft.membership().contains(3));
+    assert_eq!(raft.membership().quorum_size(), 2);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn expired_leader_lease_falls_back_to_quorum_read_index() {
     let dir = temp_dir("neo4r-raft-expired-lease-read-index");
     let store = RaftPersistentStateStore::open(dir.join("state.txt"));

@@ -87,6 +87,18 @@ pub fn format_response(response: &BackendResponse) -> String {
         BackendResponse::OkClusterManagementStatus(status) => {
             format!("OK\tCLUSTER_MANAGEMENT\t{}", escape_response(status))
         }
+        BackendResponse::OkBootstrapManifest(manifest) => {
+            format!("OK\tBOOTSTRAP_MANIFEST\t{}", escape_response(manifest))
+        }
+        BackendResponse::OkTopologyObservation(observation) => {
+            format!("OK\tTOPOLOGY_OBSERVATION\t{}", escape_response(observation))
+        }
+        BackendResponse::OkOperationalSafety(safety) => {
+            format!("OK\tOPERATIONAL_SAFETY\t{}", escape_response(safety))
+        }
+        BackendResponse::OkChaosChecks(checks) => {
+            format!("OK\tCHAOS_CHECKS\t{}", escape_response(checks))
+        }
         BackendResponse::Redirect(redirect) => format_redirect_response(redirect),
         BackendResponse::Err(message) => format!("ERR\t{}", escape_response(message)),
     }

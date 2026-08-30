@@ -162,6 +162,84 @@ pub(crate) fn perf_baseline_within_thresholds(
     Ok(())
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResourceAdmissionPolicy {
+    pub(crate) max_concurrent_queries: u64,
+    pub(crate) max_result_rows: u64,
+    pub(crate) max_memory_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResourceAdmissionRequest {
+    pub(crate) active_queries: u64,
+    pub(crate) estimated_result_rows: u64,
+    pub(crate) estimated_memory_bytes: u64,
+}
+
+pub(crate) fn evaluate_resource_admission(
+    policy: &ResourceAdmissionPolicy,
+    request: &ResourceAdmissionRequest,
+) -> Result<(), String> {
+    if request.active_queries >= policy.max_concurrent_queries {
+        return Err(format!(
+            "query concurrency admission rejected: active={} limit={}",
+            request.active_queries, policy.max_concurrent_queries
+        ));
+    }
+    if request.estimated_result_rows > policy.max_result_rows {
+        return Err(format!(
+            "result row admission rejected: rows={} limit={}",
+            request.estimated_result_rows, policy.max_result_rows
+        ));
+    }
+    if request.estimated_memory_bytes > policy.max_memory_bytes {
+        return Err(format!(
+            "memory admission rejected: bytes={} limit={}",
+            request.estimated_memory_bytes, policy.max_memory_bytes
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SloBurnRateInput {
+    pub(crate) error_rate: f64,
+    pub(crate) latency_p99_ms: f64,
+    pub(crate) replication_lag_entries: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SloThresholds {
+    pub(crate) max_error_rate: f64,
+    pub(crate) max_latency_p99_ms: f64,
+    pub(crate) max_replication_lag_entries: f64,
+}
+
+pub(crate) fn evaluate_slo_burn_rate(
+    input: &SloBurnRateInput,
+    thresholds: &SloThresholds,
+) -> Result<(), String> {
+    if input.error_rate > thresholds.max_error_rate {
+        return Err(format!(
+            "slo error burn too high: {} > {}",
+            input.error_rate, thresholds.max_error_rate
+        ));
+    }
+    if input.latency_p99_ms > thresholds.max_latency_p99_ms {
+        return Err(format!(
+            "slo latency burn too high: {} > {}",
+            input.latency_p99_ms, thresholds.max_latency_p99_ms
+        ));
+    }
+    if input.replication_lag_entries > thresholds.max_replication_lag_entries {
+        return Err(format!(
+            "slo replication lag burn too high: {} > {}",
+            input.replication_lag_entries, thresholds.max_replication_lag_entries
+        ));
+    }
+    Ok(())
+}
+
 fn encode_schema_progress(progress: &SchemaMigrationProgress) -> String {
     format!(
         "{{\"migration_id\":\"{}\",\"state\":\"{}\",\"processed_rows\":{},\"total_rows\":{},\"updated_at_unix_ms\":{}}}\n",
@@ -333,5 +411,63 @@ mod tests {
         assert!(perf_baseline_within_thresholds(&observed, &thresholds)
             .unwrap_err()
             .contains("performance regression"));
+    }
+
+    #[test]
+    fn resource_admission_rejects_over_budget_requests() {
+        let policy = ResourceAdmissionPolicy {
+            max_concurrent_queries: 2,
+            max_result_rows: 100,
+            max_memory_bytes: 1024,
+        };
+
+        assert!(evaluate_resource_admission(
+            &policy,
+            &ResourceAdmissionRequest {
+                active_queries: 1,
+                estimated_result_rows: 10,
+                estimated_memory_bytes: 512,
+            }
+        )
+        .is_ok());
+        assert!(evaluate_resource_admission(
+            &policy,
+            &ResourceAdmissionRequest {
+                active_queries: 2,
+                estimated_result_rows: 10,
+                estimated_memory_bytes: 512,
+            }
+        )
+        .unwrap_err()
+        .contains("concurrency"));
+    }
+
+    #[test]
+    fn slo_burn_rate_rejects_latency_and_lag_regressions() {
+        let thresholds = SloThresholds {
+            max_error_rate: 0.01,
+            max_latency_p99_ms: 100.0,
+            max_replication_lag_entries: 10.0,
+        };
+
+        assert!(evaluate_slo_burn_rate(
+            &SloBurnRateInput {
+                error_rate: 0.001,
+                latency_p99_ms: 90.0,
+                replication_lag_entries: 3.0,
+            },
+            &thresholds
+        )
+        .is_ok());
+        assert!(evaluate_slo_burn_rate(
+            &SloBurnRateInput {
+                error_rate: 0.001,
+                latency_p99_ms: 150.0,
+                replication_lag_entries: 3.0,
+            },
+            &thresholds
+        )
+        .unwrap_err()
+        .contains("latency"));
     }
 }

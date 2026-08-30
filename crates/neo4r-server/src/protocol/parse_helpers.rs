@@ -100,6 +100,16 @@ pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, Strin
         "CLUSTER_MANAGEMENT_STATUS" => Ok(BackendRequest::ClusterManagementStatus),
         "PREPARE_REBALANCE_STEP" => Err("PREPARE_REBALANCE_STEP requires step".to_string()),
         "MARK_SHARD_CAUGHT_UP" => Err("MARK_SHARD_CAUGHT_UP requires shard id".to_string()),
+        "PROMOTE_CAUGHT_UP_NODE" => Err("PROMOTE_CAUGHT_UP_NODE requires server id".to_string()),
+        "WRITE_BOOTSTRAP_MANIFEST" => {
+            Err("WRITE_BOOTSTRAP_MANIFEST requires mode, cluster id, and database id".to_string())
+        }
+        "BOOTSTRAP_SAFETY" => {
+            Err("BOOTSTRAP_SAFETY requires expected cluster id and force flag".to_string())
+        }
+        "TOPOLOGY_OBSERVE" => Ok(BackendRequest::TopologyObserve),
+        "OPERATIONAL_SAFETY" => Err("OPERATIONAL_SAFETY requires operation".to_string()),
+        "CHAOS_CHECKS" => Ok(BackendRequest::ChaosChecks),
         "APPLY_REBALANCE_STEP" => Err("APPLY_REBALANCE_STEP requires step".to_string()),
         "" => Err("empty request".to_string()),
         command => Err(format!("unknown command: {command}")),

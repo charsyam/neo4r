@@ -227,6 +227,22 @@ pub enum BackendRequest {
         server_id: u64,
         match_index: u64,
     },
+    PromoteCaughtUpNode(u64),
+    WriteBootstrapManifest {
+        mode: String,
+        cluster_id: String,
+        database_id: String,
+    },
+    BootstrapSafety {
+        expected_cluster_id: String,
+        force_new_cluster: bool,
+    },
+    TopologyObserve,
+    OperationalSafety {
+        operation: String,
+        confirmation: Option<String>,
+    },
+    ChaosChecks,
     ApplyRebalanceStep(RebalanceStep),
 }
 
@@ -258,6 +274,8 @@ pub fn backend_request_mutates_data(request: &BackendRequest) -> bool {
             | BackendRequest::SnapshotNow
             | BackendRequest::RestoreSnapshot { .. }
             | BackendRequest::RepairInvariants
+            | BackendRequest::PromoteCaughtUpNode(_)
+            | BackendRequest::WriteBootstrapManifest { .. }
             | BackendRequest::QueryWriteShard { .. }
             | BackendRequest::QueryWriteBatchShard { .. }
     )
@@ -295,6 +313,10 @@ pub enum BackendResponse {
     OkRebalancePlan(String),
     OkRebalanceExecution(String),
     OkClusterManagementStatus(String),
+    OkBootstrapManifest(String),
+    OkTopologyObservation(String),
+    OkOperationalSafety(String),
+    OkChaosChecks(String),
     Redirect(BackendRedirect),
     Err(String),
 }
@@ -835,10 +857,78 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
                 match_index,
             })
         }
+        "PROMOTE_CAUGHT_UP_NODE" => Ok(BackendRequest::PromoteCaughtUpNode(parse_single_id(
+            rest,
+            "PROMOTE_CAUGHT_UP_NODE requires server id",
+        )?)),
+        "WRITE_BOOTSTRAP_MANIFEST" => {
+            let mut parts = rest.split('\t');
+            let mode = parts
+                .next()
+                .ok_or_else(|| "WRITE_BOOTSTRAP_MANIFEST requires mode".to_string())?
+                .to_string();
+            let cluster_id = parts
+                .next()
+                .ok_or_else(|| "WRITE_BOOTSTRAP_MANIFEST requires cluster id".to_string())?
+                .to_string();
+            let database_id = parts
+                .next()
+                .ok_or_else(|| "WRITE_BOOTSTRAP_MANIFEST requires database id".to_string())?
+                .to_string();
+            if parts.next().is_some() {
+                return Err("WRITE_BOOTSTRAP_MANIFEST got extra fields".to_string());
+            }
+            Ok(BackendRequest::WriteBootstrapManifest {
+                mode,
+                cluster_id,
+                database_id,
+            })
+        }
+        "BOOTSTRAP_SAFETY" => {
+            let mut parts = rest.split('\t');
+            let expected_cluster_id = parts
+                .next()
+                .ok_or_else(|| "BOOTSTRAP_SAFETY requires expected cluster id".to_string())?
+                .to_string();
+            let force_new_cluster = parse_bool(
+                parts.next(),
+                "BOOTSTRAP_SAFETY requires force-new-cluster flag",
+            )?;
+            if parts.next().is_some() {
+                return Err("BOOTSTRAP_SAFETY got extra fields".to_string());
+            }
+            Ok(BackendRequest::BootstrapSafety {
+                expected_cluster_id,
+                force_new_cluster,
+            })
+        }
+        "OPERATIONAL_SAFETY" => {
+            let mut parts = rest.split('\t');
+            let operation = parts
+                .next()
+                .ok_or_else(|| "OPERATIONAL_SAFETY requires operation".to_string())?
+                .to_string();
+            let confirmation = parts.next().map(str::to_string);
+            if parts.next().is_some() {
+                return Err("OPERATIONAL_SAFETY got extra fields".to_string());
+            }
+            Ok(BackendRequest::OperationalSafety {
+                operation,
+                confirmation,
+            })
+        }
         "APPLY_REBALANCE_STEP" => Ok(BackendRequest::ApplyRebalanceStep(parse_rebalance_step(
             rest,
         )?)),
         _ => Err(format!("unknown command: {command}")),
+    }
+}
+
+fn parse_bool(value: Option<&str>, message: &str) -> Result<bool, String> {
+    match value.ok_or_else(|| message.to_string())? {
+        "1" | "true" | "TRUE" | "yes" | "YES" => Ok(true),
+        "0" | "false" | "FALSE" | "no" | "NO" => Ok(false),
+        _ => Err(format!("{message}: expected true or false")),
     }
 }
 

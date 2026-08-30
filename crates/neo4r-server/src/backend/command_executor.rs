@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use neo4r_db::{DatabaseResult, Neo4rDatabaseHandle, RebalancePolicy};
+use neo4r_db::{ClusterBootstrapMode, DatabaseResult, Neo4rDatabaseHandle, RebalancePolicy};
 
 pub fn execute_request(db: &Neo4rDatabaseHandle, request: BackendRequest) -> BackendResponse {
     match execute_request_inner(db, request) {
@@ -386,6 +386,54 @@ fn execute_request_inner(
         } => Ok(BackendResponse::OkClusterNodes(format_cluster_membership(
             &db.mark_shard_caught_up(shard_id, server_id, match_index)?,
         ))),
+        BackendRequest::PromoteCaughtUpNode(server_id) => Ok(BackendResponse::OkClusterNodes(
+            format_cluster_membership(&db.promote_caught_up_node_to_voter(server_id)?),
+        )),
+        BackendRequest::WriteBootstrapManifest {
+            mode,
+            cluster_id,
+            database_id,
+        } => {
+            let mode = parse_bootstrap_mode(&mode)?;
+            Ok(BackendResponse::OkBootstrapManifest(
+                format_bootstrap_manifest(&db.write_cluster_bootstrap_manifest(
+                    mode,
+                    cluster_id,
+                    database_id,
+                )?),
+            ))
+        }
+        BackendRequest::BootstrapSafety {
+            expected_cluster_id,
+            force_new_cluster,
+        } => {
+            let Some(manifest) = db.load_cluster_bootstrap_manifest()? else {
+                return Ok(BackendResponse::Err(
+                    "no bootstrap manifest has been written".to_string(),
+                ));
+            };
+            Ok(BackendResponse::OkOperationalSafety(
+                format_bootstrap_safety(&db.bootstrap_safety_decision(
+                    &manifest,
+                    &expected_cluster_id,
+                    force_new_cluster,
+                )?),
+            ))
+        }
+        BackendRequest::TopologyObserve => Ok(BackendResponse::OkTopologyObservation(
+            format_topology_observation(&db.topology_observation()?),
+        )),
+        BackendRequest::OperationalSafety {
+            operation,
+            confirmation,
+        } => Ok(BackendResponse::OkOperationalSafety(
+            format_operational_safety(
+                &db.operational_safety_decision(&operation, confirmation.as_deref())?,
+            ),
+        )),
+        BackendRequest::ChaosChecks => Ok(BackendResponse::OkChaosChecks(format_chaos_checks(
+            &db.chaos_checks_for_join_catch_up()?,
+        ))),
         BackendRequest::ApplyRebalanceStep(step) => {
             let routing_table = db.apply_rebalance_step(step)?;
             Ok(BackendResponse::OkClusterStatus(format!(
@@ -393,5 +441,15 @@ fn execute_request_inner(
                 routing_table.version
             )))
         }
+    }
+}
+
+fn parse_bootstrap_mode(mode: &str) -> DatabaseResult<ClusterBootstrapMode> {
+    match mode {
+        "join_existing" | "join" => Ok(ClusterBootstrapMode::JoinExisting),
+        "recover_from_data" | "recover" => Ok(ClusterBootstrapMode::RecoverFromData),
+        _ => Err(neo4r_db::DatabaseError::InvalidConfig(format!(
+            "unknown bootstrap mode {mode:?}"
+        ))),
     }
 }

@@ -913,3 +913,68 @@ pub(super) fn cluster_management_commands_report_structured_status() {
 
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+pub(super) fn cluster_bootstrap_and_topology_protocol_commands_execute() {
+    let dir = temp_dir("server-cluster-bootstrap-protocol");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+
+    assert!(matches!(
+        parse_request("PROMOTE_CAUGHT_UP_NODE\t2").unwrap(),
+        BackendRequest::PromoteCaughtUpNode(2)
+    ));
+    assert!(matches!(
+        parse_request("WRITE_BOOTSTRAP_MANIFEST\trecover_from_data\tnew-cluster\tdefault").unwrap(),
+        BackendRequest::WriteBootstrapManifest { .. }
+    ));
+    assert!(matches!(
+        parse_request("BOOTSTRAP_SAFETY\tnew-cluster\ttrue").unwrap(),
+        BackendRequest::BootstrapSafety { .. }
+    ));
+    assert!(matches!(
+        parse_request("TOPOLOGY_OBSERVE").unwrap(),
+        BackendRequest::TopologyObserve
+    ));
+    assert!(matches!(
+        parse_request("OPERATIONAL_SAFETY\trecover_from_data\tCONFIRM").unwrap(),
+        BackendRequest::OperationalSafety { .. }
+    ));
+    assert!(matches!(
+        parse_request("CHAOS_CHECKS").unwrap(),
+        BackendRequest::ChaosChecks
+    ));
+
+    let manifest = execute_request(
+        &db,
+        parse_request("WRITE_BOOTSTRAP_MANIFEST\trecover_from_data\tnew-cluster\tdefault").unwrap(),
+    );
+    let manifest_text = format_response(&manifest);
+    assert!(manifest_text.starts_with("OK\t"));
+    assert!(manifest_text.contains("mode=recover_from_data"));
+    assert!(manifest_text.contains("cluster_id=new-cluster"));
+
+    let safety = execute_request(
+        &db,
+        parse_request("BOOTSTRAP_SAFETY\tnew-cluster\ttrue").unwrap(),
+    );
+    let safety_text = format_response(&safety);
+    assert!(safety_text.contains("allowed=true"));
+
+    let topology = execute_request(&db, parse_request("TOPOLOGY_OBSERVE").unwrap());
+    let topology_text = format_response(&topology);
+    assert!(topology_text.contains("action="));
+
+    let op_safety = execute_request(
+        &db,
+        parse_request("OPERATIONAL_SAFETY\trecover_from_data").unwrap(),
+    );
+    let op_safety_text = format_response(&op_safety);
+    assert!(op_safety_text.contains("confirmation_token="));
+
+    let chaos = execute_request(&db, parse_request("CHAOS_CHECKS").unwrap());
+    let chaos_text = format_response(&chaos);
+    assert!(chaos_text.contains("join_during_leader_restart"));
+    assert!(chaos_text.contains("snapshot_transfer_retry"));
+
+    let _ = fs::remove_dir_all(dir);
+}

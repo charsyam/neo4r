@@ -52,8 +52,8 @@ pub use replication::{
     ReplicationChannelCapabilities, ReplicationChannelConfig, ReplicationChannelKind,
     ReplicationChannelMetricsSnapshot, ReplicationChannelOffer, ReplicationEndpoint,
     ReplicationNodeIdentity, ReplicationOutcome, ShardReplicator, TcpCatchUpResult,
-    TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator, UdpReplicationChannel,
-    UnsupportedReplicationChannel,
+    TcpNodeCatchUpDataSource, TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator,
+    UdpReplicationChannel, UnsupportedReplicationChannel,
 };
 #[cfg(feature = "rdma")]
 pub use replication::{

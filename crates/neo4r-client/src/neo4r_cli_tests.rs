@@ -153,6 +153,45 @@ fn parses_cli_subcommands() {
     ])
     .unwrap();
     assert_eq!(backup.backup_path, Some("/tmp/neo4r-backup".to_string()));
+
+    let topology = CliArgs::parse(["cluster".to_string(), "topology".to_string()]).unwrap();
+    assert_eq!(topology.command, Some("TOPOLOGY_OBSERVE".to_string()));
+
+    let promote = CliArgs::parse([
+        "cluster".to_string(),
+        "promote".to_string(),
+        "2".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        promote.command,
+        Some("PROMOTE_CAUGHT_UP_NODE\t2".to_string())
+    );
+
+    let manifest = CliArgs::parse([
+        "cluster".to_string(),
+        "bootstrap-manifest".to_string(),
+        "recover_from_data".to_string(),
+        "new-cluster".to_string(),
+        "tenant_a".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        manifest.command,
+        Some("WRITE_BOOTSTRAP_MANIFEST\trecover_from_data\tnew-cluster\ttenant_a".to_string())
+    );
+
+    let safety = CliArgs::parse([
+        "cluster".to_string(),
+        "safety".to_string(),
+        "recover_from_data".to_string(),
+        "CONFIRM".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        safety.command,
+        Some("OPERATIONAL_SAFETY\trecover_from_data\tCONFIRM".to_string())
+    );
 }
 
 #[test]

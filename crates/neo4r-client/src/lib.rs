@@ -271,6 +271,24 @@ impl HttpAdminClient {
         self.request_json("POST", &endpoint, &payload, None)
     }
 
+    pub fn restore_pitr_plan(
+        &self,
+        target_physical_ms: u64,
+        target_logical: u32,
+        database: Option<&str>,
+    ) -> ClientResult<String> {
+        let endpoint = admin_path("/api/admin/restore-pitr", database);
+        self.request_json(
+            "POST",
+            &endpoint,
+            &format!(
+                r#"{{"target_physical_ms":{},"target_logical":{},"dry_run":true}}"#,
+                target_physical_ms, target_logical
+            ),
+            None,
+        )
+    }
+
     pub fn raft_status(&self, database: Option<&str>) -> ClientResult<String> {
         let endpoint = admin_path("/api/admin/raft-status", database);
         self.request_json("GET", &endpoint, "", None)

@@ -53,6 +53,11 @@ impl TcpBackend {
                 return HttpResponse::json_status(403, json_error("missing csrf token"));
             }
         }
+        if let Some(action) = web_action_for_request(request) {
+            if !web_role_allows_action(role, action) {
+                return HttpResponse::json_status(403, json_error("forbidden"));
+            }
+        }
         let selected_db = || self.database_for_name(&database_name);
         if request_is_drained_during_restore(request) {
             match selected_db().and_then(|db| self.restore_maintenance_mode_enabled(&db)) {
@@ -162,21 +167,25 @@ impl TcpBackend {
                 }
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("GET", "/api/admin/users") if !role.allows(WebRole::Admin) => {
+            ("GET", "/api/admin/users") if !web_role_allows_action(role, WebAction::TokenAdmin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("GET", "/api/admin/users") => match self.web_users_json() {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("GET", "/api/admin/databases") if !role.allows(WebRole::Admin) => {
+            ("GET", "/api/admin/databases")
+                if !web_role_allows_action(role, WebAction::TenantAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("GET", "/api/admin/databases") => match self.databases_json() {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("GET", "/api/admin/audit-log") if !role.allows(WebRole::Admin) => {
+            ("GET", "/api/admin/audit-log")
+                if !web_role_allows_action(role, WebAction::AuditAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("GET", "/api/admin/audit-log") => match self.web_audit_json_filtered(
@@ -189,7 +198,9 @@ impl TcpBackend {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("POST", "/api/admin/prune-audit-log") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/prune-audit-log")
+                if !web_role_allows_action(role, WebAction::AuditAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/prune-audit-log") => {
@@ -204,7 +215,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("GET", "/api/admin/raft-status") if !role.allows(WebRole::Admin) => {
+            ("GET", "/api/admin/raft-status")
+                if !web_role_allows_action(role, WebAction::RaftAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("GET", "/api/admin/raft-status") => match selected_db() {
@@ -212,7 +225,7 @@ impl TcpBackend {
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
             ("POST", "/api/admin/snapshot-now" | "/api/admin/cluster/snapshot")
-                if !role.allows(WebRole::Admin) =>
+                if !web_role_allows_action(role, WebAction::RaftAdmin) =>
             {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
@@ -225,7 +238,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/verify-invariants") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/verify-invariants")
+                if !web_role_allows_action(role, WebAction::RepairAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/verify-invariants") => match selected_db() {
@@ -235,17 +250,27 @@ impl TcpBackend {
                 },
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("POST", "/api/admin/repair-invariants") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/repair-invariants")
+                if !web_role_allows_action(role, WebAction::RepairAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/repair-invariants") => match selected_db() {
                 Ok(db) => match db.repair_storage_invariants() {
-                    Ok(result) => HttpResponse::json(storage_maintenance_json(&result)),
-                    Err(err) => HttpResponse::json_status(500, json_error(&err.to_string())),
+                    Ok(result) => {
+                        self.audit_admin("repair.success", &database_name, "repair_invariants");
+                        HttpResponse::json(storage_maintenance_json(&result))
+                    }
+                    Err(err) => {
+                        self.audit_admin("repair.failure", &database_name, &err.to_string());
+                        HttpResponse::json_status(500, json_error(&err.to_string()))
+                    }
                 },
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
-            ("POST", "/api/admin/maintenance-mode") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/maintenance-mode")
+                if !web_role_allows_action(role, WebAction::RestoreAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/maintenance-mode") => {
@@ -256,14 +281,18 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/databases") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/databases")
+                if !web_role_allows_action(role, WebAction::TenantAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/databases") => match self.create_database_json(&request.body) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/admin/delete-database") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/delete-database")
+                if !web_role_allows_action(role, WebAction::TenantAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/delete-database") => {
@@ -272,7 +301,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/disable-database") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/disable-database")
+                if !web_role_allows_action(role, WebAction::TenantAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/disable-database") => {
@@ -281,7 +312,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/enable-database") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/enable-database")
+                if !web_role_allows_action(role, WebAction::TenantAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/enable-database") => {
@@ -304,28 +337,36 @@ impl TcpBackend {
                 )),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/admin/users") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/users")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/users") => match self.add_web_user(&request.body) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/admin/invoke-token") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/invoke-token")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/invoke-token") => match self.add_web_user(&request.body) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/admin/revoke-token") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/revoke-token")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/revoke-token") => match self.revoke_web_token(&request.body) {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
-            ("POST", "/api/admin/cleanup-expired-tokens") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/cleanup-expired-tokens")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/cleanup-expired-tokens") => {
@@ -334,7 +375,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/cleanup-expired-sessions") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/cleanup-expired-sessions")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/cleanup-expired-sessions") => {
@@ -343,7 +386,9 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("POST", "/api/admin/delete-user") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/admin/delete-user")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/admin/delete-user") => match self.delete_web_user(&request.body) {
@@ -351,35 +396,35 @@ impl TcpBackend {
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
             ("POST", "/api/cluster/advance-rebalance" | "/api/admin/cluster/migration/advance") => {
-                if !role.allows(WebRole::Admin) {
+                if !web_role_allows_action(role, WebAction::ClusterAdmin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::AdvanceRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
             ("POST", "/api/cluster/plan-rebalance" | "/api/admin/cluster/migration/plan") => {
-                if !role.allows(WebRole::Admin) {
+                if !web_role_allows_action(role, WebAction::ClusterAdmin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::PlanRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
             ("POST", "/api/admin/cluster/migration/start") => {
-                if !role.allows(WebRole::Admin) {
+                if !web_role_allows_action(role, WebAction::ClusterAdmin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::StartRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
             ("POST", "/api/admin/cluster/migration/cancel") => {
-                if !role.allows(WebRole::Admin) {
+                if !web_role_allows_action(role, WebAction::ClusterAdmin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let response = self.execute_backend_request(BackendRequest::CancelRebalance);
                 HttpResponse::json(management_response_json(&response))
             }
             ("POST", "/api/admin/raft-leader-transfer") => {
-                if !role.allows(WebRole::Admin) {
+                if !web_role_allows_action(role, WebAction::RaftAdmin) {
                     return HttpResponse::json_status(403, json_error("forbidden"));
                 }
                 let required_u64 = |name| {
@@ -405,7 +450,7 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
-            ("POST", "/api/backup") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/backup") if !web_role_allows_action(role, WebAction::BackupAdmin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/backup") => {
@@ -416,7 +461,7 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 }
             }
-            ("POST", "/api/restore") if !role.allows(WebRole::Admin) => {
+            ("POST", "/api/restore") if !web_role_allows_action(role, WebAction::RestoreAdmin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/restore") => {
@@ -436,7 +481,18 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(500, json_error(&err)),
                 }
             }
-            ("POST", "/api/query") if !role.allows(WebRole::Writer) => {
+            ("POST", "/api/admin/restore-pitr")
+                if !web_role_allows_action(role, WebAction::RestoreAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/restore-pitr") => match selected_db()
+                .and_then(|db| self.pitr_restore_plan_json(&db, &database_name, &request.body))
+            {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
+            ("POST", "/api/query") if !web_role_allows_action(role, WebAction::GraphWrite) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }
             ("POST", "/api/query") => match extract_json_string_field(&request.body, "query") {
@@ -483,154 +539,6 @@ impl TcpBackend {
             },
             _ => HttpResponse::json_status(404, json_error("not found")),
         }
-    }
-
-    pub(crate) fn request_database_name(&self, request: &HttpRequest) -> Result<String, String> {
-        if let Some(query) = extract_optional_json_string_field(&request.body, "query")? {
-            if let Some(database) = database_from_use_clause(&query)? {
-                return Ok(database);
-            }
-        }
-        let database = request
-            .header("x-neo4r-database")
-            .map(str::to_string)
-            .or_else(|| request.query_value("db"))
-            .or_else(|| {
-                extract_optional_json_string_field(&request.body, "database")
-                    .ok()
-                    .flatten()
-            })
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_DATABASE.to_string());
-        validate_database_name(&database)?;
-        Ok(database)
-    }
-
-    pub(crate) fn database_for_name(&self, database: &str) -> Result<Neo4rDatabaseHandle, String> {
-        validate_database_name(database)?;
-        if database == DEFAULT_DATABASE {
-            return Ok(self.db.clone());
-        }
-        self.tenant_databases
-            .as_ref()
-            .ok_or_else(|| "multi-tenant database manager is unavailable".to_string())?
-            .database(database)
-            .map_err(|err| err.to_string())
-    }
-
-    pub(crate) fn system_policy_json(&self) -> String {
-        format!(
-            "{{\"system_database\":\"system\",\"tenant_database_root\":\"databases\",\"system_metadata\":[\"web_auth\",\"web_audit\",\"web_sessions\"],\"tenant_backup_includes_system_metadata\":false,\"selected_database_header\":\"x-neo4r-database\"}}"
-        )
-    }
-
-    pub(crate) fn authorized_role(&self, request: &HttpRequest, database: &str) -> Option<WebRole> {
-        if let Some(session_id) =
-            request_session_token(request).filter(|token| token.starts_with("sid:"))
-        {
-            if let Some(role) = self
-                .web_sessions
-                .as_ref()
-                .and_then(|store| store.role_for_session(&session_id, database, unix_seconds_now()))
-            {
-                return Some(role);
-            }
-        }
-        let Some(expected) = self.web_auth_token.as_ref() else {
-            if self
-                .web_user_tokens
-                .as_ref()
-                .and_then(|store| store.list().ok())
-                .is_none_or(|users| users.is_empty())
-            {
-                return Some(WebRole::Admin);
-            }
-            let supplied = request
-                .header("authorization")
-                .and_then(|value| value.strip_prefix("Bearer "))
-                .map(str::to_string)
-                .or_else(|| request.query_value("token"))?;
-            return self.web_user_tokens.as_ref().and_then(|store| {
-                store.find_role_by_token(&supplied, database, unix_seconds_now())
-            });
-        };
-        let supplied = request
-            .header("authorization")
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .map(str::to_string)
-            .or_else(|| request.query_value("token"))?;
-        if constant_time_token_eq(&supplied, expected) {
-            return Some(web_role_from_token(expected));
-        }
-        self.web_user_tokens
-            .as_ref()
-            .and_then(|store| store.find_role_by_token(&supplied, database, unix_seconds_now()))
-    }
-
-    fn create_web_session(&self, request: &HttpRequest, database: &str) -> Result<String, String> {
-        let token = extract_json_string_field(&request.body, "token").or_else(|_| {
-            request
-                .header("authorization")
-                .and_then(|value| value.strip_prefix("Bearer "))
-                .map(str::to_string)
-                .ok_or_else(|| "missing token".to_string())
-        })?;
-        let role = self
-            .authorize_token_value(&token, database)
-            .ok_or_else(|| "unauthorized".to_string())?;
-        let session_id = self
-            .web_sessions
-            .as_ref()
-            .ok_or_else(|| "web session store is unavailable".to_string())?
-            .create(&token, database, role, unix_seconds_now(), 3600)?;
-        Ok(format!(
-            "{{\"session_id\":\"{}\",\"csrf_token\":\"{}\",\"expires_in\":3600,\"database\":\"{}\"}}",
-            json_escape(&session_id.session_id),
-            json_escape(&session_id.csrf_token),
-            json_escape(database)
-        ))
-    }
-
-    fn delete_web_session(&self, request: &HttpRequest) -> Result<String, String> {
-        let Some(session_id) =
-            request_session_token(request).filter(|token| token.starts_with("sid:"))
-        else {
-            return Err("missing web session".to_string());
-        };
-        self.web_sessions
-            .as_ref()
-            .ok_or_else(|| "web session store is unavailable".to_string())?
-            .delete(&session_id)?;
-        Ok("{\"logged_out\":true}".to_string())
-    }
-
-    fn valid_session_csrf(&self, request: &HttpRequest) -> bool {
-        let Some(session_id) =
-            request_session_token(request).filter(|token| token.starts_with("sid:"))
-        else {
-            return false;
-        };
-        let Some(expected) = self
-            .web_sessions
-            .as_ref()
-            .and_then(|store| store.csrf_for_session(&session_id, unix_seconds_now()))
-        else {
-            return false;
-        };
-        request
-            .header("x-neo4r-csrf")
-            .is_some_and(|supplied| constant_time_token_eq(supplied, &expected))
-    }
-
-    fn authorize_token_value(&self, token: &str, database: &str) -> Option<WebRole> {
-        if let Some(expected) = self.web_auth_token.as_ref() {
-            if constant_time_token_eq(token, expected) {
-                return Some(web_role_from_token(expected));
-            }
-        }
-        self.web_user_tokens
-            .as_ref()
-            .and_then(|store| store.find_role_by_token(token, database, unix_seconds_now()))
     }
 
     pub(crate) fn web_users_json(&self) -> Result<String, String> {
@@ -930,7 +838,7 @@ impl TcpBackend {
     }
 }
 
-fn request_session_token(request: &HttpRequest) -> Option<String> {
+pub(crate) fn request_session_token(request: &HttpRequest) -> Option<String> {
     request.header("cookie").and_then(|cookie| {
         cookie.split(';').find_map(|part| {
             let (key, value) = part.trim().split_once('=')?;

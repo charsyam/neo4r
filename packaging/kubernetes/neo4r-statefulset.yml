@@ -13,6 +13,15 @@ spec:
       labels:
         app: neo4r
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: neo4r
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: neo4r
           image: neo4r:latest
@@ -40,6 +49,12 @@ spec:
               mountPath: /etc/neo4r
             - name: data
               mountPath: /var/lib/neo4r
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
       volumes:
         - name: config
           configMap:

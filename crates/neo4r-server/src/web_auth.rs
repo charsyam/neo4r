@@ -650,6 +650,19 @@ pub(super) fn constant_time_token_eq(left: &str, right: &str) -> bool {
     diff == 0
 }
 
+pub(super) fn latest_audit_unix_seconds(events: &[WebAuditEvent], prefixes: &[&str]) -> u64 {
+    events
+        .iter()
+        .filter(|event| {
+            prefixes
+                .iter()
+                .any(|prefix| event.action.starts_with(prefix))
+        })
+        .map(|event| (event.unix_ms / 1000) as u64)
+        .max()
+        .unwrap_or_default()
+}
+
 fn encode_web_user_token(record: &WebUserToken) -> String {
     format!(
         "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",

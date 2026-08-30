@@ -1,0 +1,19 @@
+version: 1
+panels:
+  - title: Query p99 and slow queries
+    metrics:
+      - neo4r_queries_total
+      - neo4r_slow_queries_total
+  - title: Raft leadership and lag
+    metrics:
+      - neo4r_raft_leaders
+      - neo4r_database_shard_lag
+  - title: Backup and repair freshness
+    metrics:
+      - neo4r_backup_restore_last_success_timestamp_seconds
+      - neo4r_storage_repair_last_success_timestamp_seconds
+      - neo4r_storage_repair_failures_total
+  - title: Security
+    metrics:
+      - neo4r_auth_failures_total
+      - neo4r_auth_rate_limited_total

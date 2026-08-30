@@ -44,6 +44,7 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) raft_snapshot_installs: usize,
     pub(crate) raft_snapshot_install_millis: u64,
     pub(crate) query_plan_cost_model_version: u64,
+    pub(crate) backup_restore_last_success_timestamp_seconds: u64,
     pub(crate) storage_repair_last_success_timestamp_seconds: u64,
     pub(crate) storage_repair_failures: u64,
 }
@@ -51,7 +52,7 @@ pub(crate) struct WebMetricsSnapshot {
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
@@ -103,6 +104,7 @@ impl WebMetricsSnapshot {
             self.raft_snapshot_installs,
             self.raft_snapshot_install_millis,
             self.query_plan_cost_model_version,
+            self.backup_restore_last_success_timestamp_seconds,
             self.storage_repair_last_success_timestamp_seconds,
             self.storage_repair_failures
         )
@@ -211,6 +213,10 @@ impl WebMetricsSnapshot {
             prometheus_metric(
                 "neo4r_query_plan_cost_model_version",
                 self.query_plan_cost_model_version,
+            ),
+            prometheus_metric(
+                "neo4r_backup_restore_last_success_timestamp_seconds",
+                self.backup_restore_last_success_timestamp_seconds,
             ),
             prometheus_metric(
                 "neo4r_storage_repair_last_success_timestamp_seconds",
@@ -703,12 +709,19 @@ impl TcpBackend {
             .and_then(|store| store.list().ok())
             .map(|tokens| tokens.len())
             .unwrap_or_default();
-        let web_audit_event_count = self
+        let audit_events = self
             .web_audit
             .as_ref()
             .and_then(|store| store.list().ok())
-            .map(|events| events.len())
             .unwrap_or_default();
+        let web_audit_event_count = audit_events.len();
+        let latest_backup_or_restore =
+            latest_audit_unix_seconds(&audit_events, &["backup.", "restore."]);
+        let latest_repair = latest_audit_unix_seconds(&audit_events, &["repair."]);
+        let repair_failures = audit_events
+            .iter()
+            .filter(|event| event.action == "repair.failure")
+            .count() as u64;
         let replication = db.replication_channel_metrics().ok().flatten();
         WebMetricsSnapshot {
             http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
@@ -793,8 +806,9 @@ impl TcpBackend {
                 .map(|metrics| metrics.snapshot_install_millis)
                 .unwrap_or_default(),
             query_plan_cost_model_version: 3,
-            storage_repair_last_success_timestamp_seconds: 0,
-            storage_repair_failures: 0,
+            backup_restore_last_success_timestamp_seconds: latest_backup_or_restore,
+            storage_repair_last_success_timestamp_seconds: latest_repair,
+            storage_repair_failures: repair_failures,
         }
     }
 

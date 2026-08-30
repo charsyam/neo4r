@@ -1,0 +1,18 @@
+version: 1
+background_refresh:
+  interval_seconds_default: 300
+  trigger:
+    - metadata-change
+    - index-build-finished
+    - write-count-threshold
+histograms:
+  node_property:
+    buckets: 64
+    persisted: required
+  relationship_property:
+    buckets: 64
+    persisted: required
+required_checks:
+  - statistics-persist-across-reopen
+  - cost-model-uses-statistics
+  - histogram-contract-present

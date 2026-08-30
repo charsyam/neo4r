@@ -345,6 +345,12 @@ fn execute_admin_action(args: &CliArgs) -> Result<(), CliError> {
             )?
         );
     }
+    if let Some(target) = args.restore_pitr_target_ms {
+        println!(
+            "{}",
+            admin.restore_pitr_plan(target, args.restore_pitr_target_logical, database)?
+        );
+    }
     if args.admin_raft_status {
         println!("{}", admin.raft_status(database)?);
     }
@@ -497,6 +503,8 @@ struct CliArgs {
     restore_path: Option<String>,
     restore_dry_run: bool,
     restore_confirm: Option<String>,
+    restore_pitr_target_ms: Option<u64>,
+    restore_pitr_target_logical: u32,
     list_users: bool,
     delete_user: Option<String>,
     cleanup_expired_tokens: bool,
@@ -543,6 +551,8 @@ impl CliArgs {
             restore_path: None,
             restore_dry_run: false,
             restore_confirm: None,
+            restore_pitr_target_ms: None,
+            restore_pitr_target_logical: 0,
             list_users: false,
             delete_user: None,
             cleanup_expired_tokens: false,
@@ -594,6 +604,14 @@ impl CliArgs {
                 "--restore" => parsed.restore_path = Some(next_arg(&mut args, &arg)?),
                 "--restore-dry-run" => parsed.restore_dry_run = true,
                 "--restore-confirm" => parsed.restore_confirm = Some(next_arg(&mut args, &arg)?),
+                "--restore-pitr-target-ms" => {
+                    parsed.restore_pitr_target_ms =
+                        Some(parse_u64_arg(next_arg(&mut args, &arg)?, &arg)?)
+                }
+                "--restore-pitr-target-logical" => {
+                    parsed.restore_pitr_target_logical =
+                        parse_u64_arg(next_arg(&mut args, &arg)?, &arg)? as u32
+                }
                 "--list-users" => parsed.list_users = true,
                 "--delete-user" => parsed.delete_user = Some(next_arg(&mut args, &arg)?),
                 "--cleanup-expired-tokens" => parsed.cleanup_expired_tokens = true,
@@ -658,6 +676,7 @@ impl CliArgs {
     fn has_admin_action(&self) -> bool {
         self.backup_path.is_some()
             || self.restore_path.is_some()
+            || self.restore_pitr_target_ms.is_some()
             || self.list_users
             || self.delete_user.is_some()
             || self.cleanup_expired_tokens
@@ -745,6 +764,11 @@ fn normalize_admin_subcommand(args: &[String]) -> Result<Vec<String>, CliError> 
         Some("databases") => Ok(with_tail(vec!["--list-databases".to_string()], args, 2)),
         Some("audit") => Ok(with_tail(vec!["--admin-audit-log".to_string()], args, 2)),
         Some("raft") => Ok(with_tail(vec!["--admin-raft-status".to_string()], args, 2)),
+        Some("restore-pitr") if args.len() >= 3 => {
+            let mut normalized = vec!["--restore-pitr-target-ms".to_string(), args[2].clone()];
+            normalized.extend_from_slice(&args[3..]);
+            Ok(normalized)
+        }
         Some("cleanup-tokens") => Ok(with_tail(
             vec!["--cleanup-expired-tokens".to_string()],
             args,
@@ -759,7 +783,7 @@ fn normalize_admin_subcommand(args: &[String]) -> Result<Vec<String>, CliError> 
             Ok(normalized)
         }
         _ => Err(CliError::Usage(
-            "admin subcommand supports: users, databases, audit, raft, cleanup-tokens, prune-audit DAYS".to_string(),
+            "admin subcommand supports: users, databases, audit, raft, restore-pitr TARGET_MS, cleanup-tokens, prune-audit DAYS".to_string(),
         )),
     }
 }

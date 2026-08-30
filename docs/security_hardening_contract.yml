@@ -42,3 +42,4 @@ roles:
 deny_by_default: true
 required_checks:
   - rbac-role-boundary
+policy_document: docs/rbac_policy.md

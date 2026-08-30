@@ -14,6 +14,9 @@ required_metrics:
   - neo4r_slow_queries_total
   - neo4r_web_audit_events
   - neo4r_query_plan_cost_model_version
+  - neo4r_backup_restore_last_success_timestamp_seconds
+  - neo4r_storage_repair_last_success_timestamp_seconds
+  - neo4r_storage_repair_failures_total
 validation:
   scrape_smoke: required
   alert_rule_presence: required

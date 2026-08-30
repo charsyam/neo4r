@@ -96,6 +96,17 @@ fn parses_cli_subcommands() {
     .unwrap();
     assert_eq!(prune.prune_audit_retention_days, Some(90));
 
+    let pitr = CliArgs::parse([
+        "admin".to_string(),
+        "restore-pitr".to_string(),
+        "12345".to_string(),
+        "--restore-pitr-target-logical".to_string(),
+        "7".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(pitr.restore_pitr_target_ms, Some(12345));
+    assert_eq!(pitr.restore_pitr_target_logical, 7);
+
     let backup = CliArgs::parse([
         "backup".to_string(),
         "create".to_string(),

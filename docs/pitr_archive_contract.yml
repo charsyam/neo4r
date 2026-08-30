@@ -17,3 +17,5 @@ archive:
     - checksum-manifest
     - restore-target-isolated
     - timestamp-targeted-restore-dry-run
+    - pitr-restore-plan-api
+    - pitr-restore-cli-command

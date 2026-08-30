@@ -1,6 +1,7 @@
 version: 1
 online_backup:
   isolation: read-snapshot
+  remote_archive: docs/object_storage_archive.yml
   manifest:
     - database
     - source
@@ -15,3 +16,4 @@ online_backup:
     - mutating-restore-drain
     - backup-restore-e2e-smoke
     - restored-query-correctness
+    - object-storage-smoke-opt-in

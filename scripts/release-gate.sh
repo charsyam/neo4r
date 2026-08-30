@@ -13,6 +13,7 @@ scripts/session-security.sh
 scripts/restore-drain.sh
 scripts/read-consistency.sh
 scripts/query-plan-golden.sh
+scripts/query-statistics-maintenance-gate.sh
 scripts/query-result-contract.sh
 scripts/multi-node-live-gate.sh
 scripts/membership-automation.sh
@@ -29,6 +30,7 @@ scripts/bench-regression.sh
 scripts/crash-consistency-gate.sh
 scripts/pitr-archive-gate.sh
 scripts/backup-consistency-gate.sh
+scripts/object-storage-smoke.sh
 scripts/query-cost-model-gate.sh
 scripts/observability-slo-gate.sh
 scripts/security-hardening-gate.sh

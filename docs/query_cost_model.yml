@@ -21,3 +21,4 @@ explain_must_include:
 calibration_inputs:
   - docs/query_regression_corpus.yml
   - docs/performance_thresholds.txt
+  - docs/query_statistics_maintenance.yml

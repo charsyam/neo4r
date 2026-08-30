@@ -10,8 +10,10 @@ mod http_json_backup;
 mod native_execution;
 mod native_transport;
 mod native_worker;
+mod pitr;
 mod prepared_query;
 mod prometheus;
+mod rbac;
 mod remote_transactions;
 mod replication_admin;
 mod replication_tls;
@@ -19,6 +21,7 @@ mod restore_guard;
 mod state;
 mod transaction_protocol;
 mod transaction_store;
+mod web_auth_flow;
 mod web_index;
 
 #[allow(unused_imports)]
@@ -43,8 +46,11 @@ pub(crate) use native_transport::{
 #[allow(unused_imports)]
 pub(crate) use native_worker::*;
 #[allow(unused_imports)]
+pub(crate) use pitr::*;
+#[allow(unused_imports)]
 pub(crate) use prepared_query::*;
 pub(crate) use prometheus::*;
+pub(crate) use rbac::*;
 #[allow(unused_imports)]
 pub(crate) use remote_transactions::*;
 #[allow(unused_imports)]
@@ -57,5 +63,7 @@ pub(crate) use state::*;
 pub(crate) use transaction_protocol::*;
 #[allow(unused_imports)]
 pub(crate) use transaction_store::*;
+#[allow(unused_imports)]
+pub(crate) use web_auth_flow::*;
 #[allow(unused_imports)]
 pub(crate) use web_index::*;

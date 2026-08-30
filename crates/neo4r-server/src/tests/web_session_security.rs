@@ -81,6 +81,42 @@ pub(super) fn restore_maintenance_drains_native_backend_writes() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+pub(super) fn pitr_restore_plan_requires_admin_and_reports_target_indexes() {
+    let dir = temp_dir("neo4r-web-pitr-plan");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher(r#"CREATE (n:Pitr {name: "Before"})"#)
+        .unwrap();
+    let body =
+        "{\"target_physical_ms\":18446744073709551615,\"target_logical\":0,\"dry_run\":true}";
+
+    let forbidden = web_request(
+        TcpBackend::new(db.clone())
+            .with_web_options(Some("writer:secret".to_string()), Duration::from_millis(250)),
+        &format!(
+            "POST /api/admin/restore-pitr HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer writer:secret\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(forbidden.contains("HTTP/1.1 403 Forbidden"));
+
+    let plan = web_request(
+        TcpBackend::new(db.clone())
+            .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250)),
+        &format!(
+            "POST /api/admin/restore-pitr HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(plan.contains("HTTP/1.1 200 OK"), "{plan}");
+    assert!(plan.contains("\"dry_run\":true"));
+    assert!(plan.contains("\"target_index\":1"));
+    assert!(plan.contains("\"selected_entries\":1"));
+    let _ = fs::remove_dir_all(dir);
+}
+
 fn json_response_field(response: &str, name: &str) -> String {
     response
         .split(&format!("\"{name}\":\""))

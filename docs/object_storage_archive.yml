@@ -1,0 +1,16 @@
+version: 1
+provider: s3-compatible
+required_config:
+  - endpoint
+  - bucket
+  - region
+  - access_key_env
+  - secret_key_env
+layout:
+  backup_prefix: backups/{database}/{timestamp}/
+  wal_prefix: wal/{database}/{shard}/
+  manifest: neo4r-backup-manifest.txt
+required_checks:
+  - manifest-checksum-before-upload
+  - dry-run-restore-before-apply
+  - object-storage-smoke-opt-in

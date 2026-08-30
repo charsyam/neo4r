@@ -1,0 +1,11 @@
+version: 1
+schedule:
+  frequency: daily
+  max_age_hours: 24
+  steps:
+    - create-online-backup
+    - verify-manifest-checksum
+    - restore-dry-run
+    - restore-to-isolated-data-dir
+    - run-query-correctness-smoke
+    - publish-last-success-metric

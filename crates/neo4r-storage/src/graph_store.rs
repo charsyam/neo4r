@@ -5,7 +5,7 @@ use neo4r_core::{
     BoundaryNode, Command, GraphRead, GraphReadError, GraphReadResult, Node, NodeId, Properties,
     Relationship, RelationshipId, Value,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 const EMPTY: &[u8] = &[];
 
@@ -69,6 +69,18 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             Command::DeleteNode { id } => self.delete_node(*id),
             Command::ClusterConfigChange { .. } => Ok(()),
         }
+    }
+
+    pub fn apply_batch(&mut self, commands: &[Command]) -> StorageResult<()> {
+        if commands.is_empty() {
+            return Ok(());
+        }
+        let mut batch = KvWriteBatch::new();
+        let mut staged = StagedBatchState::default();
+        for command in commands {
+            self.apply_into_batch(&mut batch, &mut staged, command)?;
+        }
+        self.kv.write_batch(batch)
     }
 
     pub fn verify_invariants(&self) -> StorageResult<GraphInvariantReport> {
@@ -280,6 +292,141 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         self.kv.write_batch(batch)
     }
 
+    fn apply_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        staged: &mut StagedBatchState,
+        command: &Command,
+    ) -> StorageResult<()> {
+        match command {
+            Command::CreateNode {
+                id,
+                labels,
+                properties,
+            } => {
+                self.put_node_into_batch(batch, *id, labels, properties);
+                self.index_node_into_batch(batch, *id, labels, properties);
+                staged.nodes.insert(
+                    *id,
+                    Some(Node::new(*id, labels.clone(), properties.clone())),
+                );
+                Ok(())
+            }
+            Command::CreateRelationship {
+                id,
+                from,
+                to,
+                rel_type,
+                properties,
+            } => {
+                let relationship =
+                    Relationship::new(*id, *from, *to, rel_type.clone(), properties.clone());
+                self.create_relationship_value_into_batch(batch, &relationship);
+                if self.staged_node(staged, *to)?.is_some() {
+                    batch.put(incoming_key(*to, *id), EMPTY.to_vec());
+                    batch.put(incoming_type_key(*to, rel_type, *id), EMPTY.to_vec());
+                }
+                staged.relationships.insert(*id, Some(relationship));
+                Ok(())
+            }
+            Command::UpsertBoundaryNode {
+                id,
+                owner_shard,
+                labels,
+                properties,
+                version,
+            } => {
+                if let Some(old) = self.staged_boundary_node(staged, *id)? {
+                    self.remove_boundary_node_indexes_into_batch(batch, &old);
+                }
+                let boundary = BoundaryNode {
+                    id: *id,
+                    owner_shard: *owner_shard,
+                    labels: labels.clone(),
+                    properties: properties.clone(),
+                    version: *version,
+                };
+                batch.put(boundary_node_key(*id), encode_command(command));
+                self.index_boundary_node_into_batch(batch, *id, labels, properties);
+                staged.boundary_nodes.insert(*id, Some(boundary));
+                Ok(())
+            }
+            Command::SetNodeProperty { id, key, value } => {
+                let Some(mut node) = self.staged_node(staged, *id)? else {
+                    return Ok(());
+                };
+                self.remove_node_indexes_into_batch(batch, &node);
+                node.properties.insert(key.clone(), value.clone());
+                self.put_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                self.index_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                staged.nodes.insert(*id, Some(node));
+                Ok(())
+            }
+            Command::RemoveNodeProperty { id, key } => {
+                let Some(mut node) = self.staged_node(staged, *id)? else {
+                    return Ok(());
+                };
+                self.remove_node_indexes_into_batch(batch, &node);
+                node.properties.remove(key);
+                self.put_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                self.index_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                staged.nodes.insert(*id, Some(node));
+                Ok(())
+            }
+            Command::AddNodeLabel { id, label } => {
+                let Some(mut node) = self.staged_node(staged, *id)? else {
+                    return Ok(());
+                };
+                if node.labels.iter().any(|existing| existing == label) {
+                    return Ok(());
+                }
+                self.remove_node_indexes_into_batch(batch, &node);
+                node.labels.push(label.clone());
+                self.put_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                self.index_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                staged.nodes.insert(*id, Some(node));
+                Ok(())
+            }
+            Command::RemoveNodeLabel { id, label } => {
+                let Some(mut node) = self.staged_node(staged, *id)? else {
+                    return Ok(());
+                };
+                if !node.labels.iter().any(|existing| existing == label) {
+                    return Ok(());
+                }
+                self.remove_node_indexes_into_batch(batch, &node);
+                node.labels.retain(|existing| existing != label);
+                self.put_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                self.index_node_into_batch(batch, node.id, &node.labels, &node.properties);
+                staged.nodes.insert(*id, Some(node));
+                Ok(())
+            }
+            Command::SetRelationshipProperty { id, key, value } => {
+                let Some(mut relationship) = self.staged_relationship(staged, *id)? else {
+                    return Ok(());
+                };
+                relationship.properties.insert(key.clone(), value.clone());
+                self.create_relationship_value_into_batch(batch, &relationship);
+                staged.relationships.insert(*id, Some(relationship));
+                Ok(())
+            }
+            Command::RemoveRelationshipProperty { id, key } => {
+                let Some(mut relationship) = self.staged_relationship(staged, *id)? else {
+                    return Ok(());
+                };
+                relationship.properties.remove(key);
+                self.create_relationship_value_into_batch(batch, &relationship);
+                staged.relationships.insert(*id, Some(relationship));
+                Ok(())
+            }
+            Command::DeleteRelationship { id } => {
+                self.delete_relationship_staged_into_batch(batch, staged, *id)
+            }
+            Command::DeleteNode { id } => self.delete_node_staged_into_batch(batch, staged, *id),
+            Command::ClusterConfigChange { .. } => Ok(()),
+        }
+    }
+
     fn put_node_into_batch(
         &self,
         batch: &mut KvWriteBatch,
@@ -341,21 +488,37 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         rel_type: &str,
         properties: &Properties,
     ) -> StorageResult<()> {
-        let command = Command::CreateRelationship {
-            id,
-            from,
-            to,
-            rel_type: rel_type.to_string(),
-            properties: properties.clone(),
-        };
-        batch.put(relationship_key(id), encode_command(&command));
-        batch.put(outgoing_key(from, id), EMPTY.to_vec());
-        batch.put(outgoing_type_key(from, rel_type, id), EMPTY.to_vec());
+        let relationship =
+            Relationship::new(id, from, to, rel_type.to_string(), properties.clone());
+        self.create_relationship_value_into_batch(batch, &relationship);
         if self.node(to)?.is_some() {
             batch.put(incoming_key(to, id), EMPTY.to_vec());
             batch.put(incoming_type_key(to, rel_type, id), EMPTY.to_vec());
         }
         Ok(())
+    }
+
+    fn create_relationship_value_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        relationship: &Relationship,
+    ) {
+        let command = Command::CreateRelationship {
+            id: relationship.id,
+            from: relationship.from,
+            to: relationship.to,
+            rel_type: relationship.rel_type.clone(),
+            properties: relationship.properties.clone(),
+        };
+        batch.put(relationship_key(relationship.id), encode_command(&command));
+        batch.put(
+            outgoing_key(relationship.from, relationship.id),
+            EMPTY.to_vec(),
+        );
+        batch.put(
+            outgoing_type_key(relationship.from, &relationship.rel_type, relationship.id),
+            EMPTY.to_vec(),
+        );
     }
 
     fn set_node_property(&mut self, id: NodeId, key: &str, value: &Value) -> StorageResult<()> {
@@ -483,6 +646,32 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         Ok(())
     }
 
+    fn delete_relationship_staged_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        staged: &mut StagedBatchState,
+        id: RelationshipId,
+    ) -> StorageResult<()> {
+        let Some(relationship) = self.staged_relationship(staged, id)? else {
+            return Ok(());
+        };
+        batch.delete(relationship_key(id));
+        batch.delete(outgoing_key(relationship.from, id));
+        batch.delete(outgoing_type_key(
+            relationship.from,
+            &relationship.rel_type,
+            id,
+        ));
+        batch.delete(incoming_key(relationship.to, id));
+        batch.delete(incoming_type_key(
+            relationship.to,
+            &relationship.rel_type,
+            id,
+        ));
+        staged.relationships.insert(id, None);
+        Ok(())
+    }
+
     fn delete_node(&mut self, id: NodeId) -> StorageResult<()> {
         let Some(node) = self.node(id)? else {
             return Ok(());
@@ -500,6 +689,66 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
         self.remove_node_indexes_into_batch(&mut batch, &node);
         batch.delete(node_key(id));
         self.kv.write_batch(batch)
+    }
+
+    fn delete_node_staged_into_batch(
+        &self,
+        batch: &mut KvWriteBatch,
+        staged: &mut StagedBatchState,
+        id: NodeId,
+    ) -> StorageResult<()> {
+        let Some(node) = self.staged_node(staged, id)? else {
+            return Ok(());
+        };
+
+        let mut relationship_ids = ids_from_keys(self.kv.scan_prefix(&outgoing_prefix(id))?)?;
+        relationship_ids.extend(ids_from_keys(self.kv.scan_prefix(&incoming_prefix(id))?)?);
+        relationship_ids.extend(staged.relationships.iter().filter_map(
+            |(relationship_id, rel)| {
+                rel.as_ref()
+                    .filter(|relationship| relationship.from == id || relationship.to == id)
+                    .map(|_| *relationship_id)
+            },
+        ));
+        relationship_ids.sort_unstable();
+        relationship_ids.dedup();
+        for relationship_id in relationship_ids {
+            self.delete_relationship_staged_into_batch(batch, staged, relationship_id)?;
+        }
+
+        self.remove_node_indexes_into_batch(batch, &node);
+        batch.delete(node_key(id));
+        staged.nodes.insert(id, None);
+        Ok(())
+    }
+
+    fn staged_node(&self, staged: &StagedBatchState, id: NodeId) -> StorageResult<Option<Node>> {
+        match staged.nodes.get(&id) {
+            Some(node) => Ok(node.clone()),
+            None => self.node(id),
+        }
+    }
+
+    fn staged_boundary_node(
+        &self,
+        staged: &StagedBatchState,
+        id: NodeId,
+    ) -> StorageResult<Option<BoundaryNode>> {
+        match staged.boundary_nodes.get(&id) {
+            Some(node) => Ok(node.clone()),
+            None => self.boundary_node(id),
+        }
+    }
+
+    fn staged_relationship(
+        &self,
+        staged: &StagedBatchState,
+        id: RelationshipId,
+    ) -> StorageResult<Option<Relationship>> {
+        match staged.relationships.get(&id) {
+            Some(relationship) => Ok(relationship.clone()),
+            None => self.relationship(id),
+        }
     }
 
     fn index_node_into_batch(
@@ -579,6 +828,13 @@ impl<KV: KeyValueStore> KvGraphStore<KV> {
             })
             .collect()
     }
+}
+
+#[derive(Default)]
+struct StagedBatchState {
+    nodes: HashMap<NodeId, Option<Node>>,
+    boundary_nodes: HashMap<NodeId, Option<BoundaryNode>>,
+    relationships: HashMap<RelationshipId, Option<Relationship>>,
 }
 
 impl KvGraphStore<RocksKvStore> {

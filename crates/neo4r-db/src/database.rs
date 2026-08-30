@@ -196,6 +196,86 @@ pub struct Neo4rReadTransaction {
     options: QueryOptions,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum BatchWriteOperation {
+    CreateNode {
+        labels: Vec<String>,
+        properties: Properties,
+    },
+    CreateNodeOnShard {
+        shard_id: ShardId,
+        labels: Vec<String>,
+        properties: Properties,
+    },
+    CreateRelationship {
+        from: NodeId,
+        to: NodeId,
+        rel_type: String,
+        properties: Properties,
+    },
+    SetNodeProperty {
+        id: NodeId,
+        key: String,
+        value: Value,
+    },
+    RemoveNodeProperty {
+        id: NodeId,
+        key: String,
+    },
+    AddNodeLabel {
+        id: NodeId,
+        label: String,
+    },
+    RemoveNodeLabel {
+        id: NodeId,
+        label: String,
+    },
+    SetRelationshipProperty {
+        id: RelationshipId,
+        key: String,
+        value: Value,
+    },
+    RemoveRelationshipProperty {
+        id: RelationshipId,
+        key: String,
+    },
+    DeleteRelationship {
+        id: RelationshipId,
+    },
+    DeleteNode {
+        id: NodeId,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BatchWriteOutput {
+    NodeId(NodeId),
+    RelationshipId(RelationshipId),
+    Unit,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchReadQuery {
+    pub query: String,
+    pub params: QueryParams,
+}
+
+impl BatchReadQuery {
+    pub fn new(query: impl Into<String>) -> Self {
+        Self {
+            query: query.into(),
+            params: QueryParams::new(),
+        }
+    }
+
+    pub fn with_params(query: impl Into<String>, params: QueryParams) -> Self {
+        Self {
+            query: query.into(),
+            params,
+        }
+    }
+}
+
 pub trait NodeCatchUpDataSource {
     fn install_snapshot_request(
         &mut self,
@@ -261,6 +341,7 @@ mod write_cypher_helpers;
 mod write_cypher_model;
 mod write_cypher_parse;
 
+mod db_batch_api;
 mod db_cluster;
 mod db_index_validation;
 mod db_maintenance_plan;

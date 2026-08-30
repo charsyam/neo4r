@@ -1,10 +1,14 @@
 use neo4r_core::{
     Command, HybridTimestamp, LogEntry, Properties, ShardPlacement, ShardReplica, Value,
 };
-use neo4r_db::{DatabaseConfig, Neo4rDatabase};
+use neo4r_db::{
+    BatchReadQuery, BatchWriteOperation, BatchWriteOutput, DatabaseConfig,
+    InProcessShardReplicator, Neo4rDatabase, Neo4rDatabaseHandle,
+};
 use neo4r_query::QueryValue;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const NODE_COUNT: usize = 320;
@@ -168,6 +172,152 @@ fn perf_smoke_reopen_replay_keeps_indexed_and_vector_queries_fast_enough() {
     assert_elapsed_under("reopen replay perf smoke", started.elapsed());
     drop(db);
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn perf_smoke_batch_write_and_read_use_grouped_paths() {
+    let dir = temp_dir("perf-smoke-batch-api");
+    let started = Instant::now();
+    let mut db = open_perf_db(&dir);
+
+    let write_elapsed = timed_duration(|| {
+        let outputs = db
+            .execute_batch_write(
+                (0..320)
+                    .map(|id| BatchWriteOperation::CreateNode {
+                        labels: vec!["BatchEvent".to_string()],
+                        properties: properties(&[
+                            ("name", Value::String(format!("batch-event-{id}"))),
+                            ("bucket", Value::Int((id % 16) as i64)),
+                        ]),
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        assert_eq!(outputs.len(), 320);
+        assert!(outputs
+            .iter()
+            .all(|output| matches!(output, BatchWriteOutput::NodeId(_))));
+    });
+
+    let read_elapsed = timed_duration(|| {
+        let results = db
+            .execute_batch_read(
+                (0..16)
+                    .map(|bucket| {
+                        BatchReadQuery::new(format!(
+                            r#"MATCH (n:BatchEvent) WHERE n.bucket = {bucket} RETURN n.name"#
+                        ))
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        assert_eq!(results.len(), 16);
+        assert!(results.iter().all(|rows| rows.len() == 20));
+    });
+
+    eprintln!(
+        "batch_api_latency writes=320 write_ms={:.3} reads=16 read_ms={:.3}",
+        write_elapsed.as_secs_f64() * 1000.0,
+        read_elapsed.as_secs_f64() * 1000.0
+    );
+    assert_latency_under(
+        "batch write smoke",
+        write_elapsed,
+        env_ms("NEO4R_PERF_BATCH_WRITE_MS", 30000),
+    );
+    assert_latency_under(
+        "batch read smoke",
+        read_elapsed,
+        env_ms("NEO4R_PERF_BATCH_READ_MS", 1000),
+    );
+    assert_elapsed_under("batch API perf smoke", started.elapsed());
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn perf_smoke_replicated_batch_write_reports_replica_visibility() {
+    let primary_dir = temp_dir("perf-smoke-repl-primary");
+    let replica_dir = temp_dir("perf-smoke-repl-replica");
+    let routing_table = neo4r_core::ShardRoutingTable {
+        version: 3,
+        placements: vec![
+            ShardPlacement::new(0, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+            ShardPlacement::new(1, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+            ShardPlacement::new(2, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+            ShardPlacement::new(3, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+        ],
+    };
+    let replicator = Arc::new(InProcessShardReplicator::new(routing_table.clone()));
+    let primary = Neo4rDatabaseHandle::open_with_replicator(
+        perf_config(&primary_dir)
+            .with_server_id(1)
+            .with_routing_table(routing_table.clone()),
+        replicator.clone(),
+    )
+    .unwrap();
+    let replica = Neo4rDatabaseHandle::open(
+        perf_config(&replica_dir)
+            .with_server_id(2)
+            .with_routing_table(routing_table),
+    )
+    .unwrap();
+    replicator.register_peer(2, replica.clone()).unwrap();
+
+    let write_elapsed = timed_duration(|| {
+        let outputs = primary
+            .execute_batch_write(
+                (0..160)
+                    .map(|id| BatchWriteOperation::CreateNode {
+                        labels: vec!["ReplicatedBatchEvent".to_string()],
+                        properties: properties(&[
+                            ("name", Value::String(format!("repl-batch-{id}"))),
+                            ("bucket", Value::Int((id % 16) as i64)),
+                        ]),
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        assert_eq!(outputs.len(), 160);
+    });
+    let replica_visible_elapsed = timed_duration(|| {
+        let results = replica
+            .execute_batch_read(vec![
+                BatchReadQuery::new(
+                    r#"MATCH (n:ReplicatedBatchEvent) WHERE n.bucket = 0 RETURN n.name"#,
+                ),
+                BatchReadQuery::new(
+                    r#"MATCH (n:ReplicatedBatchEvent) WHERE n.bucket = 15 RETURN n.name"#,
+                ),
+            ])
+            .unwrap();
+        assert_eq!(results[0].len(), 10);
+        assert_eq!(results[1].len(), 10);
+    });
+    assert_eq!(primary.committed_indexes().unwrap(), vec![40, 40, 40, 40]);
+    assert_eq!(replica.committed_indexes().unwrap(), vec![40, 40, 40, 40]);
+
+    eprintln!(
+        "replicated_batch_latency writes=160 write_e2e_ms={:.3} replica_visible_read_ms={:.3}",
+        write_elapsed.as_secs_f64() * 1000.0,
+        replica_visible_elapsed.as_secs_f64() * 1000.0
+    );
+    assert_latency_under(
+        "replicated batch write e2e smoke",
+        write_elapsed,
+        env_ms("NEO4R_PERF_REPLICATED_BATCH_WRITE_MS", 30000),
+    );
+    assert_latency_under(
+        "replicated batch replica visible read smoke",
+        replica_visible_elapsed,
+        env_ms("NEO4R_PERF_REPLICATED_BATCH_VISIBLE_READ_MS", 1000),
+    );
+
+    drop(primary);
+    drop(replica);
+    let _ = fs::remove_dir_all(primary_dir);
+    let _ = fs::remove_dir_all(replica_dir);
 }
 
 #[test]

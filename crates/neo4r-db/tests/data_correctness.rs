@@ -1,5 +1,7 @@
 use neo4r_core::{Properties, Value};
-use neo4r_db::{DatabaseConfig, Neo4rDatabase};
+use neo4r_db::{
+    BatchReadQuery, BatchWriteOperation, BatchWriteOutput, DatabaseConfig, Neo4rDatabase,
+};
 use neo4r_query::QueryValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -8,6 +10,90 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const NODE_CASES: usize = 360;
 const REL_CASES: usize = 180;
+
+#[test]
+fn data_correctness_batch_write_and_batch_read_return_expected_results() {
+    let dir = temp_dir("data-correctness-batch-api");
+    let mut db = open_correctness_db(&dir);
+
+    let outputs = db
+        .execute_batch_write(
+            (0..64)
+                .map(|id| BatchWriteOperation::CreateNode {
+                    labels: vec!["BatchPerson".to_string()],
+                    properties: properties(&[
+                        ("name", Value::String(format!("batch-{id}"))),
+                        ("bucket", Value::Int((id % 8) as i64)),
+                    ]),
+                })
+                .collect(),
+        )
+        .unwrap();
+    assert_eq!(outputs.len(), 64);
+    let node_ids = outputs
+        .into_iter()
+        .map(|output| match output {
+            BatchWriteOutput::NodeId(id) => id,
+            other => panic!("expected node id output, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+
+    let relationship_outputs = db
+        .execute_batch_write(
+            node_ids
+                .windows(2)
+                .map(|window| BatchWriteOperation::CreateRelationship {
+                    from: window[0],
+                    to: window[1],
+                    rel_type: "NEXT".to_string(),
+                    properties: Properties::new(),
+                })
+                .collect(),
+        )
+        .unwrap();
+    assert_eq!(relationship_outputs.len(), 63);
+    assert!(relationship_outputs
+        .iter()
+        .all(|output| matches!(output, BatchWriteOutput::RelationshipId(_))));
+
+    let update_outputs = db
+        .execute_batch_write(
+            node_ids
+                .iter()
+                .take(16)
+                .map(|id| BatchWriteOperation::SetNodeProperty {
+                    id: *id,
+                    key: "active".to_string(),
+                    value: Value::Bool(true),
+                })
+                .collect(),
+        )
+        .unwrap();
+    assert!(update_outputs
+        .iter()
+        .all(|output| matches!(output, BatchWriteOutput::Unit)));
+
+    let results = db
+        .execute_batch_read(vec![
+            BatchReadQuery::new(r#"MATCH (n:BatchPerson) WHERE n.bucket = 3 RETURN n.name"#),
+            BatchReadQuery::new(
+                r#"MATCH (a:BatchPerson)-[:NEXT]->(b:BatchPerson) WHERE a.name = "batch-0" RETURN b.name"#,
+            ),
+            BatchReadQuery::new("MATCH (n:BatchPerson) WHERE n.active = true RETURN n.name"),
+        ])
+        .unwrap();
+
+    assert_eq!(results[0].len(), 8);
+    assert_eq!(results[1].len(), 1);
+    assert_eq!(
+        results[1][0].get("b.name"),
+        Some(&QueryValue::Scalar(Value::String("batch-1".to_string())))
+    );
+    assert_eq!(results[2].len(), 16);
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
 
 #[test]
 fn data_correctness_bulk_node_lifecycle_matches_expected_state() {

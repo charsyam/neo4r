@@ -77,8 +77,35 @@ impl Neo4rDatabase {
             self.log(shard_id)?.sync_segment_for_index(index)?;
         }
         self.commit_entries(entries)?;
+        self.apply_entries_batch(entries)
+    }
+
+    pub(super) fn apply_entries_batch(&mut self, entries: &[LogEntry]) -> DatabaseResult<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
         for entry in entries {
-            self.apply_entry(entry)?;
+            self.apply_cluster_config_change(&entry.command)?;
+        }
+        let storage_commands = entries
+            .iter()
+            .map(|entry| (entry.shard_id, entry.command.clone()))
+            .collect::<Vec<_>>();
+        self.store.apply_batch(&storage_commands)?;
+        self.invalidate_read_cache();
+        let mut checkpoint_by_shard = BTreeMap::<ShardId, (Term, LogIndex, HybridTimestamp)>::new();
+        for entry in entries {
+            self.update_vector_indexes_for_command(&entry.command)?;
+            self.observe_entry(entry);
+            if self.should_checkpoint(entry.index) {
+                checkpoint_by_shard
+                    .insert(entry.shard_id, (entry.term, entry.index, entry.timestamp));
+            }
+        }
+        self.refresh_statistics_catalog()?;
+        for (shard_id, (term, index, timestamp)) in checkpoint_by_shard {
+            self.checkpoint(shard_id)?
+                .save_with_timestamp(term, index, timestamp)?;
         }
         Ok(())
     }

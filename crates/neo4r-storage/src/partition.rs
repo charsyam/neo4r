@@ -129,6 +129,26 @@ impl<KV: KeyValueStore> PartitionedGraphStore<KV> {
         self.partition_for_shard_mut(shard_id)?.apply(command)
     }
 
+    pub fn apply_batch(&mut self, commands: &[(ShardId, Command)]) -> StorageResult<()> {
+        let mut commands_by_partition = BTreeMap::<LocalPartitionId, Vec<Command>>::new();
+        for (shard_id, command) in commands {
+            commands_by_partition
+                .entry(self.local_partition_id_for_shard(*shard_id))
+                .or_default()
+                .push(command.clone());
+        }
+        for (partition_id, commands) in commands_by_partition {
+            let partition = self
+                .partitions
+                .get_mut(partition_id as usize)
+                .ok_or_else(|| {
+                    StorageError::CorruptStore(format!("missing local partition {partition_id}"))
+                })?;
+            partition.apply_batch(&commands)?;
+        }
+        Ok(())
+    }
+
     pub fn verify_invariants(&self) -> StorageResult<GraphInvariantReport> {
         let mut merged = GraphInvariantReport::default();
         for partition in &self.partitions {

@@ -202,6 +202,71 @@ pub(super) fn in_process_replicator_batches_group_commit_to_replica() {
 }
 
 #[test]
+pub(super) fn in_process_batch_write_replicates_multi_shard_entries() {
+    let primary_dir = temp_dir("facade-inprocess-public-batch-primary");
+    let replica_dir = temp_dir("facade-inprocess-public-batch-replica");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![
+            ShardPlacement::new(0, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+            ShardPlacement::new(1, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+        ],
+    };
+    let replicator = Arc::new(crate::InProcessShardReplicator::new(routing_table.clone()));
+    let mut primary = Neo4rDatabase::open_with_replicator(
+        DatabaseConfig::new(&primary_dir, 2, 2)
+            .with_server_id(1)
+            .with_routing_table(routing_table.clone()),
+        replicator.clone(),
+    )
+    .unwrap();
+    let replica = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&replica_dir, 2, 2)
+            .with_server_id(2)
+            .with_routing_table(routing_table),
+    )
+    .unwrap();
+    replicator.register_peer(2, replica.clone()).unwrap();
+
+    let outputs = primary
+        .execute_batch_write(
+            (0..10)
+                .map(|id| BatchWriteOperation::CreateNode {
+                    labels: vec!["BatchReplica".to_string()],
+                    properties: properties(&[
+                        ("name", Value::String(format!("node-{id}"))),
+                        ("group", Value::Int((id % 2) as i64)),
+                    ]),
+                })
+                .collect(),
+        )
+        .unwrap();
+
+    assert_eq!(outputs.len(), 10);
+    assert_eq!(primary.committed_indexes(), vec![5, 5]);
+    assert_eq!(replica.committed_indexes().unwrap(), vec![5, 5]);
+    assert_eq!(
+        replica
+            .query(r#"MATCH (n:BatchReplica) WHERE n.group = 0 RETURN n.name"#)
+            .unwrap()
+            .len(),
+        5
+    );
+    assert_eq!(
+        replica
+            .query(r#"MATCH (n:BatchReplica) WHERE n.group = 1 RETURN n.name"#)
+            .unwrap()
+            .len(),
+        5
+    );
+
+    drop(primary);
+    drop(replica);
+    let _ = fs::remove_dir_all(primary_dir);
+    let _ = fs::remove_dir_all(replica_dir);
+}
+
+#[test]
 pub(super) fn in_process_replicator_reports_missing_replica_peer() {
     let dir = temp_dir("facade-inprocess-missing-peer");
     let routing_table = ShardRoutingTable {

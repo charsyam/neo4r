@@ -55,6 +55,57 @@ fn relationship_create_uses_one_atomic_write_batch() {
 }
 
 #[test]
+fn apply_batch_uses_one_write_batch_and_sees_staged_nodes() {
+    let kv = CountingKvStore::default();
+    let mut store = KvGraphStore::new(kv);
+
+    store
+        .apply_batch(&[
+            Command::CreateNode {
+                id: 1,
+                labels: vec!["Person".to_string()],
+                properties: properties(&[("name", Value::String("Alice".to_string()))]),
+            },
+            Command::CreateNode {
+                id: 2,
+                labels: vec!["Person".to_string()],
+                properties: properties(&[("name", Value::String("Bob".to_string()))]),
+            },
+            Command::CreateRelationship {
+                id: 10,
+                from: 1,
+                to: 2,
+                rel_type: "KNOWS".to_string(),
+                properties: Properties::new(),
+            },
+            Command::SetNodeProperty {
+                id: 1,
+                key: "name".to_string(),
+                value: Value::String("Alicia".to_string()),
+            },
+        ])
+        .unwrap();
+    let kv = store.into_inner();
+
+    assert_eq!(kv.write_batch_calls, 1);
+    assert!(kv.data.contains_key(&relationship_key(10)));
+    assert!(kv.data.contains_key(&outgoing_key(1, 10)));
+    assert!(kv.data.contains_key(&incoming_key(2, 10)));
+    assert!(kv.data.contains_key(&label_property_key(
+        "Person",
+        "name",
+        &Value::String("Alicia".to_string()),
+        1
+    )));
+    assert!(!kv.data.contains_key(&label_property_key(
+        "Person",
+        "name",
+        &Value::String("Alice".to_string()),
+        1
+    )));
+}
+
+#[test]
 fn failed_relationship_write_batch_leaves_no_partial_indexes() {
     let kv = CountingKvStore::with_nodes([1, 2]).with_fail_writes(true);
     let mut store = KvGraphStore::new(kv);

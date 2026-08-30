@@ -179,6 +179,31 @@ fn parses_cli_subcommands() {
         Some("TOPOLOGY_RECONCILE\t64".to_string())
     );
 
+    let gossip = CliArgs::parse([
+        "cluster".to_string(),
+        "gossip".to_string(),
+        "2".to_string(),
+        "127.0.0.1:17688".to_string(),
+        "127.0.0.1:18688".to_string(),
+        "7".to_string(),
+        "30000".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        gossip.command,
+        Some("GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000".to_string())
+    );
+
+    let gossip_list = CliArgs::parse(["cluster".to_string(), "gossip-list".to_string()]).unwrap();
+    assert_eq!(gossip_list.command, Some("LIST_GOSSIP_NODES".to_string()));
+
+    let gossip_refresh =
+        CliArgs::parse(["cluster".to_string(), "gossip-refresh".to_string()]).unwrap();
+    assert_eq!(
+        gossip_refresh.command,
+        Some("GOSSIP_REFRESH_MEMBERSHIP".to_string())
+    );
+
     let manifest = CliArgs::parse([
         "cluster".to_string(),
         "bootstrap-manifest".to_string(),

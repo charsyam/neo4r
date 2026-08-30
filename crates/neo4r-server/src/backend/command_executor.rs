@@ -89,6 +89,9 @@ fn execute_request_inner(
         | BackendRequest::NegotiateReplicationPeer { .. }
         | BackendRequest::UnregisterReplicationPeer(_)
         | BackendRequest::ListReplicationPeers
+        | BackendRequest::GossipNode { .. }
+        | BackendRequest::ListGossipNodes
+        | BackendRequest::GossipRefreshFromMembership
         | BackendRequest::ReplicationPeerStatus { .. }
         | BackendRequest::ReplicationStatus
         | BackendRequest::ClusterRegistry

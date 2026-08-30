@@ -35,12 +35,46 @@ pub(super) fn recover_tx_decisions_requires_backend_coordinator_in_protocol_exec
         format_response(&BackendResponse::OkTransactionRecovery(3)),
         "OK\tTX_RECOVERY\t3"
     );
+    assert_eq!(
+        format_response(&BackendResponse::OkGossip(
+            "2:query=127.0.0.1:17688:state=alive".to_string()
+        )),
+        "OK\tGOSSIP\t2:query=127.0.0.1:17688:state=alive"
+    );
     assert!(matches!(
         execute_request(&db, parse_request("RECOVER_TX_DECISIONS").unwrap()),
         BackendResponse::Err(message) if message.contains("requires a backend coordinator")
     ));
 
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn gossip_discovery_protocol_commands_parse_and_format() {
+    assert_eq!(
+        parse_request("GOSSIP_NODE\t4\t127.0.0.1:7690\t127.0.0.1:8690\t9\t30000").unwrap(),
+        BackendRequest::GossipNode {
+            server_id: 4,
+            query_address: "127.0.0.1:7690".to_string(),
+            replication_address: "127.0.0.1:8690".to_string(),
+            incarnation: 9,
+            ttl_ms: 30000,
+        }
+    );
+    assert_eq!(
+        parse_request("LIST_GOSSIP_NODES").unwrap(),
+        BackendRequest::ListGossipNodes
+    );
+    assert_eq!(
+        parse_request("GOSSIP_REFRESH_MEMBERSHIP").unwrap(),
+        BackendRequest::GossipRefreshFromMembership
+    );
+    assert_eq!(
+        format_response(&BackendResponse::OkGossip(
+            "2:query=127.0.0.1:17688:state=alive".to_string()
+        )),
+        "OK\tGOSSIP\t2:query=127.0.0.1:17688:state=alive"
+    );
 }
 
 #[test]

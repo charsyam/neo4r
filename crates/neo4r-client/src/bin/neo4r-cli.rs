@@ -934,7 +934,7 @@ fn usage() -> &'static str {
     "usage: neo4r-cli [--addr ADDR] [--tls-ca CA.pem] [--tls-server-name NAME] [--tls-client-cert CERT.pem --tls-client-key KEY.pem] [--query CYPHER|--plan CYPHER|--profile CYPHER|--command COMMAND] [--history] [--history-file PATH] [--no-history]
        neo4r-cli [--http-host HOST] [--http-port PORT] [--admin-token TOKEN] [--database DB] [--backup PATH|--restore PATH|--list-users|--invoke-user USER|--list-databases]
        neo4r-cli query|plan|profile|command PAYLOAD
-       neo4r-cli cluster status|topology|reconcile [LIMIT]|chaos|promote SERVER_ID|bootstrap-manifest MODE CLUSTER_ID DB_ID|bootstrap-safety EXPECTED_CLUSTER_ID FORCE|safety OPERATION [TOKEN]
+       neo4r-cli cluster status|topology|reconcile [LIMIT]|chaos|gossip SERVER_ID QUERY_ADDR REPL_ADDR INCARNATION TTL_MS|gossip-list|gossip-refresh|promote SERVER_ID|bootstrap-manifest MODE CLUSTER_ID DB_ID|bootstrap-safety EXPECTED_CLUSTER_ID FORCE|safety OPERATION [TOKEN]
        neo4r-cli admin users|databases|audit|raft|restore-pitr TARGET_MS|restore-pitr-apply TARGET_MS|grant-role USER TOKEN_ID DB ROLE|revoke-role USER TOKEN_ID DB|cleanup-tokens|prune-audit DAYS
        neo4r-cli backup create|restore PATH"
 }

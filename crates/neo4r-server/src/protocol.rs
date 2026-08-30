@@ -71,6 +71,15 @@ pub enum BackendRequest {
     },
     UnregisterReplicationPeer(u64),
     ListReplicationPeers,
+    GossipNode {
+        server_id: u64,
+        query_address: String,
+        replication_address: String,
+        incarnation: u64,
+        ttl_ms: u64,
+    },
+    ListGossipNodes,
+    GossipRefreshFromMembership,
     ReplicationPeerStatus {
         server_id: Option<u64>,
     },
@@ -295,6 +304,7 @@ pub enum BackendResponse {
     OkRows { count: usize, debug_rows: String },
     OkQueryPeers(String),
     OkReplicationPeers(String),
+    OkGossip(String),
     OkReplicationPeerStatus(String),
     OkReplicationStatus(String),
     OkRoutingTable(String),
@@ -517,6 +527,7 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
         "UNREGISTER_REPLICATION_PEER" => Ok(BackendRequest::UnregisterReplicationPeer(
             parse_single_id(rest, "UNREGISTER_REPLICATION_PEER requires server id")?,
         )),
+        "GOSSIP_NODE" => parse_gossip_node_request(rest),
         "REPLICATION_PEER_STATUS" => Ok(BackendRequest::ReplicationPeerStatus {
             server_id: Some(parse_single_id(
                 rest,

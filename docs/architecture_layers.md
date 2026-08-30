@@ -58,8 +58,8 @@ use Rust module boundaries instead of text-level composition:
   in the backend layer.
 - `neo4r-server::backend`: nested backend facade plus feature modules for HTTP
   admin, web query/backup, native execution, worker pools, transaction
-  handling, distributed query, remote transactions, replication admin, shared
-  backend state, and web assets.
+  handling, distributed query, gossip discovery, remote transactions,
+  replication admin, shared backend state, and web assets.
 - DB/server/protocol tests: behavior-named real Rust modules with shared test
   fixtures imported through dedicated support modules.
 

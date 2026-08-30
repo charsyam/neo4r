@@ -7,9 +7,11 @@ use std::sync::{Arc, Mutex};
 pub(super) const QUERY_PEERS_FILE: &str = "query-peers.txt";
 pub(super) const REPLICATION_PEERS_FILE: &str = "replication-peers.txt";
 pub(super) const REPLICATION_PEER_IDENTITIES_FILE: &str = "replication-peer-identities.txt";
+pub(super) const GOSSIP_NODES_FILE: &str = "gossip-nodes.txt";
 
 const PEER_STORE_MAGIC: &str = "N4RPEERS1";
 const REPLICATION_PEER_IDENTITY_MAGIC: &str = "N4RREPLPEERS2";
+const GOSSIP_NODE_MAGIC: &str = "N4RGOSSIP1";
 
 #[derive(Clone, Default)]
 pub(super) struct QueryPeerStore {
@@ -148,6 +150,117 @@ pub(super) fn format_query_peers(peers: &[(u64, String)]) -> String {
     peers
         .iter()
         .map(|(server_id, address)| format!("{server_id}={address}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct GossipNodeRecord {
+    pub(super) server_id: u64,
+    pub(super) query_address: String,
+    pub(super) replication_address: String,
+    pub(super) incarnation: u64,
+    pub(super) ttl_ms: u64,
+    pub(super) seen_at_ms: u64,
+}
+
+impl GossipNodeRecord {
+    pub(super) fn is_alive_at(&self, now_ms: u64) -> bool {
+        self.ttl_ms == 0 || now_ms.saturating_sub(self.seen_at_ms) <= self.ttl_ms
+    }
+}
+
+#[derive(Clone, Default)]
+pub(super) struct GossipNodeStore {
+    nodes: Arc<Mutex<BTreeMap<u64, GossipNodeRecord>>>,
+    path: Option<Arc<PathBuf>>,
+}
+
+impl GossipNodeStore {
+    pub(super) fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        Ok(Self {
+            nodes: Arc::new(Mutex::new(load_gossip_nodes(&path)?)),
+            path: Some(Arc::new(path)),
+        })
+    }
+
+    pub(super) fn upsert(&self, record: GossipNodeRecord) -> io::Result<bool> {
+        validate_gossip_node(&record)?;
+        let (accepted, snapshot) = {
+            let mut nodes = self
+                .nodes
+                .lock()
+                .map_err(|_| io::Error::other("gossip node store lock poisoned"))?;
+            let accepted = nodes
+                .get(&record.server_id)
+                .is_none_or(|old| record.incarnation >= old.incarnation);
+            if accepted {
+                nodes.insert(record.server_id, record);
+            }
+            (accepted, nodes.clone())
+        };
+        if accepted {
+            self.save(&snapshot)?;
+        }
+        Ok(accepted)
+    }
+
+    pub(super) fn list(&self) -> io::Result<Vec<GossipNodeRecord>> {
+        Ok(self
+            .nodes
+            .lock()
+            .map_err(|_| io::Error::other("gossip node store lock poisoned"))?
+            .values()
+            .cloned()
+            .collect())
+    }
+
+    #[cfg(test)]
+    pub(super) fn live_query_address(
+        &self,
+        server_id: u64,
+        now_ms: u64,
+    ) -> io::Result<Option<String>> {
+        Ok(self
+            .nodes
+            .lock()
+            .map_err(|_| io::Error::other("gossip node store lock poisoned"))?
+            .get(&server_id)
+            .filter(|record| record.is_alive_at(now_ms))
+            .map(|record| record.query_address.clone()))
+    }
+
+    fn save(&self, nodes: &BTreeMap<u64, GossipNodeRecord>) -> io::Result<()> {
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
+        save_gossip_nodes(path, nodes)
+    }
+}
+
+pub(super) fn format_gossip_nodes(nodes: &[GossipNodeRecord], now_ms: u64) -> String {
+    nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}:query={}:replication={}:incarnation={}:ttl_ms={}:seen_at_ms={}:state={}",
+                node.server_id,
+                node.query_address,
+                node.replication_address,
+                node.incarnation,
+                node.ttl_ms,
+                node.seen_at_ms,
+                if node.is_alive_at(now_ms) {
+                    "alive"
+                } else {
+                    "expired"
+                }
+            )
+        })
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -410,6 +523,117 @@ fn validate_replication_peer_identity_record(identity: &ReplicationPeerIdentity)
     Ok(())
 }
 
+fn load_gossip_nodes(path: &Path) -> io::Result<BTreeMap<u64, GossipNodeRecord>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(err) => return Err(err),
+    };
+    let mut lines = BufReader::new(file).lines();
+    let header = lines
+        .next()
+        .transpose()?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing gossip node header"))?;
+    if header != GOSSIP_NODE_MAGIC {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid gossip node header",
+        ));
+    }
+    let mut nodes = BTreeMap::new();
+    for line in lines {
+        let line = line?;
+        if line.is_empty() {
+            continue;
+        }
+        let record = decode_gossip_node(&line)?;
+        nodes.insert(record.server_id, record);
+    }
+    Ok(nodes)
+}
+
+fn save_gossip_nodes(path: &Path, nodes: &BTreeMap<u64, GossipNodeRecord>) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp_path = path.with_extension("tmp");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&tmp_path)?;
+    writeln!(file, "{GOSSIP_NODE_MAGIC}")?;
+    for node in nodes.values() {
+        writeln!(file, "{}", encode_gossip_node(node))?;
+    }
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&tmp_path, path)?;
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+fn encode_gossip_node(record: &GossipNodeRecord) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        record.server_id,
+        record.query_address,
+        record.replication_address,
+        record.incarnation,
+        record.ttl_ms,
+        record.seen_at_ms
+    )
+}
+
+fn decode_gossip_node(line: &str) -> io::Result<GossipNodeRecord> {
+    let parts = line.split('\t').collect::<Vec<_>>();
+    if parts.len() != 6 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid gossip node record",
+        ));
+    }
+    let record = GossipNodeRecord {
+        server_id: parse_gossip_u64(parts[0], "server id")?,
+        query_address: parts[1].to_string(),
+        replication_address: parts[2].to_string(),
+        incarnation: parse_gossip_u64(parts[3], "incarnation")?,
+        ttl_ms: parse_gossip_u64(parts[4], "ttl ms")?,
+        seen_at_ms: parse_gossip_u64(parts[5], "seen at ms")?,
+    };
+    validate_gossip_node(&record)?;
+    Ok(record)
+}
+
+fn parse_gossip_u64(value: &str, field: &str) -> io::Result<u64> {
+    value.parse::<u64>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid gossip node {field}"),
+        )
+    })
+}
+
+fn validate_gossip_node(record: &GossipNodeRecord) -> io::Result<()> {
+    if record.server_id == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "gossip node server id must be greater than zero",
+        ));
+    }
+    for value in [&record.query_address, &record.replication_address] {
+        if value.is_empty() || value.contains(['\t', '\n', '\r']) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid gossip node address",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,5 +700,39 @@ mod tests {
 
         assert!(store.would_create_cycle(4, Some(2)).unwrap());
         assert!(!store.would_create_cycle(5, Some(2)).unwrap());
+    }
+
+    #[test]
+    fn gossip_node_store_persists_and_rejects_stale_incarnation() {
+        let path = temp_path("gossip-node");
+        let store = GossipNodeStore::open(&path).unwrap();
+        assert!(store
+            .upsert(GossipNodeRecord {
+                server_id: 2,
+                query_address: "127.0.0.1:17688".to_string(),
+                replication_address: "127.0.0.1:18688".to_string(),
+                incarnation: 7,
+                ttl_ms: 1000,
+                seen_at_ms: 100,
+            })
+            .unwrap());
+        assert!(!store
+            .upsert(GossipNodeRecord {
+                server_id: 2,
+                query_address: "127.0.0.1:17699".to_string(),
+                replication_address: "127.0.0.1:18699".to_string(),
+                incarnation: 6,
+                ttl_ms: 1000,
+                seen_at_ms: 200,
+            })
+            .unwrap());
+
+        let reopened = GossipNodeStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.live_query_address(2, 500).unwrap().as_deref(),
+            Some("127.0.0.1:17688")
+        );
+        assert_eq!(reopened.live_query_address(2, 1200).unwrap(), None);
+        let _ = fs::remove_file(path);
     }
 }

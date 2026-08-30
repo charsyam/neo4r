@@ -14,5 +14,7 @@ cargo test -p neo4r-db cluster_membership_decommission_plans_primary_transfer_an
 cargo test -p neo4r-server backend_advance_rebalance_runs_auto_pump_for_snapshot_bootstrap --quiet
 cargo test -p neo4r-server topology_reconcile_advances_joining_node_control_loop --quiet
 cargo test -p neo4r-server cluster_bootstrap_and_topology_protocol_commands_execute --quiet
+cargo test -p neo4r-server gossip_node_materializes_query_address_book_without_replication_endpoint --quiet
+cargo test -p neo4r-server gossip_refresh_from_membership_seeds_address_books --quiet
 
 echo "neo4r membership automation checks passed"

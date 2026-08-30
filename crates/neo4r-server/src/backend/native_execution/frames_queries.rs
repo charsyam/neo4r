@@ -310,6 +310,21 @@ impl NativeExecutionContext {
                     format_transaction_decisions(&list_transaction_decisions(&self.db)?),
                 )))
             }
+            BackendRequest::GossipNode {
+                server_id,
+                query_address,
+                replication_address,
+                incarnation,
+                ttl_ms,
+            } => self.apply_gossip_node(
+                server_id,
+                query_address,
+                replication_address,
+                incarnation,
+                ttl_ms,
+            ),
+            BackendRequest::ListGossipNodes => self.list_gossip_nodes(),
+            BackendRequest::GossipRefreshFromMembership => self.refresh_gossip_from_membership(),
             request => Ok(format_response(&execute_request(&self.db, request))),
         }
     }
@@ -331,6 +346,7 @@ impl NativeExecutionContext {
                 self.query_peers.clone(),
                 self.replication_peers.clone(),
                 self.replication_peer_identities.clone(),
+                self.gossip_nodes.clone(),
             )
             .with_replication_tls_channel_config(self.replication_tls_channel_config.get())
             .topology_reconcile_once(max_entries_per_request)?,

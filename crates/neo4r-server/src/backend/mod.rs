@@ -9,6 +9,7 @@ mod backend_web_query_spill;
 mod backend_web_rbac_admin;
 mod command_executor;
 mod distributed_query;
+mod gossip;
 mod http_json_backup;
 mod native_execution;
 mod native_transport;
@@ -44,6 +45,8 @@ pub(crate) use backend_web_rbac_admin::*;
 pub(crate) use command_executor::*;
 #[allow(unused_imports)]
 pub(crate) use distributed_query::*;
+#[allow(unused_imports)]
+pub(crate) use gossip::*;
 #[allow(unused_imports)]
 pub(crate) use http_json_backup::*;
 #[allow(unused_imports)]

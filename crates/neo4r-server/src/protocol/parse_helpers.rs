@@ -26,6 +26,8 @@ pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, Strin
             Err("UNREGISTER_REPLICATION_PEER requires server id".to_string())
         }
         "LIST_REPLICATION_PEERS" => Ok(BackendRequest::ListReplicationPeers),
+        "LIST_GOSSIP_NODES" => Ok(BackendRequest::ListGossipNodes),
+        "GOSSIP_REFRESH_MEMBERSHIP" => Ok(BackendRequest::GossipRefreshFromMembership),
         "REPLICATION_PEER_STATUS" => Ok(BackendRequest::ReplicationPeerStatus { server_id: None }),
         "REPLICATION_STATUS" => Ok(BackendRequest::ReplicationStatus),
         "ROUTING_TABLE" => Ok(BackendRequest::RoutingTable),
@@ -117,6 +119,24 @@ pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, Strin
         "" => Err("empty request".to_string()),
         command => Err(format!("unknown command: {command}")),
     }
+}
+
+pub(super) fn parse_gossip_node_request(rest: &str) -> Result<BackendRequest, String> {
+    let mut parts = rest.split('\t');
+    let request = BackendRequest::GossipNode {
+        server_id: parse_u64(parts.next(), "GOSSIP_NODE requires server id")?,
+        query_address: parse_address(parts.next(), "GOSSIP_NODE requires query address")?,
+        replication_address: parse_address(
+            parts.next(),
+            "GOSSIP_NODE requires replication address",
+        )?,
+        incarnation: parse_u64(parts.next(), "GOSSIP_NODE requires incarnation")?,
+        ttl_ms: parse_u64(parts.next(), "GOSSIP_NODE requires ttl_ms")?,
+    };
+    if parts.next().is_some() {
+        return Err("GOSSIP_NODE got extra fields".to_string());
+    }
+    Ok(request)
 }
 
 pub fn encode_index_catalog(catalog: &IndexCatalog) -> String {

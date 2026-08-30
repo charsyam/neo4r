@@ -509,6 +509,7 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
                 && capabilities.contains("snapshot_bootstrap=true")
                 && capabilities.contains("snapshot_fetch=true")
                 && capabilities.contains("topology_reconcile=true")
+                && capabilities.contains("gossip_discovery=true")
     ));
     assert!(matches!(
         execute_request(&db, parse_request("CATCH_UP_FROM_PRIMARIES").unwrap()),

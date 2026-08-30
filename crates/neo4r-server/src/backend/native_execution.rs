@@ -9,6 +9,7 @@ pub(crate) struct NativeExecutionContext {
     pub(crate) query_peers: QueryPeerStore,
     pub(crate) replication_peers: QueryPeerStore,
     pub(crate) replication_peer_identities: ReplicationPeerIdentityStore,
+    pub(crate) gossip_nodes: GossipNodeStore,
     pub(crate) default_page_size: usize,
     pub(crate) read_preference: QueryReadPreference,
     pub(crate) catch_up_connect_timeout: Duration,

@@ -22,8 +22,9 @@ use neo4r_storage::{
     TransactionParticipantRecord,
 };
 use peer_store::{
-    format_query_peers, QueryPeerStore, ReplicationPeerIdentity, ReplicationPeerIdentityStore,
-    QUERY_PEERS_FILE, REPLICATION_PEERS_FILE, REPLICATION_PEER_IDENTITIES_FILE,
+    format_gossip_nodes, format_query_peers, GossipNodeRecord, GossipNodeStore, QueryPeerStore,
+    ReplicationPeerIdentity, ReplicationPeerIdentityStore, GOSSIP_NODES_FILE, QUERY_PEERS_FILE,
+    REPLICATION_PEERS_FILE, REPLICATION_PEER_IDENTITIES_FILE,
 };
 use protocol::{
     backend_request_mutates_data, decode_index_catalog, decode_query_batch_payload,
@@ -68,6 +69,7 @@ pub struct TcpBackend {
     query_peers: QueryPeerStore,
     replication_peers: QueryPeerStore,
     replication_peer_identities: ReplicationPeerIdentityStore,
+    gossip_nodes: GossipNodeStore,
     read_preference: QueryReadPreference,
     catch_up_connect_timeout: Duration,
     pending_requests: PendingRequestStore,

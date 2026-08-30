@@ -11,6 +11,7 @@ impl TcpBackend {
             QueryPeerStore::default(),
             QueryPeerStore::default(),
             ReplicationPeerIdentityStore::default(),
+            GossipNodeStore::default(),
         )
     }
 
@@ -27,6 +28,7 @@ impl TcpBackend {
                 .join("cluster")
                 .join(REPLICATION_PEER_IDENTITIES_FILE),
         )?;
+        let gossip_nodes = GossipNodeStore::open(data_dir.join("cluster").join(GOSSIP_NODES_FILE))?;
         let prepared_transactions = PreparedTransactionStore::open(
             data_dir
                 .join("transactions")
@@ -51,6 +53,7 @@ impl TcpBackend {
             query_peers,
             replication_peers,
             replication_peer_identities,
+            gossip_nodes,
             prepared_transactions,
         );
         backend
@@ -65,6 +68,7 @@ impl TcpBackend {
         query_peers: QueryPeerStore,
         replication_peers: QueryPeerStore,
         replication_peer_identities: ReplicationPeerIdentityStore,
+        gossip_nodes: GossipNodeStore,
     ) -> Self {
         Self::with_stores(
             db,
@@ -72,6 +76,7 @@ impl TcpBackend {
             query_peers,
             replication_peers,
             replication_peer_identities,
+            gossip_nodes,
             PreparedTransactionStore::default(),
         )
     }
@@ -82,6 +87,7 @@ impl TcpBackend {
         query_peers: QueryPeerStore,
         replication_peers: QueryPeerStore,
         replication_peer_identities: ReplicationPeerIdentityStore,
+        gossip_nodes: GossipNodeStore,
         prepared_transactions: PreparedTransactionStore,
     ) -> Self {
         let cursors = CursorStore::default();
@@ -114,6 +120,7 @@ impl TcpBackend {
                     query_peers: query_peers.clone(),
                     replication_peers: replication_peers.clone(),
                     replication_peer_identities: replication_peer_identities.clone(),
+                    gossip_nodes: gossip_nodes.clone(),
                     default_page_size: config.default_page_size.max(1),
                     read_preference: config.read_preference,
                     catch_up_connect_timeout: config.catch_up_connect_timeout,
@@ -132,6 +139,7 @@ impl TcpBackend {
             query_peers,
             replication_peers,
             replication_peer_identities,
+            gossip_nodes,
             read_preference: config.read_preference,
             catch_up_connect_timeout: config.catch_up_connect_timeout,
             pending_requests,

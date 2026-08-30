@@ -14,6 +14,8 @@ changes in the narrowest matching module below.
 - `command_executor.rs`: line/native `BackendRequest` execution against the DB
   facade. Protocol parsing and response formatting stay in `server::protocol`.
 - `distributed_query.rs`: remote query planning and distributed read fan-out.
+- `gossip.rs`: gossip-discovered node address records and address-book
+  materialization for query/replication routing.
 - `http_json_backup.rs`: JSON and backup HTTP codecs.
 - `native_execution.rs`: native framed protocol execution pipeline.
 - `native_worker.rs`: native worker pool and request scheduling.

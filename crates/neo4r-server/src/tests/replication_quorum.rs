@@ -112,6 +112,75 @@ pub(super) fn backend_rejects_replication_peer_identity_cycles() {
 }
 
 #[test]
+pub(super) fn gossip_node_materializes_query_address_book_without_replication_endpoint() {
+    let dir = temp_dir("neo4r-server-gossip-node-address-book");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    let backend = TcpBackend::new(db.clone());
+
+    assert_eq!(
+        backend.execute_backend_request(
+            parse_request("GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000").unwrap()
+        ),
+        BackendResponse::OkGossip("accepted=true".to_string())
+    );
+    assert_eq!(
+        backend.execute_backend_request(
+            parse_request("GOSSIP_NODE\t2\t127.0.0.1:17689\t127.0.0.1:18689\t6\t30000").unwrap()
+        ),
+        BackendResponse::OkGossip("accepted=false".to_string())
+    );
+
+    let BackendResponse::OkGossip(nodes) =
+        backend.execute_backend_request(parse_request("LIST_GOSSIP_NODES").unwrap())
+    else {
+        panic!("expected gossip node list");
+    };
+    assert!(nodes.contains("2:query=127.0.0.1:17688"));
+    assert!(nodes.contains("replication=127.0.0.1:18688"));
+    assert!(nodes.contains("incarnation=7"));
+    assert!(nodes.contains("state=alive"));
+
+    assert_eq!(
+        backend.list_query_peers().unwrap(),
+        vec![(2, "127.0.0.1:17688".to_string())]
+    );
+    assert!(backend.list_replication_peers().unwrap().is_empty());
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn gossip_refresh_from_membership_seeds_address_books() {
+    let dir = temp_dir("neo4r-server-gossip-refresh-membership");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.request_cluster_join(2, "127.0.0.1:17688".to_string(), 1, 1, 1)
+        .unwrap();
+    let backend = TcpBackend::new(db.clone());
+
+    assert_eq!(
+        backend.execute_backend_request(parse_request("GOSSIP_REFRESH_MEMBERSHIP").unwrap()),
+        BackendResponse::OkGossip("accepted=1".to_string())
+    );
+
+    let BackendResponse::OkGossip(nodes) =
+        backend.execute_backend_request(parse_request("LIST_GOSSIP_NODES").unwrap())
+    else {
+        panic!("expected gossip node list");
+    };
+    assert!(nodes.contains("2:query=127.0.0.1:17688"));
+    assert!(nodes.contains("replication=127.0.0.1:17688"));
+    assert!(nodes.contains("state=alive"));
+    assert_eq!(
+        backend.list_query_peers().unwrap(),
+        vec![(2, "127.0.0.1:17688".to_string())]
+    );
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn backend_rejects_indirect_replication_peer_identity_cycles() {
     let dir = temp_dir("neo4r-server-register-repl-indirect-cycle");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();

@@ -21,6 +21,9 @@ pub fn format_response(response: &BackendResponse) -> String {
         BackendResponse::OkReplicationPeers(peers) => {
             format!("OK\tREPLICATION_PEERS\t{}", escape_response(peers))
         }
+        BackendResponse::OkGossip(gossip) => {
+            format!("OK\tGOSSIP\t{}", escape_response(gossip))
+        }
         BackendResponse::OkReplicationPeerStatus(status) => {
             format!("OK\tREPLICATION_PEER_STATUS\t{}", escape_response(status))
         }

@@ -22,6 +22,8 @@ pub(crate) fn format_protocol_capabilities() -> String {
         "snapshot_bootstrap=true".to_string(),
         "snapshot_fetch=true".to_string(),
         "topology_reconcile=true".to_string(),
+        "gossip_discovery=true".to_string(),
+        "owner_error_address_required=true".to_string(),
         "raft_learners=true".to_string(),
         "read_index=true".to_string(),
         "bounded_staleness=true".to_string(),

@@ -14,12 +14,20 @@ Membership-changing operations must be represented as committed config-change
 commands before they affect shard authority. Direct local rewrites are allowed
 only for bootstrap defaults and explicitly labeled legacy compatibility paths.
 
+Gossip discovery is a pre-Raft address and liveness layer, not an authority
+layer. `GOSSIP_NODE` records may populate query and replication address books so
+owner errors can always carry a target address, but they do not install shard
+membership, do not make a node a voter, and do not bypass replication endpoint
+negotiation. Raft metadata remains the source of truth for which server owns a
+shard and whether a joining node can vote.
+
 Operational checks:
 
 ```text
 RAFT_STATUS
 CLUSTER_STATUS
 METADATA_LOG
+LIST_GOSSIP_NODES
 ```
 
 When a bug report involves write visibility or primary authority, record whether

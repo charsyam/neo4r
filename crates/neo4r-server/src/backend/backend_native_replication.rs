@@ -277,6 +277,32 @@ impl TcpBackend {
                 Ok(peers) => BackendResponse::OkReplicationPeers(format_query_peers(&peers)),
                 Err(err) => BackendResponse::Err(err.to_string()),
             },
+            BackendRequest::GossipNode {
+                server_id,
+                query_address,
+                replication_address,
+                incarnation,
+                ttl_ms,
+            } => match self.apply_gossip_node(
+                server_id,
+                query_address,
+                replication_address,
+                incarnation,
+                ttl_ms,
+            ) {
+                Ok(accepted) => BackendResponse::OkGossip(format!("accepted={accepted}")),
+                Err(err) => BackendResponse::Err(err),
+            },
+            BackendRequest::ListGossipNodes => match self.list_gossip_nodes() {
+                Ok(nodes) => BackendResponse::OkGossip(nodes),
+                Err(err) => BackendResponse::Err(err),
+            },
+            BackendRequest::GossipRefreshFromMembership => {
+                match self.refresh_gossip_from_membership() {
+                    Ok(accepted) => BackendResponse::OkGossip(format!("accepted={accepted}")),
+                    Err(err) => BackendResponse::Err(err),
+                }
+            }
             BackendRequest::ReplicationPeerStatus { server_id } => {
                 match replication_peer_status(&self.db, &self.replication_peers, server_id) {
                     Ok(status) => BackendResponse::OkReplicationPeerStatus(

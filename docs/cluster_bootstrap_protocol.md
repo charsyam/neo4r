@@ -4,16 +4,19 @@
 
 1. A new node sends a join request with `server_id`, address, protocol version,
    storage version, and shard count.
-2. The metadata authority records the node as `negotiating` or `rejected`.
-3. Accepted nodes become `joining`. Rebalance planning creates `AddReplica`
+2. The joining node or operator gossips its query and replication addresses so
+   existing nodes can return address-bearing owner errors before the node is
+   admitted as a voter.
+3. The metadata authority records the node as `negotiating` or `rejected`.
+4. Accepted nodes become `joining`. Rebalance planning creates `AddReplica`
    steps and records per-shard assignments as `catching_up`.
-4. `plan_node_catch_up(server_id)` returns a durable execution contract:
+5. `plan_node_catch_up(server_id)` returns a durable execution contract:
    shard id, primary server id/address, whether a snapshot is required, replay
    start index, target commit index, and current match index.
-5. `execute_node_catch_up_plan` installs the snapshot when required, replays WAL
+6. `execute_node_catch_up_plan` installs the snapshot when required, replays WAL
    entries through the target index, and returns per-shard match indexes.
-6. The authority records the reported match indexes with `mark_shard_caught_up`.
-7. Once every assigned shard has `match_index >= target_index`,
+7. The authority records the reported match indexes with `mark_shard_caught_up`.
+8. Once every assigned shard has `match_index >= target_index`,
    `promote_caught_up_node_to_voter` applies the routing/Raft membership change
    and moves the assignment from learner catch-up to serving replica.
 
@@ -30,14 +33,20 @@ The native protocol exposes the same flow through:
   rebalance when membership is ready to move.
 - `CHAOS_CHECKS` to expose join, retry, and promotion invariants for smoke
   gates.
+- `GOSSIP_NODE <server_id> <query_address> <replication_address> <incarnation>
+  <ttl_ms>` to publish a node address record.
+- `LIST_GOSSIP_NODES` to inspect live/expired gossip records.
+- `GOSSIP_REFRESH_MEMBERSHIP` to seed the gossip address book from current
+  membership records during bootstrap.
 
 `neo4r-cli cluster topology`, `neo4r-cli cluster reconcile [limit]`,
-`neo4r-cli cluster chaos`, and `neo4r-cli cluster promote <server_id>` wrap
-these commands for operators. The TCP catch-up data source can fetch primary
-snapshots and request bounded WAL tails through the same replication listener.
-Snapshot fetch protocol v2 returns chunks with `offset`, `resume_offset`,
-`total_len`, and checksum metadata so interrupted installs can resume without
-discarding already transferred bytes.
+`neo4r-cli cluster chaos`, `neo4r-cli cluster gossip ...`,
+`neo4r-cli cluster gossip-list`, `neo4r-cli cluster gossip-refresh`, and
+`neo4r-cli cluster promote <server_id>` wrap these commands for operators. The
+TCP catch-up data source can fetch primary snapshots and request bounded WAL
+tails through the same replication listener. Snapshot fetch protocol v2 returns
+chunks with `offset`, `resume_offset`, `total_len`, and checksum metadata so
+interrupted installs can resume without discarding already transferred bytes.
 
 ## Recover From Data
 

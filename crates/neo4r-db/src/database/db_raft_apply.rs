@@ -123,10 +123,7 @@ impl Neo4rDatabase {
                 .or_insert(entry.index);
         }
         self.append_replicated_entries(entries)?;
-        for (shard_id, leader_commit) in commits_by_shard {
-            self.commit_and_apply_shard_through(shard_id, leader_commit)?;
-        }
-        Ok(())
+        self.commit_and_apply_shards_through(&commits_by_shard)
     }
 
     pub fn apply_raft_append_entries(
@@ -753,21 +750,43 @@ impl Neo4rDatabase {
         shard_id: ShardId,
         leader_commit: LogIndex,
     ) -> DatabaseResult<()> {
-        if leader_commit == 0 {
+        let mut commits_by_shard = BTreeMap::new();
+        commits_by_shard.insert(shard_id, leader_commit);
+        self.commit_and_apply_shards_through(&commits_by_shard)
+    }
+
+    pub(super) fn commit_and_apply_shards_through(
+        &mut self,
+        commits_by_shard: &BTreeMap<ShardId, LogIndex>,
+    ) -> DatabaseResult<()> {
+        let entries = self.committable_entries_through(commits_by_shard)?;
+        if entries.is_empty() {
             return Ok(());
         }
-        loop {
-            let next = self.commit_index(shard_id)?.saturating_add(1);
-            if next > leader_commit {
-                break;
+        self.commit_entries(&entries)?;
+        self.apply_entries_batch(&entries)
+    }
+
+    pub(super) fn committable_entries_through(
+        &self,
+        commits_by_shard: &BTreeMap<ShardId, LogIndex>,
+    ) -> DatabaseResult<Vec<LogEntry>> {
+        let mut entries = Vec::new();
+        for (&shard_id, &leader_commit) in commits_by_shard {
+            if leader_commit == 0 {
+                continue;
             }
-            let Some(entry) = self.log(shard_id)?.entry(next)? else {
-                break;
-            };
-            self.commit_entry(&entry)?;
-            self.apply_entry(&entry)?;
+            let mut next = self.commit_index(shard_id)?.saturating_add(1);
+            while next <= leader_commit {
+                let Some(entry) = self.log(shard_id)?.entry(next)? else {
+                    break;
+                };
+                entries.push(entry);
+                next += 1;
+            }
         }
-        Ok(())
+        entries.sort_by_key(|entry| (entry.index, entry.shard_id));
+        Ok(entries)
     }
 
     pub(super) fn validate_replicated_entry_metadata(

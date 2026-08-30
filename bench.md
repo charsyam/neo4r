@@ -67,10 +67,38 @@ primary=[263, 263, 263, 263, 263, 263, 263, 263, 262, 262, 262, 262, 262, 262, 2
 replica=[263, 263, 263, 263, 263, 263, 263, 263, 262, 262, 262, 262, 262, 262, 262, 261]
 ```
 
+## Neo4r Replicated Batch After Follower Batch Apply
+
+Command:
+
+```bash
+NEO4R_PERF_NODES=5000 NEO4R_REPLICATION_PERF_NODES=2000 cargo run -p neo4r-db --example basic_perf --release
+```
+
+The follower now commits every shard's contiguous replicated range and applies
+the resulting entries through the storage batch path instead of applying each
+entry one by one.
+
+| Workload | Ops | Elapsed ms | Ops/sec |
+| --- | ---: | ---: | ---: |
+| `replicated_batch_create_nodes_e2e` | 2,000 | 1,669.606 | 1,197.9 |
+| `replicated_batch_create_relationships_e2e` | 1,999 | 3,340.521 | 598.4 |
+| `replicated_batch_set_node_property_e2e` | 200 | 447.988 | 446.4 |
+| `replicated_batch_replica_visible_reads` | 3 | 0.329 | 9,108.8 |
+| `replicated_batch_total_e2e` | 4,199 | 5,458.446 | 769.3 |
+
+Committed indexes:
+
+```text
+primary=[263, 263, 263, 263, 263, 263, 263, 263, 262, 262, 262, 262, 262, 262, 262, 261]
+replica=[263, 263, 263, 263, 263, 263, 263, 263, 262, 262, 262, 262, 262, 262, 262, 261]
+```
+
 ## Interpretation
 
 - Local neo4r batch write is faster than the local Neo4j Docker batch baseline
   for this specific workload: `15,762.9 ops/sec` vs `5,994.1 ops/sec`.
-- Replicated neo4r batch e2e is much slower: `203.4 ops/sec`.
-- The current bottleneck is not local storage batch apply; it is the
-  synchronous replication receiver path and ACK round trip.
+- Replicated neo4r batch e2e improved from `203.4 ops/sec` to `769.3 ops/sec`
+  after follower-side batch apply.
+- Replicated batch write is still far below local batch write because publish,
+  follower append/apply, ACK handling, and primary commit/apply are synchronous.

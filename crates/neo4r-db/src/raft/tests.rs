@@ -164,7 +164,11 @@ fn leader_advances_commit_after_majority_match_and_serves_read_index() {
     let first = raft.append_local_entry(command(1)).unwrap();
     assert_eq!(first.index, 1);
     assert_eq!(raft.commit_index(), 0);
-    assert!(raft.read_index().is_ok());
+    assert!(raft
+        .read_index()
+        .unwrap_err()
+        .to_string()
+        .contains("quorum"));
 
     assert_eq!(raft.record_replication_match(2, 1).unwrap(), 1);
     assert_eq!(raft.read_index().unwrap(), 1);
@@ -588,6 +592,170 @@ fn three_node_harness_elects_replicates_and_installs_snapshot() {
     assert_eq!(node3.commit_index(), 1);
     assert!(node3.log().is_empty());
 
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn split_brain_old_leader_without_quorum_cannot_commit_new_write() {
+    let dir = temp_dir("neo4r-raft-split-brain-minority");
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut old_leader = RaftCore::open_with_membership(
+        1,
+        0,
+        RaftPersistentStateStore::open(dir.join("node1.txt")),
+        membership,
+    )
+    .unwrap();
+    old_leader.start_election().unwrap();
+    old_leader.become_leader();
+
+    let uncommitted = old_leader.append_local_entry(command(11)).unwrap();
+
+    assert_eq!(uncommitted.term, old_leader.current_term());
+    assert_eq!(old_leader.commit_index(), 0);
+    assert!(old_leader
+        .read_index()
+        .unwrap_err()
+        .to_string()
+        .contains("quorum"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn new_leader_overwrites_only_old_uncommitted_suffix_after_partition_heals() {
+    let dir = temp_dir("neo4r-raft-overwrite-uncommitted-suffix");
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut old_leader = RaftCore::open_with_membership(
+        1,
+        0,
+        RaftPersistentStateStore::open(dir.join("node1.txt")),
+        membership.clone(),
+    )
+    .unwrap();
+    let mut new_leader = RaftCore::open_with_membership(
+        2,
+        0,
+        RaftPersistentStateStore::open(dir.join("node2.txt")),
+        membership.clone(),
+    )
+    .unwrap();
+    let mut voter = RaftCore::open_with_membership(
+        3,
+        0,
+        RaftPersistentStateStore::open(dir.join("node3.txt")),
+        membership,
+    )
+    .unwrap();
+
+    old_leader.start_election().unwrap();
+    old_leader.become_leader();
+    let committed = old_leader.append_local_entry(command(1)).unwrap();
+    let initial_append = AppendEntriesRequest {
+        term: old_leader.current_term(),
+        leader_id: 1,
+        prev_log_index: 0,
+        prev_log_term: 0,
+        entries: vec![committed.clone()],
+        leader_commit: 0,
+    };
+    assert!(
+        new_leader
+            .append_entries(initial_append.clone())
+            .unwrap()
+            .success
+    );
+    assert!(voter.append_entries(initial_append).unwrap().success);
+    assert_eq!(
+        old_leader
+            .record_replication_match(2, committed.index)
+            .unwrap(),
+        committed.index
+    );
+
+    let old_uncommitted = old_leader.append_local_entry(command(99)).unwrap();
+    assert_eq!(old_uncommitted.index, 2);
+    assert_eq!(old_leader.commit_index(), 1);
+
+    let vote = new_leader.start_election().unwrap();
+    assert!(voter.request_vote(vote.clone()).unwrap().vote_granted);
+    assert!(new_leader
+        .record_vote_response(
+            3,
+            RequestVoteResponse {
+                term: vote.term,
+                vote_granted: true,
+            },
+        )
+        .unwrap());
+    let replacement = new_leader.append_local_entry(command(22)).unwrap();
+    assert_eq!(replacement.index, 2);
+    let new_append = AppendEntriesRequest {
+        term: new_leader.current_term(),
+        leader_id: 2,
+        prev_log_index: 1,
+        prev_log_term: committed.term,
+        entries: vec![replacement.clone()],
+        leader_commit: 1,
+    };
+    assert!(voter.append_entries(new_append.clone()).unwrap().success);
+    assert_eq!(
+        new_leader
+            .record_replication_match(3, replacement.index)
+            .unwrap(),
+        replacement.index
+    );
+
+    let repaired = old_leader.append_entries(new_append).unwrap();
+    assert!(repaired.success);
+    assert_eq!(old_leader.commit_index(), 1);
+    assert_eq!(
+        old_leader
+            .log()
+            .iter()
+            .map(|entry| (entry.index, entry.term))
+            .collect::<Vec<_>>(),
+        vec![(1, 1), (2, 2)]
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn follower_rejects_attempt_to_overwrite_committed_entry() {
+    let dir = temp_dir("neo4r-raft-committed-overwrite-guard");
+    let store = RaftPersistentStateStore::open(dir.join("node2.txt"));
+    let membership = RaftMembership::new([1, 2, 3]).unwrap();
+    let mut follower = RaftCore::open_with_membership(2, 0, store, membership).unwrap();
+    assert!(
+        follower
+            .append_entries(AppendEntriesRequest {
+                term: 1,
+                leader_id: 1,
+                prev_log_index: 0,
+                prev_log_term: 0,
+                entries: vec![entry(0, 1, 1)],
+                leader_commit: 1,
+            })
+            .unwrap()
+            .success
+    );
+    assert_eq!(follower.commit_index(), 1);
+
+    let response = follower
+        .append_entries(AppendEntriesRequest {
+            term: 2,
+            leader_id: 3,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![entry(0, 2, 1)],
+            leader_commit: 0,
+        })
+        .unwrap();
+
+    assert!(!response.success);
+    assert_eq!(response.conflict_index, Some(1));
+    assert_eq!(follower.commit_index(), 1);
+    assert_eq!(follower.log()[0].term, 1);
     let _ = std::fs::remove_dir_all(dir);
 }
 

@@ -460,7 +460,16 @@ impl RaftCore {
                     }
                     match self.entry_at(entry.index) {
                         Some(existing) if existing.term == entry.term => {}
-                        Some(_) => {
+                        Some(existing) => {
+                            if entry.index <= self.commit_index {
+                                return Ok(AppendEntriesResponse {
+                                    term: self.persistent.current_term,
+                                    success: false,
+                                    match_index: self.last_log_index(),
+                                    conflict_index: Some(entry.index),
+                                    conflict_term: Some(existing.term),
+                                });
+                            }
                             self.truncate_from(entry.index);
                             self.log.push(entry);
                         }
@@ -480,6 +489,15 @@ impl RaftCore {
                 });
             };
             if previous.term != request.prev_log_term {
+                if request.prev_log_index <= self.commit_index {
+                    return Ok(AppendEntriesResponse {
+                        term: self.persistent.current_term,
+                        success: false,
+                        match_index: self.last_log_index(),
+                        conflict_index: Some(request.prev_log_index),
+                        conflict_term: Some(previous.term),
+                    });
+                }
                 let conflict_term = previous.term;
                 let conflict_index = self
                     .log
@@ -510,7 +528,16 @@ impl RaftCore {
             }
             match self.entry_at(entry.index) {
                 Some(existing) if existing.term == entry.term => {}
-                Some(_) => {
+                Some(existing) => {
+                    if entry.index <= self.commit_index {
+                        return Ok(AppendEntriesResponse {
+                            term: self.persistent.current_term,
+                            success: false,
+                            match_index: self.last_log_index(),
+                            conflict_index: Some(entry.index),
+                            conflict_term: Some(existing.term),
+                        });
+                    }
                     self.truncate_from(entry.index);
                     self.log.push(entry);
                 }
@@ -674,9 +701,7 @@ impl RaftCore {
             .filter(|server_id| {
                 self.match_indexes
                     .get(server_id)
-                    .copied()
-                    .unwrap_or_default()
-                    >= self.commit_index
+                    .is_some_and(|match_index| *match_index >= self.commit_index)
             })
             .collect::<BTreeSet<_>>();
         if !self.membership.has_quorum(&replicated) {
@@ -861,9 +886,7 @@ impl RaftCore {
             .filter(|server_id| {
                 self.match_indexes
                     .get(server_id)
-                    .copied()
-                    .unwrap_or_default()
-                    >= self.commit_index
+                    .is_some_and(|match_index| *match_index >= self.commit_index)
             })
             .collect::<BTreeSet<_>>();
         if self.membership.has_quorum(&matched) {

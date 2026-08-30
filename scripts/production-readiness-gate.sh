@@ -36,5 +36,8 @@ grep -q "scripts/production-chaos-longevity-gate.sh" "${contract}"
 
 cargo test -p neo4r-server production_readiness_contract_requires_all_ten_gates --quiet
 cargo test -p neo4r-server production_maturity_evidence_requires_runtime_depth --quiet
+cargo test -p neo4r-db split_brain_old_leader_without_quorum_cannot_commit_new_write --quiet
+cargo test -p neo4r-db new_leader_overwrites_only_old_uncommitted_suffix_after_partition_heals --quiet
+cargo test -p neo4r-db follower_rejects_attempt_to_overwrite_committed_entry --quiet
 
 echo "neo4r production readiness gate passed"

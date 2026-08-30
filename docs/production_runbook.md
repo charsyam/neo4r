@@ -7,10 +7,14 @@
 - Verify external or in-process TLS boundaries for native, web, and replication traffic.
 - Verify WAL archive storage and restore drill manifest are reachable.
 - Verify Prometheus alert rules are loaded.
+- Verify every clustered node has `gossip.seed_peers`, `gossip.interval_ms`, and
+  `gossip.auth_token` configured.
 
 ## Incident Checks
 
 - Inspect `/api/metrics` for raft leader count, shard lag, auth failures, and HTTP errors.
+- Inspect `/api/admin/gossip` and `/metrics` for live gossip nodes, expired
+  records, fanout failures, and pending replication negotiation.
 - Run the query regression corpus against a restored copy before destructive recovery.
 - Prefer snapshot restore plus WAL archive replay once PITR replay is enabled.
 
@@ -18,6 +22,14 @@
 
 - Cluster join drill: `neo4r-cli cluster topology`, then
   `neo4r-cli cluster reconcile 128`, then `neo4r-cli cluster chaos`.
+- Gossip drill: `neo4r-cli cluster gossip-list`, add or restart a seed node,
+  then confirm `neo4r_gossip_live_nodes` increases and expired records do not
+  remove Raft membership.
+- Replacement drill: start the replacement with the same Raft join flow, gossip
+  its query/replication address first, run catch-up, then promote only after
+  `neo4r_gossip_replication_negotiation_pending` reaches zero.
+- Decommission drill: drain through committed membership changes first; gossip
+  expiry is only a liveness signal and must not remove a voter by itself.
 - Data-only recovery drill: `neo4r-cli cluster bootstrap-manifest recover_from_data <cluster-id> <database-id>`,
   then `neo4r-cli cluster bootstrap-safety <cluster-id> true`.
 - Destructive operation confirmation drill: `neo4r-cli cluster safety restore_pitr`,

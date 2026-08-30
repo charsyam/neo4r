@@ -77,6 +77,7 @@ pub enum BackendRequest {
         replication_address: String,
         incarnation: u64,
         ttl_ms: u64,
+        token: Option<String>,
     },
     ListGossipNodes,
     GossipRefreshFromMembership,

@@ -70,6 +70,7 @@ pub struct TcpBackend {
     replication_peers: QueryPeerStore,
     replication_peer_identities: ReplicationPeerIdentityStore,
     gossip_nodes: GossipNodeStore,
+    gossip_auth_token: GossipAuthTokenStore,
     read_preference: QueryReadPreference,
     catch_up_connect_timeout: Duration,
     pending_requests: PendingRequestStore,

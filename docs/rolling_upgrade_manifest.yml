@@ -12,6 +12,8 @@ checks:
   - mixed-version-protocol-compat
   - mixed-version-snapshot-fetch-compat
   - learner-membership-metadata-compatible
+  - gossip-capability-compatible
+  - gossip-auth-token-configured
   - metadata-format-compatible
   - rollback-before-data-format-bump
   - previous-release-fixture-compat

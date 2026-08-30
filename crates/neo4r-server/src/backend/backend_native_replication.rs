@@ -283,12 +283,14 @@ impl TcpBackend {
                 replication_address,
                 incarnation,
                 ttl_ms,
+                token,
             } => match self.apply_gossip_node(
                 server_id,
                 query_address,
                 replication_address,
                 incarnation,
                 ttl_ms,
+                token,
             ) {
                 Ok(accepted) => BackendResponse::OkGossip(format!("accepted={accepted}")),
                 Err(err) => BackendResponse::Err(err),

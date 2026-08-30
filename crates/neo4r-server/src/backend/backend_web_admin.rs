@@ -168,6 +168,10 @@ impl TcpBackend {
                 }
                 Err(err) => HttpResponse::json_status(500, json_error(&err)),
             },
+            ("GET", "/api/admin/gossip") => match self.gossip_summary_json() {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(500, json_error(&err)),
+            },
             ("GET", "/api/admin/users") if !web_role_allows_action(role, WebAction::TokenAdmin) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }

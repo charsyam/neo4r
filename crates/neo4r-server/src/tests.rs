@@ -21,6 +21,7 @@ use crate::protocol::{decode_query_rows, parse_request, BackendResponse};
 
 mod cluster_control_plane;
 mod distributed_query;
+mod gossip_discovery;
 mod multi_shard_commit;
 mod multi_shard_prepare;
 mod native_catalog_commands;
@@ -44,6 +45,7 @@ mod worker_cancellation;
 
 use cluster_control_plane::*;
 use distributed_query::*;
+use gossip_discovery::*;
 use multi_shard_commit::*;
 use multi_shard_prepare::*;
 use native_catalog_commands::*;

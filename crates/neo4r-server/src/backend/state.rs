@@ -15,6 +15,28 @@ pub(crate) struct WebMetrics {
     pub(crate) registry_requests: Arc<AtomicU64>,
     pub(crate) stale_epoch_rejections: Arc<AtomicU64>,
     pub(crate) redirects: Arc<AtomicU64>,
+    pub(crate) gossip_fanout_success: Arc<AtomicU64>,
+    pub(crate) gossip_fanout_failure: Arc<AtomicU64>,
+    pub(crate) gossip_auth_failures: Arc<AtomicU64>,
+    pub(crate) gossip_negotiation_success: Arc<AtomicU64>,
+    pub(crate) gossip_negotiation_failure: Arc<AtomicU64>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct GossipAuthTokenStore {
+    token: Arc<Mutex<Option<String>>>,
+}
+
+impl GossipAuthTokenStore {
+    pub(crate) fn set(&self, token: Option<String>) {
+        if let Ok(mut guard) = self.token.lock() {
+            *guard = token;
+        }
+    }
+
+    pub(crate) fn get(&self) -> Option<String> {
+        self.token.lock().ok().and_then(|guard| guard.clone())
+    }
 }
 
 #[derive(Clone, Default)]

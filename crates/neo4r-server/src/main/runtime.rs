@@ -122,6 +122,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
             catch_up_connect_timeout: Duration::from_millis(args.replication_connect_timeout_ms),
         },
     )?
+    .with_gossip_auth_token(args.gossip_auth_token.clone())
     .with_tenant_quota(
         args.tenant_max_concurrent_queries,
         args.tenant_max_result_rows,
@@ -149,6 +150,80 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     for peer in &args.query_peers {
         backend.register_query_peer(peer.server_id, peer.address.clone())?;
+    }
+    if !args.gossip_seed_peers.is_empty() {
+        let query_addr = args
+            .gossip_advertise_query_addr
+            .clone()
+            .unwrap_or_else(|| args.bind_addr.clone());
+        let replication_addr = args
+            .gossip_advertise_replication_addr
+            .clone()
+            .or_else(|| args.replication_bind_addr.clone())
+            .unwrap_or_else(|| query_addr.clone());
+        let seeds = gossip_seed_addresses(&args);
+        let result = backend.fanout_gossip_once(
+            args.server_id,
+            &query_addr,
+            &replication_addr,
+            args.gossip_ttl_ms,
+            &seeds,
+        );
+        if args.gossip_auto_negotiate_replication {
+            let negotiation = backend.negotiate_gossip_replication_peers();
+            eprintln!(
+                "neo4r-server gossip replication negotiation attempted={} succeeded={} failed={}",
+                negotiation.attempted, negotiation.succeeded, negotiation.failed
+            );
+        }
+        eprintln!(
+            "neo4r-server gossip startup fanout attempted={} succeeded={} failed={}",
+            result.attempted, result.succeeded, result.failed
+        );
+    }
+    if let Some(interval_ms) = args.gossip_interval_ms {
+        let gossip_backend = backend.clone();
+        let query_addr = args
+            .gossip_advertise_query_addr
+            .clone()
+            .unwrap_or_else(|| args.bind_addr.clone());
+        let replication_addr = args
+            .gossip_advertise_replication_addr
+            .clone()
+            .or_else(|| args.replication_bind_addr.clone())
+            .unwrap_or_else(|| query_addr.clone());
+        let server_id = args.server_id;
+        let ttl_ms = args.gossip_ttl_ms;
+        let seeds = gossip_seed_addresses(&args);
+        let auto_negotiate = args.gossip_auto_negotiate_replication;
+        std::thread::spawn(move || {
+            let interval = Duration::from_millis(interval_ms);
+            loop {
+                std::thread::sleep(interval);
+                let result = gossip_backend.fanout_gossip_once(
+                    server_id,
+                    &query_addr,
+                    &replication_addr,
+                    ttl_ms,
+                    &seeds,
+                );
+                if result.failed > 0 {
+                    eprintln!(
+                        "neo4r-server gossip fanout attempted={} succeeded={} failed={}",
+                        result.attempted, result.succeeded, result.failed
+                    );
+                }
+                if auto_negotiate {
+                    let negotiation = gossip_backend.negotiate_gossip_replication_peers();
+                    if negotiation.failed > 0 {
+                        eprintln!(
+                            "neo4r-server gossip replication negotiation attempted={} succeeded={} failed={}",
+                            negotiation.attempted, negotiation.succeeded, negotiation.failed
+                        );
+                    }
+                }
+            }
+        });
     }
     if args.catch_up_on_startup {
         routing_table
@@ -309,6 +384,15 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     backend.serve_addr(&args.bind_addr)?;
     Ok(())
+}
+
+fn gossip_seed_addresses(args: &ServerArgs) -> Vec<String> {
+    args.gossip_seed_peers
+        .iter()
+        .filter(|peer| peer.server_id != args.server_id)
+        .take(args.gossip_fanout)
+        .map(|peer| peer.address.clone())
+        .collect()
 }
 
 mod args;

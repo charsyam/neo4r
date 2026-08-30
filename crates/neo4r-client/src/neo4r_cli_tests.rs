@@ -194,6 +194,22 @@ fn parses_cli_subcommands() {
         Some("GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000".to_string())
     );
 
+    let gossip_with_token = CliArgs::parse([
+        "cluster".to_string(),
+        "gossip".to_string(),
+        "2".to_string(),
+        "127.0.0.1:17688".to_string(),
+        "127.0.0.1:18688".to_string(),
+        "7".to_string(),
+        "30000".to_string(),
+        "secret".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        gossip_with_token.command,
+        Some("GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000\tsecret".to_string())
+    );
+
     let gossip_list = CliArgs::parse(["cluster".to_string(), "gossip-list".to_string()]).unwrap();
     assert_eq!(gossip_list.command, Some("LIST_GOSSIP_NODES".to_string()));
 

@@ -132,6 +132,10 @@ pub(super) fn parse_gossip_node_request(rest: &str) -> Result<BackendRequest, St
         )?,
         incarnation: parse_u64(parts.next(), "GOSSIP_NODE requires incarnation")?,
         ttl_ms: parse_u64(parts.next(), "GOSSIP_NODE requires ttl_ms")?,
+        token: parts
+            .next()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string),
     };
     if parts.next().is_some() {
         return Err("GOSSIP_NODE got extra fields".to_string());

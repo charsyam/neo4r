@@ -96,6 +96,8 @@ impl TcpBackend {
         let prepared_queries = PreparedQueryStore::default();
         let tenant_quota = TenantQuota::default();
         let replication_tls_channel_config = ReplicationTlsChannelConfigStore::default();
+        let gossip_auth_token = GossipAuthTokenStore::default();
+        let metrics = WebMetrics::default();
         let web_user_tokens = db.data_dir().ok().and_then(|data_dir| {
             WebUserTokenStore::open(data_dir.join(WEB_AUTH_ROCKS_DIR))
                 .or_else(|_| WebUserTokenStore::open(data_dir.join("web-auth-rocksdb")))
@@ -121,6 +123,8 @@ impl TcpBackend {
                     replication_peers: replication_peers.clone(),
                     replication_peer_identities: replication_peer_identities.clone(),
                     gossip_nodes: gossip_nodes.clone(),
+                    gossip_auth_token: gossip_auth_token.clone(),
+                    metrics: metrics.clone(),
                     default_page_size: config.default_page_size.max(1),
                     read_preference: config.read_preference,
                     catch_up_connect_timeout: config.catch_up_connect_timeout,
@@ -140,12 +144,13 @@ impl TcpBackend {
             replication_peers,
             replication_peer_identities,
             gossip_nodes,
+            gossip_auth_token,
             read_preference: config.read_preference,
             catch_up_connect_timeout: config.catch_up_connect_timeout,
             pending_requests,
             web_auth_token: None,
             slow_query_threshold: Duration::from_millis(250),
-            metrics: WebMetrics::default(),
+            metrics,
             auth_limiter: AuthFailureLimiter::default(),
             slow_queries: SlowQueryLog::default(),
             web_user_tokens,
@@ -177,6 +182,11 @@ impl TcpBackend {
 
     pub fn with_replication_tls_channel_config(self, config: Option<ReplicationTlsConfig>) -> Self {
         self.replication_tls_channel_config.set(config);
+        self
+    }
+
+    pub fn with_gossip_auth_token(self, token: Option<String>) -> Self {
+        self.gossip_auth_token.set(token);
         self
     }
 

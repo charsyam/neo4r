@@ -50,3 +50,17 @@ groups:
           severity: page
         annotations:
           summary: "Neo4r SLO burn rate is above the production threshold"
+      - alert: Neo4rGossipFanoutFailures
+        expr: increase(neo4r_gossip_fanout_failure_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r gossip fanout is failing"
+      - alert: Neo4rGossipExpiredNodes
+        expr: neo4r_gossip_expired_nodes > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4r gossip has expired node advertisements"

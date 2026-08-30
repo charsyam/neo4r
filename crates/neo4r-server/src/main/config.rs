@@ -88,6 +88,8 @@ struct ServerConfigFile {
     #[serde(default)]
     query: QuerySection,
     #[serde(default)]
+    gossip: GossipSection,
+    #[serde(default)]
     web: WebSection,
     #[serde(default)]
     maintenance: MaintenanceSection,
@@ -118,6 +120,29 @@ impl ServerConfigFile {
         push_option(&mut args, "--read-preference", self.query.read_preference);
         for peer in self.query.peers {
             push_peer(&mut args, "--query-peer", peer);
+        }
+
+        push_option(
+            &mut args,
+            "--gossip-advertise-query",
+            self.gossip.advertise_query,
+        );
+        push_option(
+            &mut args,
+            "--gossip-advertise-replication",
+            self.gossip.advertise_replication,
+        );
+        push_option_display(&mut args, "--gossip-interval-ms", self.gossip.interval_ms);
+        push_option_display(&mut args, "--gossip-ttl-ms", self.gossip.ttl_ms);
+        push_option_display(&mut args, "--gossip-fanout", self.gossip.fanout);
+        push_option(&mut args, "--gossip-auth-token", self.gossip.auth_token);
+        push_bool(
+            &mut args,
+            "--gossip-auto-negotiate-replication",
+            self.gossip.auto_negotiate_replication,
+        );
+        for peer in self.gossip.seed_peers {
+            push_peer(&mut args, "--gossip-seed-peer", peer);
         }
 
         push_option(&mut args, "--replication-bind", self.replication.bind);
@@ -416,6 +441,20 @@ struct QuerySection {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct GossipSection {
+    advertise_query: Option<String>,
+    advertise_replication: Option<String>,
+    interval_ms: Option<u64>,
+    ttl_ms: Option<u64>,
+    fanout: Option<usize>,
+    auth_token: Option<String>,
+    auto_negotiate_replication: Option<bool>,
+    #[serde(default)]
+    seed_peers: Vec<PeerConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WebSection {
     bind: Option<String>,
     auth_token: Option<String>,
@@ -526,6 +565,7 @@ fn append_config_arg(
         "catch-up-on-startup"
         | "sync-index-catalog-on-startup"
         | "recover-transactions-on-startup"
+        | "gossip-auto-negotiate-replication"
         | "daemonize"
         | "check-config"
         | "production-check"
@@ -548,6 +588,13 @@ fn append_config_arg(
         | "replica-peer"
         | "peer"
         | "query-peer"
+        | "gossip-seed-peer"
+        | "gossip-advertise-query"
+        | "gossip-advertise-replication"
+        | "gossip-interval-ms"
+        | "gossip-ttl-ms"
+        | "gossip-fanout"
+        | "gossip-auth-token"
         | "replication-bind"
         | "replication-transport"
         | "replication-ack"

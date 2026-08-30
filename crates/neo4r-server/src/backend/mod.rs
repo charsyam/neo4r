@@ -46,7 +46,7 @@ pub(crate) use command_executor::*;
 #[allow(unused_imports)]
 pub(crate) use distributed_query::*;
 #[allow(unused_imports)]
-pub(crate) use gossip::*;
+pub use gossip::*;
 #[allow(unused_imports)]
 pub(crate) use http_json_backup::*;
 #[allow(unused_imports)]

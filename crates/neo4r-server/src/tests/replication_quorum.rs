@@ -181,6 +181,34 @@ pub(super) fn gossip_refresh_from_membership_seeds_address_books() {
 }
 
 #[test]
+pub(super) fn gossip_auth_token_rejects_unsigned_advertisements() {
+    let dir = temp_dir("neo4r-server-gossip-auth");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    let backend = TcpBackend::new(db.clone())
+        .with_gossip_auth_token(Some("super-secret-gossip-token".to_string()));
+
+    let denied = backend.execute_backend_request(
+        parse_request("GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000").unwrap(),
+    );
+    assert!(matches!(
+        denied,
+        BackendResponse::Err(message) if message.contains("gossip authentication failed")
+    ));
+    assert_eq!(
+        backend.execute_backend_request(
+            parse_request(
+                "GOSSIP_NODE\t2\t127.0.0.1:17688\t127.0.0.1:18688\t7\t30000\tsuper-secret-gossip-token"
+            )
+            .unwrap()
+        ),
+        BackendResponse::OkGossip("accepted=true".to_string())
+    );
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn backend_rejects_indirect_replication_peer_identity_cycles() {
     let dir = temp_dir("neo4r-server-register-repl-indirect-cycle");
     let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();

@@ -59,6 +59,18 @@ pub(super) fn gossip_discovery_protocol_commands_parse_and_format() {
             replication_address: "127.0.0.1:8690".to_string(),
             incarnation: 9,
             ttl_ms: 30000,
+            token: None,
+        }
+    );
+    assert_eq!(
+        parse_request("GOSSIP_NODE\t4\t127.0.0.1:7690\t127.0.0.1:8690\t9\t30000\tsecret").unwrap(),
+        BackendRequest::GossipNode {
+            server_id: 4,
+            query_address: "127.0.0.1:7690".to_string(),
+            replication_address: "127.0.0.1:8690".to_string(),
+            incarnation: 9,
+            ttl_ms: 30000,
+            token: Some("secret".to_string()),
         }
     );
     assert_eq!(

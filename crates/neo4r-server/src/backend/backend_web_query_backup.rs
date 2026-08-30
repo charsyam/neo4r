@@ -32,6 +32,35 @@ impl WebMetricsSnapshot {
                 self.stale_epoch_rejections,
             ),
             prometheus_metric("neo4r_redirects_total", self.redirects),
+            prometheus_metric("neo4r_gossip_live_nodes", self.gossip_live_nodes as u64),
+            prometheus_metric(
+                "neo4r_gossip_expired_nodes",
+                self.gossip_expired_nodes as u64,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_replication_negotiation_pending",
+                self.gossip_replication_negotiation_pending as u64,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_fanout_success_total",
+                self.gossip_fanout_success,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_fanout_failure_total",
+                self.gossip_fanout_failure,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_auth_failures_total",
+                self.gossip_auth_failures,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_negotiation_success_total",
+                self.gossip_negotiation_success,
+            ),
+            prometheus_metric(
+                "neo4r_gossip_negotiation_failure_total",
+                self.gossip_negotiation_failure,
+            ),
             prometheus_metric("neo4r_db_nodes", self.db_nodes as u64),
             prometheus_metric("neo4r_db_relationships", self.db_relationships as u64),
             prometheus_metric("neo4r_db_indexes", self.db_indexes as u64),
@@ -618,6 +647,7 @@ impl TcpBackend {
             .and_then(|status| status.rebalance_execution)
             .map(|execution| format!("{:?}", execution.state))
             .unwrap_or_else(|| "idle".to_string());
+        let gossip_summary = self.gossip_summary().unwrap_or_default();
         let web_user_token_count = self
             .web_user_tokens
             .as_ref()
@@ -678,6 +708,20 @@ impl TcpBackend {
             registry_requests: self.metrics.registry_requests.load(Ordering::Relaxed),
             stale_epoch_rejections: self.metrics.stale_epoch_rejections.load(Ordering::Relaxed),
             redirects: self.metrics.redirects.load(Ordering::Relaxed),
+            gossip_live_nodes: gossip_summary.live,
+            gossip_expired_nodes: gossip_summary.expired,
+            gossip_replication_negotiation_pending: gossip_summary.replication_negotiation_pending,
+            gossip_fanout_success: self.metrics.gossip_fanout_success.load(Ordering::Relaxed),
+            gossip_fanout_failure: self.metrics.gossip_fanout_failure.load(Ordering::Relaxed),
+            gossip_auth_failures: self.metrics.gossip_auth_failures.load(Ordering::Relaxed),
+            gossip_negotiation_success: self
+                .metrics
+                .gossip_negotiation_success
+                .load(Ordering::Relaxed),
+            gossip_negotiation_failure: self
+                .metrics
+                .gossip_negotiation_failure
+                .load(Ordering::Relaxed),
             migration_state,
             db_nodes: statistics
                 .as_ref()

@@ -38,6 +38,15 @@ impl ServerArgs {
         if self.recover_transactions_interval_ms == Some(0) {
             return Err("--recover-transactions-interval-ms must be greater than zero".to_string());
         }
+        if self.gossip_interval_ms == Some(0) {
+            return Err("--gossip-interval-ms must be greater than zero".to_string());
+        }
+        if self.gossip_ttl_ms == 0 {
+            return Err("--gossip-ttl-ms must be greater than zero".to_string());
+        }
+        if self.gossip_fanout == 0 {
+            return Err("--gossip-fanout must be greater than zero".to_string());
+        }
         if self.slow_query_threshold_ms == 0 {
             return Err("--slow-query-threshold-ms must be greater than zero".to_string());
         }
@@ -280,6 +289,20 @@ impl ServerArgs {
         if self.cluster_requested() {
             if self.replication_bind_addr.is_none() {
                 issues.push("--replication-bind is required for clustered production".to_string());
+            }
+            if self.gossip_interval_ms.is_none() {
+                issues
+                    .push("--gossip-interval-ms is required for clustered production".to_string());
+            }
+            if self.gossip_seed_peers.is_empty() {
+                issues.push("--gossip-seed-peer is required for clustered production".to_string());
+            }
+            match self.gossip_auth_token.as_deref() {
+                Some(token) if is_strong_admin_token(token) => {}
+                _ => issues.push(
+                    "--gossip-auth-token must be set to a non-default token of at least 16 bytes"
+                        .to_string(),
+                ),
             }
             if self.replica_peers.is_empty() && self.peers.is_empty() {
                 issues.push(

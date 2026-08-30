@@ -33,6 +33,17 @@ query:
   peers:
     - server_id: 5
       address: 127.0.0.1:7689
+gossip:
+  advertise_query: 10.0.0.2:7687
+  advertise_replication: 10.0.0.2:9702
+  interval_ms: 500
+  ttl_ms: 2000
+  fanout: 2
+  auth_token: gossip-secret-token
+  auto_negotiate_replication: true
+  seed_peers:
+    - server_id: 6
+      address: 127.0.0.1:7686
 web:
   bind: 127.0.0.1:7474
   auth_token: secret
@@ -119,6 +130,29 @@ production:
         vec![ReplicaPeer {
             server_id: 5,
             address: "127.0.0.1:7689".to_string(),
+        }]
+    );
+    assert_eq!(
+        args.gossip_advertise_query_addr.as_deref(),
+        Some("10.0.0.2:7687")
+    );
+    assert_eq!(
+        args.gossip_advertise_replication_addr.as_deref(),
+        Some("10.0.0.2:9702")
+    );
+    assert_eq!(args.gossip_interval_ms, Some(500));
+    assert_eq!(args.gossip_ttl_ms, 2000);
+    assert_eq!(args.gossip_fanout, 2);
+    assert_eq!(
+        args.gossip_auth_token.as_deref(),
+        Some("gossip-secret-token")
+    );
+    assert!(args.gossip_auto_negotiate_replication);
+    assert_eq!(
+        args.gossip_seed_peers,
+        vec![ReplicaPeer {
+            server_id: 6,
+            address: "127.0.0.1:7686".to_string(),
         }]
     );
     assert_eq!(args.read_preference, QueryReadPreference::PreferReplica);

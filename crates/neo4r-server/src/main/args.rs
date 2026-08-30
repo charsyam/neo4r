@@ -16,6 +16,14 @@ pub(super) struct ServerArgs {
     pub(super) replica_peers: Vec<ReplicaPeer>,
     pub(super) peers: Vec<ReplicaPeer>,
     pub(super) query_peers: Vec<ReplicaPeer>,
+    pub(super) gossip_seed_peers: Vec<ReplicaPeer>,
+    pub(super) gossip_advertise_query_addr: Option<String>,
+    pub(super) gossip_advertise_replication_addr: Option<String>,
+    pub(super) gossip_interval_ms: Option<u64>,
+    pub(super) gossip_ttl_ms: u64,
+    pub(super) gossip_fanout: usize,
+    pub(super) gossip_auth_token: Option<String>,
+    pub(super) gossip_auto_negotiate_replication: bool,
     pub(super) replication_bind_addr: Option<String>,
     pub(super) replication_transport: ReplicationChannelKind,
     pub(super) replication_ack_policy: ReplicationAckPolicy,
@@ -113,6 +121,14 @@ impl ServerArgs {
             replica_peers: Vec::new(),
             peers: Vec::new(),
             query_peers: Vec::new(),
+            gossip_seed_peers: Vec::new(),
+            gossip_advertise_query_addr: None,
+            gossip_advertise_replication_addr: None,
+            gossip_interval_ms: None,
+            gossip_ttl_ms: 30_000,
+            gossip_fanout: 3,
+            gossip_auth_token: None,
+            gossip_auto_negotiate_replication: false,
             replication_bind_addr: None,
             replication_transport: ReplicationChannelKind::Tcp,
             replication_ack_policy: ReplicationAckPolicy::All,
@@ -208,6 +224,33 @@ impl ServerArgs {
                     &next_arg(&mut args, "--query-peer")?,
                     "--query-peer",
                 )?),
+                "--gossip-seed-peer" => parsed.gossip_seed_peers.push(parse_peer(
+                    &next_arg(&mut args, "--gossip-seed-peer")?,
+                    "--gossip-seed-peer",
+                )?),
+                "--gossip-advertise-query" => {
+                    parsed.gossip_advertise_query_addr =
+                        Some(next_arg(&mut args, "--gossip-advertise-query")?)
+                }
+                "--gossip-advertise-replication" => {
+                    parsed.gossip_advertise_replication_addr =
+                        Some(next_arg(&mut args, "--gossip-advertise-replication")?)
+                }
+                "--gossip-interval-ms" => {
+                    parsed.gossip_interval_ms = Some(parse_next(&mut args, "--gossip-interval-ms")?)
+                }
+                "--gossip-ttl-ms" => {
+                    parsed.gossip_ttl_ms = parse_next(&mut args, "--gossip-ttl-ms")?
+                }
+                "--gossip-fanout" => {
+                    parsed.gossip_fanout = parse_next(&mut args, "--gossip-fanout")?
+                }
+                "--gossip-auth-token" => {
+                    parsed.gossip_auth_token = Some(next_arg(&mut args, "--gossip-auth-token")?)
+                }
+                "--gossip-auto-negotiate-replication" => {
+                    parsed.gossip_auto_negotiate_replication = true
+                }
                 "--replication-bind" => {
                     parsed.replication_bind_addr = Some(next_arg(&mut args, "--replication-bind")?)
                 }
@@ -517,6 +560,29 @@ impl ServerArgs {
         ));
         output.push_str("  peers:\n");
         for peer in &self.query_peers {
+            output.push_str(&format!(
+                "    - server_id: {}\n      address: {}\n",
+                peer.server_id, peer.address
+            ));
+        }
+        output.push_str("gossip:\n");
+        if let Some(address) = &self.gossip_advertise_query_addr {
+            output.push_str(&format!("  advertise_query: {address}\n"));
+        }
+        if let Some(address) = &self.gossip_advertise_replication_addr {
+            output.push_str(&format!("  advertise_replication: {address}\n"));
+        }
+        output.push_str(&format!("  ttl_ms: {}\n", self.gossip_ttl_ms));
+        output.push_str(&format!("  fanout: {}\n", self.gossip_fanout));
+        if let Some(ms) = self.gossip_interval_ms {
+            output.push_str(&format!("  interval_ms: {ms}\n"));
+        }
+        output.push_str(&format!(
+            "  auto_negotiate_replication: {}\n",
+            self.gossip_auto_negotiate_replication
+        ));
+        output.push_str("  seed_peers:\n");
+        for peer in &self.gossip_seed_peers {
             output.push_str(&format!(
                 "    - server_id: {}\n      address: {}\n",
                 peer.server_id, peer.address

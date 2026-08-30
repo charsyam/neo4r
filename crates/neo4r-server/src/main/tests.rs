@@ -451,6 +451,12 @@ fn production_check_accepts_replication_tls_required_when_configured() {
         "1000".to_string(),
         "--catch-up-batch-size".to_string(),
         "1024".to_string(),
+        "--gossip-interval-ms".to_string(),
+        "1000".to_string(),
+        "--gossip-seed-peer".to_string(),
+        "2=10.0.0.2:17687".to_string(),
+        "--gossip-auth-token".to_string(),
+        "production-gossip-token".to_string(),
     ])
     .unwrap();
 

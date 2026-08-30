@@ -79,6 +79,33 @@ pub(in crate::runtime) fn daemon_child_args(args: &ServerArgs) -> Vec<String> {
         child_args.push("--query-peer".to_string());
         child_args.push(format!("{}={}", peer.server_id, peer.address));
     }
+    for peer in &args.gossip_seed_peers {
+        child_args.push("--gossip-seed-peer".to_string());
+        child_args.push(format!("{}={}", peer.server_id, peer.address));
+    }
+    if let Some(addr) = &args.gossip_advertise_query_addr {
+        child_args.push("--gossip-advertise-query".to_string());
+        child_args.push(addr.clone());
+    }
+    if let Some(addr) = &args.gossip_advertise_replication_addr {
+        child_args.push("--gossip-advertise-replication".to_string());
+        child_args.push(addr.clone());
+    }
+    if let Some(interval_ms) = args.gossip_interval_ms {
+        child_args.push("--gossip-interval-ms".to_string());
+        child_args.push(interval_ms.to_string());
+    }
+    child_args.push("--gossip-ttl-ms".to_string());
+    child_args.push(args.gossip_ttl_ms.to_string());
+    child_args.push("--gossip-fanout".to_string());
+    child_args.push(args.gossip_fanout.to_string());
+    if let Some(token) = &args.gossip_auth_token {
+        child_args.push("--gossip-auth-token".to_string());
+        child_args.push(token.clone());
+    }
+    if args.gossip_auto_negotiate_replication {
+        child_args.push("--gossip-auto-negotiate-replication".to_string());
+    }
     if args.catch_up_on_startup {
         child_args.push("--catch-up-on-startup".to_string());
     }
@@ -583,7 +610,7 @@ pub(in crate::runtime) fn parse_next<T: std::str::FromStr>(
 }
 
 pub(in crate::runtime) fn usage() -> String {
-    "usage: neo4r-server [--config PATH] [--check-config] [--production-check] [--dump-config] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--tls-mode disabled|external|required] [--replication-tls-mode disabled|external|required] [--web-tls-mode disabled|external|required] [--native-tls-cert CERT.pem] [--native-tls-key KEY.pem] [--native-tls-client-ca CA.pem] [--native-tls-require-client-auth] [--web-tls-cert CERT.pem] [--web-tls-key KEY.pem] [--web-tls-client-ca CA.pem] [--web-tls-require-client-auth] [--replication-tls-cert CERT.pem] [--replication-tls-key KEY.pem] [--replication-tls-client-ca CA.pem] [--replication-tls-require-client-auth] [--replication-tls-ca CA.pem] [--replication-tls-server-name DNS_NAME] [--replication-tls-client-cert CERT.pem] [--replication-tls-client-key KEY.pem] [--min-native-protocol-version N] [--max-native-protocol-version N] [--backup-drill-max-age-hours N] [--wal-archive-dir DIR] [--restore-drill-manifest PATH] [--audit-retention-days N] [--secret-rotation-days N] [--tenant-max-concurrent-queries N] [--tenant-max-result-rows N] [--data-format-version N] [--upgrade-manifest PATH] [--raft-lease-clock-drift-bound-ms N] [--raft-lease-message-delay-bound-ms N] [--observability-alerts PATH] [--repair-check-on-startup] [--query-regression-corpus PATH] [--chaos-gate-required] [--runbook PATH] [--systemd-unit PATH] [--logrotate PATH] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
+    "usage: neo4r-server [--config PATH] [--check-config] [--production-check] [--dump-config] [--bind ADDR] [--web-bind ADDR] [--web-auth-token TOKEN] [--slow-query-threshold-ms MS] [--data-dir DIR] [--shards N] [--partitions N] [--server-id ID] [--primary-server-id ID] [--replica-peer SERVER_ID=ADDR] [--peer SERVER_ID=ADDR] [--query-peer SERVER_ID=ADDR] [--gossip-seed-peer SERVER_ID=ADDR] [--gossip-advertise-query ADDR] [--gossip-advertise-replication ADDR] [--gossip-interval-ms MS] [--gossip-ttl-ms MS] [--gossip-fanout N] [--gossip-auth-token TOKEN] [--gossip-auto-negotiate-replication] [--read-preference primary|prefer-replica] [--replication-bind ADDR] [--replication-transport tcp|rdma] [--replication-ack all|quorum|async] [--replication-connect-timeout-ms MS] [--replication-retry-attempts N] [--replication-retry-backoff-ms MS] [--catch-up-on-startup] [--catch-up-interval-ms MS] [--catch-up-batch-size N] [--sync-index-catalog-on-startup] [--sync-index-catalog-interval-ms MS] [--recover-transactions-on-startup] [--recover-transactions-interval-ms MS] [--tls-mode disabled|external|required] [--replication-tls-mode disabled|external|required] [--web-tls-mode disabled|external|required] [--native-tls-cert CERT.pem] [--native-tls-key KEY.pem] [--native-tls-client-ca CA.pem] [--native-tls-require-client-auth] [--web-tls-cert CERT.pem] [--web-tls-key KEY.pem] [--web-tls-client-ca CA.pem] [--web-tls-require-client-auth] [--replication-tls-cert CERT.pem] [--replication-tls-key KEY.pem] [--replication-tls-client-ca CA.pem] [--replication-tls-require-client-auth] [--replication-tls-ca CA.pem] [--replication-tls-server-name DNS_NAME] [--replication-tls-client-cert CERT.pem] [--replication-tls-client-key KEY.pem] [--min-native-protocol-version N] [--max-native-protocol-version N] [--backup-drill-max-age-hours N] [--wal-archive-dir DIR] [--restore-drill-manifest PATH] [--audit-retention-days N] [--secret-rotation-days N] [--tenant-max-concurrent-queries N] [--tenant-max-result-rows N] [--data-format-version N] [--upgrade-manifest PATH] [--raft-lease-clock-drift-bound-ms N] [--raft-lease-message-delay-bound-ms N] [--observability-alerts PATH] [--repair-check-on-startup] [--query-regression-corpus PATH] [--chaos-gate-required] [--runbook PATH] [--systemd-unit PATH] [--logrotate PATH] [--workers N] [--queue-capacity N] [--page-size N] [--daemonize]".to_string()
 }
 
 pub(in crate::runtime) fn default_worker_count() -> usize {

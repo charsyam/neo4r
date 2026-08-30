@@ -10,10 +10,15 @@ pub(super) fn normalize_cluster_subcommand(args: &[String]) -> Result<Vec<String
         },
         "chaos" => "CHAOS_CHECKS".to_string(),
         "gossip" if args.len() >= 7 => {
-            format!(
+            let mut command = format!(
                 "GOSSIP_NODE\t{}\t{}\t{}\t{}\t{}",
                 args[2], args[3], args[4], args[5], args[6]
-            )
+            );
+            if let Some(token) = args.get(7) {
+                command.push('\t');
+                command.push_str(token);
+            }
+            command
         }
         "gossip-list" => "LIST_GOSSIP_NODES".to_string(),
         "gossip-refresh" => "GOSSIP_REFRESH_MEMBERSHIP".to_string(),
@@ -37,7 +42,7 @@ pub(super) fn normalize_cluster_subcommand(args: &[String]) -> Result<Vec<String
         }
         _ => {
             return Err(CliError::Usage(
-                "cluster subcommand supports: status, topology, reconcile [LIMIT], chaos, gossip SERVER_ID QUERY_ADDR REPL_ADDR INCARNATION TTL_MS, gossip-list, gossip-refresh, promote SERVER_ID, bootstrap-manifest MODE CLUSTER_ID DB_ID, bootstrap-safety EXPECTED_CLUSTER_ID FORCE, safety OPERATION [TOKEN]".to_string(),
+                "cluster subcommand supports: status, topology, reconcile [LIMIT], chaos, gossip SERVER_ID QUERY_ADDR REPL_ADDR INCARNATION TTL_MS [TOKEN], gossip-list, gossip-refresh, promote SERVER_ID, bootstrap-manifest MODE CLUSTER_ID DB_ID, bootstrap-safety EXPECTED_CLUSTER_ID FORCE, safety OPERATION [TOKEN]".to_string(),
             ));
         }
     };

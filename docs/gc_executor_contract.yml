@@ -10,6 +10,8 @@ phases:
   - delete_payloads
   - persist_gc_state
   - emit_audit_event
+implementation:
+  executor: neo4r_server::production_primitives::execute_gc_plan
 safety:
   dry_run_default: true
   destructive_confirmation: GC_DELETE

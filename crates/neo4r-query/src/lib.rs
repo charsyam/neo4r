@@ -5,6 +5,7 @@ mod engine;
 mod error;
 mod executor;
 mod result;
+mod spill;
 mod vector;
 
 pub use cypher::{
@@ -18,6 +19,9 @@ pub use engine::{QueryCursor, QueryEngine, QueryPage, VecQueryCursor};
 pub use error::{QueryError, QueryResult};
 pub use executor::{row_scalar, ResultColumnProjector};
 pub use result::{QueryParams, QueryRow, QueryValue};
+pub use spill::{
+    cleanup_orphaned_spill_dirs, maybe_spill_operator_rows, QuerySpillPolicy, QuerySpillReport,
+};
 pub use vector::{
     cosine_similarity, l2_distance, BruteForceVectorIndex, HnswVectorIndex, HnswVectorIndexConfig,
     VectorHit, VectorIndex, VectorIndexProvider, VectorMetric, VectorSearch,

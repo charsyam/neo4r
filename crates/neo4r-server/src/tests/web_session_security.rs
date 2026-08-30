@@ -231,6 +231,87 @@ pub(super) fn rbac_grant_and_revoke_role_record_audit_reason() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+pub(super) fn rbac_explicit_deny_takes_precedence_over_database_grant() {
+    let dir = temp_dir("neo4r-web-rbac-deny");
+    let config = DatabaseConfig::new(&dir, 1, 1);
+    let db = Neo4rDatabaseHandle::open(config.clone()).unwrap();
+    let backend = TcpBackend::new(db)
+        .with_multi_tenant_config(config)
+        .unwrap()
+        .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250));
+    let create_db = "{\"name\":\"tenant_a\"}";
+    let created_db = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/databases HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            create_db.len(),
+            create_db
+        ),
+    );
+    assert!(created_db.contains("HTTP/1.1 200 OK"), "{created_db}");
+
+    let user_body = "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"reader\",\"token\":\"alice-secret\",\"database\":\"tenant_a\",\"database_role\":\"writer\"}";
+    let created = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/users HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            user_body.len(),
+            user_body
+        ),
+    );
+    assert!(created.contains("HTTP/1.1 200 OK"), "{created}");
+
+    let deny_body =
+        "{\"name\":\"alice\",\"token_id\":\"main\",\"database\":\"tenant_a\",\"reason\":\"incident-9\"}";
+    let denied = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/deny-role HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            deny_body.len(),
+            deny_body
+        ),
+    );
+    assert!(denied.contains("HTTP/1.1 200 OK"), "{denied}");
+    assert!(denied.contains("\"denied_databases\":\"tenant_a\""));
+
+    let query =
+        "{\"query\":\"CREATE (n:Denied {name: \\\"blocked\\\"})\",\"database\":\"tenant_a\"}";
+    let blocked = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer alice-secret\r\ncontent-length: {}\r\n\r\n{}",
+            query.len(),
+            query
+        ),
+    );
+    assert!(blocked.contains("HTTP/1.1 401 Unauthorized"), "{blocked}");
+
+    let allow_body =
+        "{\"name\":\"alice\",\"token_id\":\"main\",\"database\":\"tenant_a\",\"reason\":\"incident-closed\"}";
+    let allowed = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/allow-role HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            allow_body.len(),
+            allow_body
+        ),
+    );
+    assert!(allowed.contains("HTTP/1.1 200 OK"), "{allowed}");
+    assert!(allowed.contains("\"denied_databases\":\"\""));
+
+    let unblocked = web_request(
+        backend,
+        &format!(
+            "POST /api/query HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer alice-secret\r\ncontent-length: {}\r\n\r\n{}",
+            query.len(),
+            query
+        ),
+    );
+    assert!(unblocked.contains("HTTP/1.1 200 OK"), "{unblocked}");
+    let _ = fs::remove_dir_all(dir);
+}
+
 fn json_response_field(response: &str, name: &str) -> String {
     response
         .split(&format!("\"{name}\":\""))

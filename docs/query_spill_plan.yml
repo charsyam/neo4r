@@ -4,9 +4,11 @@ spill_directory: /var/lib/neo4r/query-spill
 operators:
   sort:
     spill_format: sorted-runs-v1
+    implemented_path: neo4r_query::maybe_spill_operator_rows
     merge_strategy: bounded-fan-in
   aggregate:
     spill_format: hash-partitions-v1
+    implemented_path: neo4r_query::maybe_spill_operator_rows
     merge_strategy: partitioned-merge
 limits:
   max_operator_memory_bytes: 67108864

@@ -1,4 +1,5 @@
 use super::*;
+use crate::web_auth::format_database_deny_scopes;
 impl TcpBackend {
     pub(crate) fn execute_http_request(&self, request: &HttpRequest) -> HttpResponse {
         self.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
@@ -386,6 +387,24 @@ impl TcpBackend {
                     Err(err) => HttpResponse::json_status(400, json_error(&err)),
                 }
             }
+            ("POST", "/api/admin/deny-role")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/deny-role") => match self.deny_web_database(&request.body) {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
+            ("POST", "/api/admin/allow-role")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/allow-role") => match self.allow_web_database(&request.body) {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
             ("POST", "/api/admin/cleanup-expired-tokens")
                 if !web_role_allows_action(role, WebAction::TokenAdmin) =>
             {
@@ -598,11 +617,12 @@ impl TcpBackend {
             .iter()
             .map(|user| {
                 format!(
-                    "{{\"name\":\"{}\",\"token_id\":\"{}\",\"role\":\"{}\",\"database_roles\":\"{}\",\"expired_at\":{},\"revoked\":{},\"active\":{},\"created_at\":{},\"last_used_at\":{}}}",
+                    "{{\"name\":\"{}\",\"token_id\":\"{}\",\"role\":\"{}\",\"database_roles\":\"{}\",\"denied_databases\":\"{}\",\"expired_at\":{},\"revoked\":{},\"active\":{},\"created_at\":{},\"last_used_at\":{}}}",
                     json_escape(&user.name),
                     json_escape(&user.token_id),
                     user.role.as_str(),
                     json_escape(&format_database_roles(&user.database_roles)),
+                    json_escape(&format_database_deny_scopes(&user.denied_databases)),
                     user.expired_at,
                     user.revoked,
                     user.is_active(unix_seconds_now()),
@@ -667,6 +687,7 @@ impl TcpBackend {
                 expired_at,
                 revoked: false,
                 database_roles,
+                denied_databases: BTreeSet::new(),
                 created_at: unix_seconds_now(),
                 last_used_at: 0,
             })?;
@@ -949,39 +970,4 @@ fn request_uses_session_cookie(request: &HttpRequest) -> bool {
 
 fn request_is_drained_during_restore(request: &HttpRequest) -> bool {
     request.method == "POST" && matches!(request.path.as_str(), "/api/query")
-}
-
-fn parse_query_options(request: &HttpRequest) -> Result<QueryOptions, String> {
-    let consistency = request
-        .header("x-neo4r-read-consistency")
-        .map(str::to_string)
-        .or_else(|| {
-            extract_optional_json_string_field(&request.body, "read_consistency")
-                .ok()
-                .flatten()
-        })
-        .unwrap_or_else(|| "strong".to_string());
-    let normalized = consistency.trim().to_ascii_lowercase().replace('-', "_");
-    let read_consistency = match normalized.as_str() {
-        "strong" => ReadConsistency::Strong,
-        "follower_stale" | "stale" => ReadConsistency::FollowerStale,
-        "bounded_staleness" | "bounded" => {
-            let max_staleness_ms = request
-                .header("x-neo4r-max-staleness-ms")
-                .and_then(|value| value.parse::<u64>().ok())
-                .or_else(|| {
-                    extract_optional_json_u64_field(&request.body, "max_staleness_ms")
-                        .ok()
-                        .flatten()
-                })
-                .unwrap_or(1_000);
-            ReadConsistency::BoundedStaleness { max_staleness_ms }
-        }
-        other => {
-            return Err(format!(
-                "unsupported read_consistency {other}; expected strong, follower_stale, or bounded_staleness"
-            ));
-        }
-    };
-    Ok(QueryOptions::default().with_consistency(read_consistency))
 }

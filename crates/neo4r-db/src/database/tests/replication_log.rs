@@ -73,6 +73,53 @@ pub(super) fn pitr_timestamp_target_selects_committed_entries_at_or_before_targe
 }
 
 #[test]
+pub(super) fn pitr_restore_to_timestamp_rewrites_state_and_truncates_wal_suffix() {
+    let dir = temp_dir("facade-pitr-restore-to-timestamp");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher(r#"CREATE (n:Pitr {name: "before"})"#)
+        .unwrap();
+    let first_timestamp = db.log_entries_from(0, 1).unwrap()[0].timestamp;
+    db.execute_cypher(r#"CREATE (n:Pitr {name: "after"})"#)
+        .unwrap();
+    assert_eq!(
+        db.query_with_options(
+            r#"MATCH (n:Pitr) RETURN n.name"#,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+        .unwrap()
+        .len(),
+        2
+    );
+
+    let result = db.restore_to_timestamp(first_timestamp).unwrap();
+
+    assert_eq!(result.action, "restore_pitr");
+    assert_eq!(result.pruned_until, vec![1]);
+    assert!(result.safety_manifest.contains("wal_suffix_truncated=true"));
+    assert_eq!(db.committed_indexes().unwrap(), vec![1]);
+    assert_eq!(db.log_entries_from(0, 1).unwrap().len(), 1);
+    assert_eq!(
+        db.query_with_options(
+            r#"MATCH (n:Pitr) WHERE n.name = "before" RETURN n.name"#,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    assert_eq!(
+        db.query_with_options(
+            r#"MATCH (n:Pitr) WHERE n.name = "after" RETURN n.name"#,
+            QueryOptions::default().with_consistency(ReadConsistency::FollowerStale),
+        )
+        .unwrap()
+        .len(),
+        0
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn replicated_entry_is_applied_without_being_local_primary() {
     let dir = temp_dir("facade-replicated-apply");
     let routing_table = ShardRoutingTable {

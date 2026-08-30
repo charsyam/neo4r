@@ -7,5 +7,6 @@ grep -q "rbac.grant" docs/rbac_policy.md
 grep -q "rbac.revoke" docs/rbac_policy.md
 
 cargo test -p neo4r-server rbac_grant_and_revoke_role_record_audit_reason --quiet
+cargo test -p neo4r-server rbac_explicit_deny_takes_precedence_over_database_grant --quiet
 
 echo "neo4r explicit rbac policy gate passed"

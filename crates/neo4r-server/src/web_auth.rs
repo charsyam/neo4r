@@ -1,5 +1,5 @@
 use neo4r_storage::{KeyValueStore, RocksKvStore};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -52,6 +52,7 @@ pub(super) struct WebUserToken {
     pub(super) expired_at: u128,
     pub(super) revoked: bool,
     pub(super) database_roles: BTreeMap<String, WebRole>,
+    pub(super) denied_databases: BTreeSet<String>,
     pub(super) created_at: u128,
     pub(super) last_used_at: u128,
 }
@@ -282,6 +283,48 @@ impl WebUserTokenStore {
         };
         let mut record = decode_web_user_token(&value)?;
         record.database_roles.insert(database.to_string(), role);
+        kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+            .map_err(|err| err.to_string())?;
+        Ok(record)
+    }
+
+    pub(super) fn deny_database(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+    ) -> Result<WebUserToken, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web token store lock poisoned".to_string())?;
+        let user_key = web_user_token_key(name, token_id);
+        let Some(value) = kv.get(&user_key).map_err(|err| err.to_string())? else {
+            return Err(format!("unknown token {name:?}/{token_id:?}"));
+        };
+        let mut record = decode_web_user_token(&value)?;
+        record.denied_databases.insert(database.to_string());
+        kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+            .map_err(|err| err.to_string())?;
+        Ok(record)
+    }
+
+    pub(super) fn allow_database(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+    ) -> Result<WebUserToken, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web token store lock poisoned".to_string())?;
+        let user_key = web_user_token_key(name, token_id);
+        let Some(value) = kv.get(&user_key).map_err(|err| err.to_string())? else {
+            return Err(format!("unknown token {name:?}/{token_id:?}"));
+        };
+        let mut record = decode_web_user_token(&value)?;
+        record.denied_databases.remove(database);
         kv.put(&user_key, encode_web_user_token(&record).as_bytes())
             .map_err(|err| err.to_string())?;
         Ok(record)
@@ -566,6 +609,9 @@ impl WebUserToken {
     }
 
     fn role_for_database(&self, database: &str) -> Option<WebRole> {
+        if self.denied_databases.contains(database) || self.denied_databases.contains("*") {
+            return None;
+        }
         if self.database_roles.is_empty() {
             return Some(self.role);
         }
@@ -631,6 +677,23 @@ pub(super) fn format_database_roles(roles: &BTreeMap<String, WebRole>) -> String
         .map(|(database, role)| format!("{database}={}", role.as_str()))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+pub(super) fn parse_database_deny_scopes(input: &str) -> Result<BTreeSet<String>, String> {
+    let mut scopes = BTreeSet::new();
+    for scope in input
+        .split(',')
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+    {
+        validate_database_scope(scope)?;
+        scopes.insert(scope.to_string());
+    }
+    Ok(scopes)
+}
+
+pub(super) fn format_database_deny_scopes(scopes: &BTreeSet<String>) -> String {
+    scopes.iter().cloned().collect::<Vec<_>>().join(",")
 }
 
 fn validate_database_scope(database: &str) -> Result<(), String> {
@@ -708,7 +771,7 @@ pub(super) fn latest_audit_unix_seconds(events: &[WebAuditEvent], prefixes: &[&s
 
 fn encode_web_user_token(record: &WebUserToken) -> String {
     format!(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         record.name,
         record.token_id,
         record.role.as_str(),
@@ -717,14 +780,15 @@ fn encode_web_user_token(record: &WebUserToken) -> String {
         record.revoked,
         format_database_roles(&record.database_roles),
         record.created_at,
-        record.last_used_at
+        record.last_used_at,
+        format_database_deny_scopes(&record.denied_databases)
     )
 }
 
 fn decode_web_user_token(input: &[u8]) -> Result<WebUserToken, String> {
     let input = std::str::from_utf8(input).map_err(|err| err.to_string())?;
     let parts = input.split('\t').collect::<Vec<_>>();
-    if parts.len() != 6 && parts.len() != 7 && parts.len() != 9 {
+    if parts.len() != 6 && parts.len() != 7 && parts.len() != 9 && parts.len() != 10 {
         return Err(format!("invalid web token record {input:?}"));
     }
     let database_roles_index = if parts.len() >= 7 { Some(6) } else { None };
@@ -744,14 +808,19 @@ fn decode_web_user_token(input: &[u8]) -> Result<WebUserToken, String> {
         } else {
             BTreeMap::new()
         },
-        created_at: if parts.len() == 9 {
+        denied_databases: if parts.len() == 10 {
+            parse_database_deny_scopes(parts[9])?
+        } else {
+            BTreeSet::new()
+        },
+        created_at: if parts.len() >= 9 {
             parts[7]
                 .parse::<u128>()
                 .map_err(|_| format!("invalid created_at {:?}", parts[7]))?
         } else {
             0
         },
-        last_used_at: if parts.len() == 9 {
+        last_used_at: if parts.len() >= 9 {
             parts[8]
                 .parse::<u128>()
                 .map_err(|_| format!("invalid last_used_at {:?}", parts[8]))?
@@ -829,170 +898,5 @@ fn decode_web_audit_event(input: &[u8]) -> Result<WebAuditEvent, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!("neo4r-web-auth-{name}-{nanos}"))
-    }
-
-    #[test]
-    fn web_user_token_codec_preserves_metadata_and_database_roles() {
-        let mut database_roles = BTreeMap::new();
-        database_roles.insert("tenant_a".to_string(), WebRole::Reader);
-        database_roles.insert("*".to_string(), WebRole::Writer);
-        let record = WebUserToken {
-            name: "alice".to_string(),
-            token_id: "main".to_string(),
-            role: WebRole::Admin,
-            token: "secret".to_string(),
-            expired_at: 123,
-            revoked: false,
-            database_roles,
-            created_at: 456,
-            last_used_at: 789,
-        };
-
-        let encoded = encode_web_user_token(&record);
-        let decoded = decode_web_user_token(encoded.as_bytes()).unwrap();
-
-        assert_eq!(decoded, record);
-    }
-
-    #[test]
-    fn legacy_web_user_token_records_decode_with_zero_metadata() {
-        let decoded =
-            decode_web_user_token(b"alice\tmain\twriter\tsecret\t0\tfalse\ttenant_a=reader")
-                .unwrap();
-
-        assert_eq!(decoded.name, "alice");
-        assert_eq!(decoded.role_for_database("tenant_a"), Some(WebRole::Reader));
-        assert_eq!(decoded.created_at, 0);
-        assert_eq!(decoded.last_used_at, 0);
-    }
-
-    #[test]
-    fn web_roles_enforce_reader_writer_admin_boundaries() {
-        assert!(WebRole::Reader.allows(WebRole::Reader));
-        assert!(!WebRole::Reader.allows(WebRole::Writer));
-        assert!(!WebRole::Reader.allows(WebRole::Admin));
-        assert!(WebRole::Writer.allows(WebRole::Reader));
-        assert!(WebRole::Writer.allows(WebRole::Writer));
-        assert!(!WebRole::Writer.allows(WebRole::Admin));
-        assert!(WebRole::Admin.allows(WebRole::Reader));
-        assert!(WebRole::Admin.allows(WebRole::Writer));
-        assert!(WebRole::Admin.allows(WebRole::Admin));
-    }
-
-    #[test]
-    fn web_user_token_store_updates_last_used_only_for_authorized_database() {
-        let dir = temp_dir("touch-last-used");
-        let store = WebUserTokenStore::open(dir.clone()).unwrap();
-        let mut database_roles = BTreeMap::new();
-        database_roles.insert("tenant_a".to_string(), WebRole::Reader);
-        store
-            .put(WebUserToken {
-                name: "alice".to_string(),
-                token_id: "main".to_string(),
-                role: WebRole::Writer,
-                token: "secret".to_string(),
-                expired_at: 0,
-                revoked: false,
-                database_roles,
-                created_at: 10,
-                last_used_at: 0,
-            })
-            .unwrap();
-
-        assert_eq!(store.find_role_by_token("secret", "tenant_b", 20), None);
-        assert_eq!(store.list().unwrap()[0].last_used_at, 0);
-        assert_eq!(
-            store.find_role_by_token("secret", "tenant_a", 21),
-            Some(WebRole::Reader)
-        );
-        assert_eq!(store.list().unwrap()[0].last_used_at, 21);
-
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn web_user_token_store_keeps_digest_instead_of_plaintext_token() {
-        let dir = temp_dir("digest-only-token");
-        let store = WebUserTokenStore::open(dir.clone()).unwrap();
-        store
-            .put(WebUserToken {
-                name: "alice".to_string(),
-                token_id: "main".to_string(),
-                role: WebRole::Writer,
-                token: "secret-token".to_string(),
-                expired_at: 0,
-                revoked: false,
-                database_roles: BTreeMap::new(),
-                created_at: 10,
-                last_used_at: 0,
-            })
-            .unwrap();
-
-        assert_eq!(
-            store.find_role_by_token("secret-token", "default", 20),
-            Some(WebRole::Writer)
-        );
-        let stored = store.list().unwrap().remove(0);
-        assert_ne!(stored.token, "secret-token");
-        assert_eq!(stored.token, web_token_digest("secret-token"));
-
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn token_digest_is_stable_and_constant_time_compare_matches_plain_equality() {
-        assert_eq!(web_token_digest("secret"), web_token_digest("secret"));
-        assert_ne!(web_token_digest("secret"), web_token_digest("other"));
-        assert!(constant_time_token_eq("secret", "secret"));
-        assert!(!constant_time_token_eq("secret", "secreu"));
-        assert!(!constant_time_token_eq("secret", "secret-longer"));
-    }
-
-    #[test]
-    fn web_audit_store_prunes_events_older_than_cutoff() {
-        let dir = temp_dir("audit-prune");
-        let store = WebAuditStore::open(dir.clone()).unwrap();
-        {
-            let mut kv = store.kv.lock().unwrap();
-            let old = WebAuditEvent {
-                unix_ms: 10,
-                action: "old".to_string(),
-                target: "target".to_string(),
-                detail: "detail".to_string(),
-            };
-            let new = WebAuditEvent {
-                unix_ms: 20,
-                action: "new".to_string(),
-                target: "target".to_string(),
-                detail: "detail".to_string(),
-            };
-            kv.put(
-                &web_audit_key(old.unix_ms, &old.action, &old.target),
-                encode_web_audit_event(&old).as_bytes(),
-            )
-            .unwrap();
-            kv.put(
-                &web_audit_key(new.unix_ms, &new.action, &new.target),
-                encode_web_audit_event(&new).as_bytes(),
-            )
-            .unwrap();
-        }
-
-        assert_eq!(store.prune_older_than(15).unwrap(), 1);
-        let events = store.list().unwrap();
-
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].action, "new");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}
+#[path = "web_auth_tests.rs"]
+mod tests;

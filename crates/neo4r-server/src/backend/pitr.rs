@@ -57,21 +57,29 @@ impl TcpBackend {
             shard_plans.join(";")
         );
         std::fs::write(&manifest_path, manifest).map_err(|err| err.to_string())?;
+        let restore_result = db
+            .restore_to_timestamp(neo4r_core::HybridTimestamp::new(
+                target_physical_ms,
+                target_logical,
+            ))
+            .map_err(|err| err.to_string())?;
         self.audit_admin(
             "restore.pitr.apply",
             database_name,
             &format!(
-                "target_physical_ms={target_physical_ms} target_logical={target_logical} manifest={}",
-                manifest_path.display()
+                "target_physical_ms={target_physical_ms} target_logical={target_logical} manifest={} action={}",
+                manifest_path.display(),
+                restore_result.action
             ),
         );
         Ok(format!(
-            "{{\"database\":\"{}\",\"accepted\":true,\"manifest\":\"{}\",\"target_physical_ms\":{},\"target_logical\":{},\"shards\":[{}]}}",
+            "{{\"database\":\"{}\",\"accepted\":true,\"manifest\":\"{}\",\"target_physical_ms\":{},\"target_logical\":{},\"shards\":[{}],\"maintenance\":{}}}",
             json_escape(database_name),
             json_escape(&manifest_path.display().to_string()),
             target_physical_ms,
             target_logical,
-            shard_plans.join(",")
+            shard_plans.join(","),
+            storage_maintenance_json(&restore_result)
         ))
     }
 

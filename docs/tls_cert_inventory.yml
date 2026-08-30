@@ -15,6 +15,7 @@ metrics:
   - neo4r_tls_cert_not_after_seconds
   - neo4r_tls_cert_reload_success_total
   - neo4r_tls_cert_reload_failure_total
+  - neo4r_server::production_primitives::tls_cert_inventory
 reload:
   trigger: file_mtime_change
   strategy: build_new_acceptor_before_swap

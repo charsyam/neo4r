@@ -381,6 +381,7 @@ impl TcpBackend {
             self.metrics.query_errors.fetch_add(1, Ordering::Relaxed);
             return Err(err);
         }
+        self.audit_query_spill_if_needed(database_name, &rows);
         let elapsed = started.elapsed();
         if elapsed >= self.slow_query_threshold {
             self.record_slow_query(query, elapsed);

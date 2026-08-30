@@ -29,6 +29,13 @@ impl Neo4rDatabaseHandle {
         self.lock()?.restore_snapshot(shard_id)
     }
 
+    pub fn restore_to_timestamp(
+        &self,
+        target: HybridTimestamp,
+    ) -> DatabaseResult<StorageMaintenanceResult> {
+        self.lock()?.restore_to_timestamp(target)
+    }
+
     pub fn verify_storage_invariants(&self) -> DatabaseResult<StorageMaintenanceResult> {
         self.lock()?.verify_storage_invariants()
     }

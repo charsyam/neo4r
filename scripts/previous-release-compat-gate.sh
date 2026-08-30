@@ -10,5 +10,6 @@ else
   grep -q "current-fixture-self-check" docs/previous_release_fixture.yml
 fi
 
+cargo test -p neo4r-server previous_release_metadata_must_not_move_backwards --quiet
 scripts/compatibility-matrix-gate.sh
 echo "neo4r previous release compatibility gate passed"

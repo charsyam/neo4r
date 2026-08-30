@@ -20,4 +20,5 @@ while IFS='=' read -r key value; do
   fi
 done < "$threshold_file"
 
+cargo test -p neo4r-server perf_baseline_rejects_regressions --quiet
 echo "benchmark thresholds validated: $threshold_file"

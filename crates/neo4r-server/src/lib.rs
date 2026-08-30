@@ -1,6 +1,7 @@
 //! TCP backend for neo4r.
 
 mod peer_store;
+mod production_primitives;
 mod protocol;
 mod tenant;
 mod web_auth;

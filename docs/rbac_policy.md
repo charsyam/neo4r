@@ -53,13 +53,19 @@ Database-scoped grants are token-scoped and explicit:
   `token_id`, `database`, `role`, and optional `reason`.
 - `POST /api/admin/revoke-role` requires `TokenAdmin` and accepts `name`,
   `token_id`, `database`, and optional `reason`.
+- `POST /api/admin/deny-role` requires `TokenAdmin` and records an explicit
+  database deny scope for `name`, `token_id`, and `database`.
+- `POST /api/admin/allow-role` requires `TokenAdmin` and removes a previously
+  recorded explicit deny scope without granting a role.
 
-Both operations append audit events (`rbac.grant` or `rbac.revoke`) with the
-token, database, granted role when present, and reason. Authorization state stays
-in RocksDB through the token record's `database_roles` field.
+These operations append audit events (`rbac.grant`, `rbac.revoke`,
+`rbac.deny`, or `rbac.allow`) with the token, database, granted role when
+present, and reason. Authorization state stays in RocksDB through the token
+record's `database_roles` and `denied_databases` fields.
 
 When `database_roles` is empty, the token's base role applies to every database.
 Revoking a database-scoped role removes only that override; it does not revoke
 the token itself. To remove all access, call the token revoke endpoint.
-This preserves backward compatibility while making deny precedence explicit for
-future per-resource policies.
+Explicit deny entries are evaluated before base roles, database grants, and
+wildcard grants. This preserves backward compatibility while making deny
+precedence concrete for per-resource policies.

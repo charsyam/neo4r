@@ -510,6 +510,71 @@ impl Neo4rDatabase {
         })
     }
 
+    pub(super) fn restore_to_timestamp(
+        &mut self,
+        target: HybridTimestamp,
+    ) -> DatabaseResult<StorageMaintenanceResult> {
+        let mut files_touched = 0;
+        let mut restored_indexes = Vec::new();
+        let mut manifest_shards = Vec::new();
+        for shard_id in 0..self.shard_map.shard_count() {
+            self.ensure_local_copy(shard_id)?;
+            let entries = self
+                .log(shard_id)?
+                .replay()?
+                .into_iter()
+                .filter(|entry| entry.timestamp <= target)
+                .collect::<Vec<_>>();
+            let mut graph = neo4r_core::GraphState::new();
+            let mut last_term = 0;
+            let mut last_index = 0;
+            for entry in &entries {
+                graph.apply(entry.command.clone())?;
+                last_term = entry.term;
+                last_index = entry.index;
+            }
+            let snapshot = neo4r_storage::LoadedSnapshot {
+                shard_id,
+                last_included_term: last_term,
+                last_included_index: last_index,
+                graph,
+            };
+            self.apply_loaded_snapshot(shard_id, &snapshot)?;
+            self.log(shard_id)?
+                .truncate_from(last_index.saturating_add(1))?;
+            self.commits
+                .get(shard_id as usize)
+                .ok_or(DatabaseError::MissingShardLog(shard_id))?
+                .save(last_term, last_index)?;
+            self.checkpoint(shard_id)?
+                .save_with_timestamp(last_term, last_index, target)?;
+            if let Some(slot) = self.commit_indexes.get_mut(shard_id as usize) {
+                *slot = last_index;
+            }
+            if let Some(slot) = self.next_log_indexes.get_mut(shard_id as usize) {
+                *slot = last_index.saturating_add(1);
+            }
+            restored_indexes.push(last_index);
+            manifest_shards.push(format!("{shard_id}:{last_term}:{last_index}"));
+            files_touched += 1;
+        }
+        self.invalidate_read_cache();
+        self.rebuild_vector_indexes()?;
+        self.refresh_statistics_catalog()?;
+        Ok(StorageMaintenanceResult {
+            action: "restore_pitr".to_string(),
+            files_touched,
+            bytes_observed: 0,
+            pruned_until: restored_indexes,
+            safety_manifest: format!(
+                "pitr_restore_manifest:v1 target_physical_ms={} target_logical={} shards={} materialized_state_replaced=true wal_suffix_truncated=true",
+                target.physical_ms,
+                target.logical,
+                manifest_shards.join(",")
+            ),
+        })
+    }
+
     pub(super) fn recover_pending_snapshot_restore(&mut self) -> DatabaseResult<()> {
         let Some((shard_id, expected_index)) = self.load_snapshot_restore_manifest()? else {
             return Ok(());

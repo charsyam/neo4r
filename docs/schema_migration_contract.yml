@@ -10,6 +10,7 @@ state_machine:
   - dropped
 resume:
   durable_progress_key: system/schema-migration-progress
+  implemented_store: neo4r_server::production_primitives::SchemaMigrationProgressStore
   retry_policy: bounded_exponential_backoff
   idempotent_steps_required: true
 operator_visibility:

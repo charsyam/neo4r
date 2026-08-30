@@ -67,6 +67,8 @@ pub(crate) fn web_action_for_request(request: &HttpRequest) -> Option<WebAction>
         | ("POST", "/api/admin/users/tokens/revoke")
         | ("POST", "/api/admin/grant-role")
         | ("POST", "/api/admin/revoke-role")
+        | ("POST", "/api/admin/deny-role")
+        | ("POST", "/api/admin/allow-role")
         | ("POST", "/api/admin/tokens/cleanup") => Some(WebAction::TokenAdmin),
         ("GET", "/api/admin/databases")
         | ("POST", "/api/admin/databases")

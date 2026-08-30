@@ -4,6 +4,9 @@ mod backend_core;
 mod backend_native_replication;
 mod backend_web_admin;
 mod backend_web_query_backup;
+mod backend_web_query_options;
+mod backend_web_query_spill;
+mod backend_web_rbac_admin;
 mod command_executor;
 mod distributed_query;
 mod http_json_backup;
@@ -32,6 +35,11 @@ pub(crate) use backend_native_replication::*;
 pub(crate) use backend_web_admin::*;
 #[allow(unused_imports)]
 pub(crate) use backend_web_query_backup::*;
+pub(crate) use backend_web_query_options::*;
+#[allow(unused_imports)]
+pub(crate) use backend_web_query_spill::*;
+#[allow(unused_imports)]
+pub(crate) use backend_web_rbac_admin::*;
 pub(crate) use command_executor::*;
 #[allow(unused_imports)]
 pub(crate) use distributed_query::*;

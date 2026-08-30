@@ -33,11 +33,19 @@ grep -q "pitr_restore_drills: 2" "${contract}"
 grep -q "rolling_upgrade_checks: 5" "${contract}"
 grep -q "performance_and_chaos_gates: 4" "${contract}"
 grep -q "scripts/production-chaos-longevity-gate.sh" "${contract}"
+grep -q "Shard-local commit boundary" docs/raft_production_semantics.md
+grep -q "Config authority stamp" docs/raft_production_semantics.md
+grep -q "Leader authority stamp" docs/raft_production_semantics.md
+grep -q "Durable ACK" docs/raft_production_semantics.md
+grep -q "Anti-entropy" docs/raft_production_semantics.md
 
 cargo test -p neo4r-server production_readiness_contract_requires_all_ten_gates --quiet
 cargo test -p neo4r-server production_maturity_evidence_requires_runtime_depth --quiet
+cargo test -p neo4r-server raft_write_safety_contract_requires_all_ten_guards --quiet
 cargo test -p neo4r-db split_brain_old_leader_without_quorum_cannot_commit_new_write --quiet
 cargo test -p neo4r-db new_leader_overwrites_only_old_uncommitted_suffix_after_partition_heals --quiet
 cargo test -p neo4r-db follower_rejects_attempt_to_overwrite_committed_entry --quiet
+cargo test -p neo4r-db raft_append_commit_applies_only_the_target_shard --quiet
+cargo test -p neo4r-db raft_append_requires_leader_and_config_authority_stamps --quiet
 
 echo "neo4r production readiness gate passed"

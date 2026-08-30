@@ -2,4 +2,4 @@
 set -euo pipefail
 
 cargo run -p neo4r-db --example basic_perf
-cargo test -p neo4r-db --test performance_smoke
+cargo test -p neo4r-db --test performance_smoke -- --nocapture

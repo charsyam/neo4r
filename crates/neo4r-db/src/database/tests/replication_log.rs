@@ -163,6 +163,136 @@ pub(super) fn replicated_entry_is_applied_without_being_local_primary() {
 }
 
 #[test]
+pub(super) fn raft_append_commit_applies_only_the_target_shard() {
+    let dir = temp_dir("facade-raft-append-shard-local-commit");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![
+            ShardPlacement::new(0, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+            ShardPlacement::new(1, vec![ShardReplica::primary(1), ShardReplica::replica(2)]),
+        ],
+    };
+    let mut db = Neo4rDatabase::open(
+        DatabaseConfig::new(&dir, 2, 2)
+            .with_server_id(2)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+    db.apply_replicated_entry(LogEntry::new_with_metadata(
+        1,
+        7,
+        1,
+        1,
+        3,
+        HybridTimestamp::new(1234, 1),
+        Command::CreateNode {
+            id: 101,
+            labels: vec!["OtherShard".to_string()],
+            properties: Properties::new(),
+        },
+    ))
+    .unwrap();
+    assert_eq!(db.committed_indexes(), vec![0, 1]);
+
+    let response = db
+        .apply_raft_append_entries_with_response(
+            0,
+            vec![LogEntry::new_with_metadata(
+                0,
+                7,
+                1,
+                1,
+                3,
+                HybridTimestamp::new(1234, 2),
+                Command::CreateNode {
+                    id: 42,
+                    labels: vec!["TargetShard".to_string()],
+                    properties: Properties::new(),
+                },
+            )],
+            1,
+        )
+        .unwrap();
+
+    assert!(response.success);
+    assert!(response.durable);
+    assert_eq!(db.committed_indexes(), vec![1, 1]);
+    assert_eq!(db.read_snapshot().unwrap().applied_indexes(), &[1, 1]);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn raft_append_requires_leader_and_config_authority_stamps() {
+    let dir = temp_dir("facade-raft-append-authority-stamps");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let mut db = Neo4rDatabase::open(
+        DatabaseConfig::new(&dir, 1, 2)
+            .with_server_id(2)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+
+    let missing_config = db
+        .apply_raft_append_entries_with_response(
+            0,
+            vec![LogEntry::new_with_metadata(
+                0,
+                7,
+                1,
+                1,
+                0,
+                HybridTimestamp::new(1234, 1),
+                Command::CreateNode {
+                    id: 42,
+                    labels: vec!["TargetShard".to_string()],
+                    properties: Properties::new(),
+                },
+            )],
+            1,
+        )
+        .unwrap_err();
+    assert!(missing_config
+        .to_string()
+        .contains("missing config authority stamp"));
+
+    let missing_leader = db
+        .apply_raft_append_entries_with_response(
+            0,
+            vec![LogEntry::new_with_metadata(
+                0,
+                7,
+                1,
+                0,
+                3,
+                HybridTimestamp::new(1234, 1),
+                Command::CreateNode {
+                    id: 42,
+                    labels: vec!["TargetShard".to_string()],
+                    properties: Properties::new(),
+                },
+            )],
+            1,
+        )
+        .unwrap_err();
+    assert!(missing_leader
+        .to_string()
+        .contains("missing leader authority stamp"));
+    assert_eq!(db.committed_indexes(), vec![0]);
+    assert!(db.log(0).unwrap().entry(1).unwrap().is_none());
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn replicated_vector_indexed_write_is_rejected_before_wal_append() {
     let dir = temp_dir("facade-replicated-vector-validation");
     let routing_table = ShardRoutingTable {

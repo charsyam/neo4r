@@ -305,7 +305,7 @@ impl TcpShardReplicator {
                         &entries,
                     );
                     match response {
-                        Ok(response) if response.append.success => {
+                        Ok(response) if response.append.success && response.append.durable => {
                             self.channel_metrics.record_ack();
                             let acked = response
                                 .ack_positions
@@ -324,6 +324,10 @@ impl TcpShardReplicator {
                             )?;
                             sent += 1;
                             break;
+                        }
+                        Ok(response) if response.append.success => {
+                            self.channel_metrics.record_failure();
+                            let _ = (server_id, shard_id, response.append.match_index);
                         }
                         Ok(response) => {
                             self.channel_metrics.record_failure();

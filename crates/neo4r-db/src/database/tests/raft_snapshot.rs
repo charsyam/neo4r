@@ -55,10 +55,13 @@ pub(super) fn raft_append_truncates_divergent_segmented_wal_suffix() {
     .unwrap();
     db.apply_raft_append_entries(
         0,
-        vec![LogEntry::new(
+        vec![LogEntry::new_with_metadata(
             0,
             3,
             2,
+            1,
+            1,
+            HybridTimestamp::new(1234, 2),
             Command::SetNodeProperty {
                 id: 0,
                 key: "name".to_string(),
@@ -227,10 +230,13 @@ pub(super) fn raft_snapshot_install_then_append_survives_reopen() {
     replica
         .apply_raft_append_entries(
             0,
-            vec![LogEntry::new(
+            vec![LogEntry::new_with_metadata(
                 0,
                 5,
                 12,
+                9,
+                1,
+                HybridTimestamp::new(1234, 12),
                 Command::SetNodeProperty {
                     id: 1,
                     key: "city".to_string(),
@@ -289,10 +295,13 @@ pub(super) fn tcp_raft_append_falls_back_to_install_snapshot_on_rejection() {
         }
     });
 
-    let bad_append_entry = LogEntry::new(
+    let bad_append_entry = LogEntry::new_with_metadata(
         1,
         5,
         12,
+        1,
+        1,
+        HybridTimestamp::new(1234, 12),
         Command::CreateNode {
             id: 99,
             labels: vec!["Person".to_string()],

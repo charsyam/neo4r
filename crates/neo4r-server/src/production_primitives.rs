@@ -436,6 +436,73 @@ pub(crate) fn validate_upgrade_compatibility_plan(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RaftWriteSafetyContract {
+    pub(crate) commits_are_shard_local: bool,
+    pub(crate) entries_require_config_authority_stamp: bool,
+    pub(crate) entries_require_leader_authority_stamp: bool,
+    pub(crate) tcp_append_success_is_durable_ack: bool,
+    pub(crate) udp_append_is_never_durable_ack: bool,
+    pub(crate) apply_is_fenced_by_committed_index: bool,
+    pub(crate) writes_commit_only_after_quorum_ack: bool,
+    pub(crate) clients_refresh_topology_on_replay_or_missing_address: bool,
+    pub(crate) anti_entropy_repairs_only_uncommitted_suffixes: bool,
+    pub(crate) chaos_and_observability_gates_cover_recovery: bool,
+}
+
+pub(crate) fn validate_raft_write_safety_contract(
+    contract: &RaftWriteSafetyContract,
+) -> Result<(), String> {
+    let checks = [
+        (
+            contract.commits_are_shard_local,
+            "commits must be advanced per shard, not by a global max index",
+        ),
+        (
+            contract.entries_require_config_authority_stamp,
+            "replicated entries must carry a config authority stamp",
+        ),
+        (
+            contract.entries_require_leader_authority_stamp,
+            "replicated entries must carry a leader authority stamp",
+        ),
+        (
+            contract.tcp_append_success_is_durable_ack,
+            "TCP append success must mean the follower durably accepted the entry",
+        ),
+        (
+            contract.udp_append_is_never_durable_ack,
+            "UDP append must not be counted as a durable write quorum ACK",
+        ),
+        (
+            contract.apply_is_fenced_by_committed_index,
+            "apply must be fenced by committed index",
+        ),
+        (
+            contract.writes_commit_only_after_quorum_ack,
+            "writes must commit only after current-term quorum ACK",
+        ),
+        (
+            contract.clients_refresh_topology_on_replay_or_missing_address,
+            "clients must refresh topology when replay blocks writes or address is missing",
+        ),
+        (
+            contract.anti_entropy_repairs_only_uncommitted_suffixes,
+            "anti-entropy must repair only uncommitted suffixes",
+        ),
+        (
+            contract.chaos_and_observability_gates_cover_recovery,
+            "chaos and observability gates must cover recovery paths",
+        ),
+    ];
+    for (passed, message) in checks {
+        if !passed {
+            return Err(message.to_string());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProductionReadinessContract {
     pub(crate) membership_authority_is_raft_metadata: bool,
     pub(crate) client_seed_bootstraps_topology_registry: bool,
@@ -986,6 +1053,39 @@ mod tests {
         assert!(validate_production_readiness_contract(&missing_replay_gate)
             .unwrap_err()
             .contains("replay completes"));
+    }
+
+    #[test]
+    fn raft_write_safety_contract_requires_all_ten_guards() {
+        let contract = RaftWriteSafetyContract {
+            commits_are_shard_local: true,
+            entries_require_config_authority_stamp: true,
+            entries_require_leader_authority_stamp: true,
+            tcp_append_success_is_durable_ack: true,
+            udp_append_is_never_durable_ack: true,
+            apply_is_fenced_by_committed_index: true,
+            writes_commit_only_after_quorum_ack: true,
+            clients_refresh_topology_on_replay_or_missing_address: true,
+            anti_entropy_repairs_only_uncommitted_suffixes: true,
+            chaos_and_observability_gates_cover_recovery: true,
+        };
+        assert!(validate_raft_write_safety_contract(&contract).is_ok());
+
+        let global_commit = RaftWriteSafetyContract {
+            commits_are_shard_local: false,
+            ..contract.clone()
+        };
+        assert!(validate_raft_write_safety_contract(&global_commit)
+            .unwrap_err()
+            .contains("per shard"));
+
+        let udp_counts_for_quorum = RaftWriteSafetyContract {
+            udp_append_is_never_durable_ack: false,
+            ..contract
+        };
+        assert!(validate_raft_write_safety_contract(&udp_counts_for_quorum)
+            .unwrap_err()
+            .contains("UDP append"));
     }
 
     #[test]

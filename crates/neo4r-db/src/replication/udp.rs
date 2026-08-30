@@ -122,6 +122,7 @@ impl ReplicationChannel for UdpReplicationChannel {
             append: AppendEntriesResponse {
                 term: entries.last().map(|entry| entry.term).unwrap_or_default(),
                 success: true,
+                durable: false,
                 match_index: entries
                     .last()
                     .map(|entry| entry.index)

@@ -8,8 +8,17 @@ Performance checks are intentionally split into smoke and release paths.
 scripts/bench-smoke.sh
 ```
 
-The smoke path verifies that query, write, index, vector, cursor, and reopen
-paths execute within the existing correctness-oriented performance tests.
+The smoke path verifies that query, write, update/delete mutation mix, index,
+vector, cursor, Raft append batching, and reopen paths execute within the
+existing correctness-oriented performance tests.
+
+Smoke thresholds can be adjusted without changing source:
+
+- `NEO4R_PERF_SMOKE_MAX_MS`: per-test end-to-end smoke budget, default 30000.
+- `NEO4R_PERF_QUERY_P50_MS`: repeated indexed query p50 budget, default 25.
+- `NEO4R_PERF_QUERY_P99_MS`: repeated indexed query p99 budget, default 250.
+- `NEO4R_PERF_REPLICATION_APPEND_P99_MS`: Raft append batch budget, default
+  1000.
 
 ## Release Regression
 
@@ -23,8 +32,10 @@ Store each release's observed values with the git SHA and compare:
 - node write throughput
 - relationship write throughput
 - indexed lookup latency
+- mutation/index maintenance latency
 - vector KNN latency
 - cursor page latency
+- Raft append batch latency
 - reopen/replay latency
 
 Any threshold tightening should happen in code and in this document together.

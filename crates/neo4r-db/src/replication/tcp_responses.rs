@@ -350,6 +350,7 @@ pub(super) fn decode_tcp_raft_append_response(
     }
     let term = u64::from_be_bytes(payload[0..8].try_into().unwrap());
     let success = payload[8] != 0;
+    let durable = success;
     let match_index = u64::from_be_bytes(payload[9..17].try_into().unwrap());
     let (conflict_index, offset) = decode_optional_u64(payload, 17)?;
     let (conflict_term, offset) = decode_optional_u64(payload, offset)?;
@@ -369,6 +370,7 @@ pub(super) fn decode_tcp_raft_append_response(
         append: AppendEntriesResponse {
             term,
             success,
+            durable,
             match_index,
             conflict_index,
             conflict_term,

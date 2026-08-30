@@ -377,7 +377,12 @@ pub fn request_tcp_raft_append_or_install_snapshot(
         leader_commit,
         entries,
     ) {
-        Ok(response) if response.append.success => Ok(response.ack_positions),
+        Ok(response) if response.append.success && response.append.durable => {
+            Ok(response.ack_positions)
+        }
+        Ok(response) if response.append.success => Err(DatabaseError::Replication(format!(
+            "raft append to {address} was accepted but not durable for shard {shard_id}"
+        ))),
         Ok(_) | Err(_) => {
             let response = request_tcp_install_snapshot(address, connect_timeout, snapshot)?;
             if response.success {
@@ -627,7 +632,14 @@ pub(super) fn send_tcp_raft_append_batch(
             leader_commit,
             entries,
         ) {
-            Ok(response) if response.append.success => return Ok(response.ack_positions),
+            Ok(response) if response.append.success && response.append.durable => {
+                return Ok(response.ack_positions);
+            }
+            Ok(response) if response.append.success => {
+                last_error = Some(DatabaseError::Replication(format!(
+                    "raft append to {address} was accepted but not durable for shard {shard_id}"
+                )));
+            }
             Ok(response) => {
                 last_error = Some(DatabaseError::LogConflict {
                     shard_id,

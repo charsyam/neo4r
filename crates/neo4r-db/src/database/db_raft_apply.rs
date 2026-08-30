@@ -88,13 +88,18 @@ impl Neo4rDatabase {
     }
 
     pub fn apply_replicated_entries(&mut self, entries: Vec<LogEntry>) -> DatabaseResult<()> {
-        let leader_commit = entries
-            .iter()
-            .map(|entry| entry.index)
-            .max()
-            .unwrap_or_default();
+        let mut commits_by_shard = BTreeMap::<ShardId, LogIndex>::new();
+        for entry in &entries {
+            commits_by_shard
+                .entry(entry.shard_id)
+                .and_modify(|index| *index = (*index).max(entry.index))
+                .or_insert(entry.index);
+        }
         self.append_replicated_entries(entries)?;
-        self.commit_and_apply_through(leader_commit)
+        for (shard_id, leader_commit) in commits_by_shard {
+            self.commit_and_apply_shard_through(shard_id, leader_commit)?;
+        }
+        Ok(())
     }
 
     pub fn apply_raft_append_entries(
@@ -122,13 +127,15 @@ impl Neo4rDatabase {
         entries: Vec<LogEntry>,
         leader_commit: LogIndex,
     ) -> DatabaseResult<AppendEntriesResponse> {
-        let response = self.observe_raft_append_entries(shard_id, &entries, leader_commit)?;
+        self.validate_raft_append_entries(shard_id, &entries)?;
+        let mut response = self.observe_raft_append_entries(shard_id, &entries, leader_commit)?;
         if !response.success {
             return Ok(response);
         }
         self.truncate_replicated_log_for_append(shard_id, &entries)?;
         self.append_replicated_entries(entries)?;
-        self.commit_and_apply_through(leader_commit)?;
+        response.durable = true;
+        self.commit_and_apply_shard_through(shard_id, leader_commit)?;
         Ok(response)
     }
 
@@ -575,6 +582,7 @@ impl Neo4rDatabase {
             return Ok(AppendEntriesResponse {
                 term: 0,
                 success: true,
+                durable: false,
                 match_index: leader_commit,
                 conflict_index: None,
                 conflict_term: None,
@@ -671,31 +679,66 @@ impl Neo4rDatabase {
         Ok(last_response.unwrap_or(AppendEntriesResponse {
             term: 0,
             success: true,
+            durable: false,
             match_index: leader_commit,
             conflict_index: None,
             conflict_term: None,
         }))
     }
 
-    pub(super) fn commit_and_apply_through(
+    pub(super) fn validate_raft_append_entries(
+        &self,
+        shard_id: ShardId,
+        entries: &[LogEntry],
+    ) -> DatabaseResult<()> {
+        for entry in entries {
+            if entry.shard_id != shard_id {
+                return Err(DatabaseError::LogConflict {
+                    shard_id: entry.shard_id,
+                    index: entry.index,
+                    message: format!(
+                        "raft append entry shard {} does not match request shard {shard_id}",
+                        entry.shard_id
+                    ),
+                });
+            }
+            self.validate_replicated_entry_metadata(entry)?;
+            if entry.config_version == 0 {
+                return Err(DatabaseError::LogConflict {
+                    shard_id: entry.shard_id,
+                    index: entry.index,
+                    message: "raft append entry missing config authority stamp".to_string(),
+                });
+            }
+            if entry.origin_server_id == 0 {
+                return Err(DatabaseError::LogConflict {
+                    shard_id: entry.shard_id,
+                    index: entry.index,
+                    message: "raft append entry missing leader authority stamp".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_and_apply_shard_through(
         &mut self,
+        shard_id: ShardId,
         leader_commit: LogIndex,
     ) -> DatabaseResult<()> {
         if leader_commit == 0 {
             return Ok(());
         }
-        for shard_id in 0..self.shard_map.shard_count() {
-            loop {
-                let next = self.commit_index(shard_id)?.saturating_add(1);
-                if next > leader_commit {
-                    break;
-                }
-                let Some(entry) = self.log(shard_id)?.entry(next)? else {
-                    break;
-                };
-                self.commit_entry(&entry)?;
-                self.apply_entry(&entry)?;
+        loop {
+            let next = self.commit_index(shard_id)?.saturating_add(1);
+            if next > leader_commit {
+                break;
             }
+            let Some(entry) = self.log(shard_id)?.entry(next)? else {
+                break;
+            };
+            self.commit_entry(&entry)?;
+            self.apply_entry(&entry)?;
         }
         Ok(())
     }

@@ -57,6 +57,7 @@ pub struct AppendEntriesRequest {
 pub struct AppendEntriesResponse {
     pub term: Term,
     pub success: bool,
+    pub durable: bool,
     pub match_index: LogIndex,
     pub conflict_index: Option<LogIndex>,
     pub conflict_term: Option<Term>,
@@ -422,6 +423,7 @@ impl RaftCore {
             return Ok(AppendEntriesResponse {
                 term: self.persistent.current_term,
                 success: false,
+                durable: false,
                 match_index: self.last_log_index(),
                 conflict_index: Some(self.last_log_index().saturating_add(1)),
                 conflict_term: Some(self.persistent.current_term),
@@ -443,6 +445,7 @@ impl RaftCore {
                     return Ok(AppendEntriesResponse {
                         term: self.persistent.current_term,
                         success: false,
+                        durable: false,
                         match_index: self.last_log_index(),
                         conflict_index: Some(self.last_log_index().saturating_add(1)),
                         conflict_term: None,
@@ -465,6 +468,7 @@ impl RaftCore {
                                 return Ok(AppendEntriesResponse {
                                     term: self.persistent.current_term,
                                     success: false,
+                                    durable: false,
                                     match_index: self.last_log_index(),
                                     conflict_index: Some(entry.index),
                                     conflict_term: Some(existing.term),
@@ -483,6 +487,7 @@ impl RaftCore {
                 return Ok(AppendEntriesResponse {
                     term: self.persistent.current_term,
                     success: true,
+                    durable: false,
                     match_index: self.last_log_index(),
                     conflict_index: None,
                     conflict_term: None,
@@ -493,6 +498,7 @@ impl RaftCore {
                     return Ok(AppendEntriesResponse {
                         term: self.persistent.current_term,
                         success: false,
+                        durable: false,
                         match_index: self.last_log_index(),
                         conflict_index: Some(request.prev_log_index),
                         conflict_term: Some(previous.term),
@@ -509,6 +515,7 @@ impl RaftCore {
                 return Ok(AppendEntriesResponse {
                     term: self.persistent.current_term,
                     success: false,
+                    durable: false,
                     match_index: self.last_log_index(),
                     conflict_index: Some(conflict_index),
                     conflict_term: Some(conflict_term),
@@ -533,6 +540,7 @@ impl RaftCore {
                         return Ok(AppendEntriesResponse {
                             term: self.persistent.current_term,
                             success: false,
+                            durable: false,
                             match_index: self.last_log_index(),
                             conflict_index: Some(entry.index),
                             conflict_term: Some(existing.term),
@@ -553,6 +561,7 @@ impl RaftCore {
         Ok(AppendEntriesResponse {
             term: self.persistent.current_term,
             success: true,
+            durable: false,
             match_index: self.last_log_index(),
             conflict_index: None,
             conflict_term: None,

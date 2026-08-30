@@ -323,6 +323,7 @@ fn raft_append_response_codec_round_trips_conflict_hints() {
         append: AppendEntriesResponse {
             term: 7,
             success: false,
+            durable: false,
             match_index: 3,
             conflict_index: Some(2),
             conflict_term: Some(5),
@@ -359,7 +360,15 @@ fn tcp_raft_append_response_frame_carries_rejection_hints() {
     });
 
     let mut stream = TcpStream::connect(address).unwrap();
-    let entry = LogEntry::new(0, 3, 8, Command::DeleteNode { id: 42 });
+    let entry = LogEntry::new_with_metadata(
+        0,
+        3,
+        8,
+        1,
+        1,
+        neo4r_core::HybridTimestamp::new(1234, 8),
+        Command::DeleteNode { id: 42 },
+    );
     write_tcp_raft_append_request(&mut stream, 0, 8, &[entry]).unwrap();
     stream.flush().unwrap();
     let response = read_tcp_raft_append_response(&mut stream).unwrap();
@@ -380,6 +389,7 @@ fn raft_append_response_rejects_truncated_ack_payload() {
         append: AppendEntriesResponse {
             term: 1,
             success: true,
+            durable: true,
             match_index: 4,
             conflict_index: None,
             conflict_term: None,

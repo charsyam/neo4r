@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cargo test -p neo4r-db --test performance_smoke
+cargo test -p neo4r-db --test performance_smoke -- --nocapture
 cargo test -p neo4r-db --test data_correctness
 cargo test -p neo4r-server native_read_write_transaction_commits_multi_shard
 

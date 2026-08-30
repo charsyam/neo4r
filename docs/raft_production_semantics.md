@@ -69,3 +69,30 @@ This keeps the split-brain case safe:
 
 Committed data must never roll back. Only uncommitted Raft log suffixes are
 repairable.
+
+## Write Safety Contract
+
+The replicated write path is guarded by ten concrete recovery rules:
+
+1. Shard-local commit boundary: follower append handling advances and applies
+   only the target shard's committed index.
+2. Config authority stamp: replicated entries with `config_version=0` are
+   rejected before they are appended.
+3. Leader authority stamp: replicated entries with `origin_server_id=0` are
+   rejected before they are appended.
+4. Durable ACK: a TCP append success means the follower accepted the entry after
+   durable local handling; UDP append responses are never counted as durable
+   write quorum ACKs.
+5. Apply fence: graph state is applied only through the shard's committed index,
+   and committed entries are not overwritten during repair.
+6. Write fencing: client writes become visible only after current-term voter
+   quorum acknowledgement and commit advancement.
+7. SDK convergence: clients bootstrap from seed arrays, refresh
+   `CLUSTER_REGISTRY`, and retry only when typed errors include an address or a
+   refresh directive.
+8. Replication isolation: lagging or replaying replicas return typed replay
+   errors instead of accepting writes before local apply catches up.
+9. Anti-entropy: log conflict repair and snapshot fallback repair uncommitted
+   suffixes without rolling back committed data.
+10. Chaos and observability: release gates cover split brain, failover, replay,
+    snapshot fallback, replication lag, and shard health metrics.

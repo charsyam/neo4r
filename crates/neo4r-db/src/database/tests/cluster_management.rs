@@ -237,6 +237,91 @@ pub(super) fn cluster_join_request_negotiates_before_joining() {
 }
 
 #[test]
+pub(super) fn cluster_join_catch_up_plan_requires_snapshot_then_wal_tail() {
+    let dir = temp_dir("facade-cluster-join-catch-up-plan");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.register_cluster_node(1, "127.0.0.1:17687").unwrap();
+    db.create_node(
+        vec!["Person".to_string()],
+        properties(&[("name", Value::String("CatchUpAlice".to_string()))]),
+    )
+    .unwrap();
+    db.request_cluster_join(2, "127.0.0.1:17688", 1, 1, 1)
+        .unwrap();
+    db.accept_cluster_join(2).unwrap();
+    db.prepare_rebalance_step(RebalanceStep::AddReplica {
+        shard_id: 0,
+        server_id: 2,
+    })
+    .unwrap();
+
+    let plan = db.plan_node_catch_up(2).unwrap();
+    assert_eq!(plan.server_id, 2);
+    assert_eq!(plan.sources.len(), 1);
+    assert_eq!(plan.sources[0].shard_id, 0);
+    assert_eq!(plan.sources[0].primary_server_id, 1);
+    assert_eq!(plan.sources[0].primary_address, "127.0.0.1:17687");
+    assert!(plan.sources[0].snapshot_required);
+    assert_eq!(plan.sources[0].start_index, 1);
+    assert_eq!(plan.sources[0].target_index, 1);
+    assert!(!plan.ready_to_promote);
+
+    db.mark_shard_caught_up(0, 2, 1).unwrap();
+    let ready = db.plan_node_catch_up(2).unwrap();
+    assert!(ready.ready_to_promote);
+    assert!(!ready.sources[0].snapshot_required);
+    assert_eq!(ready.sources[0].start_index, 2);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn cluster_bootstrap_manifest_persists_recover_from_data_boundary() {
+    let dir = temp_dir("facade-cluster-bootstrap-manifest");
+    {
+        let db =
+            Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 1).with_server_id(9)).unwrap();
+        db.create_node(
+            vec!["Person".to_string()],
+            properties(&[("name", Value::String("SeedAlice".to_string()))]),
+        )
+        .unwrap();
+        db.snapshot_now().unwrap();
+        let manifest = db
+            .write_cluster_bootstrap_manifest(
+                ClusterBootstrapMode::RecoverFromData,
+                "new-cluster",
+                "tenant-a",
+            )
+            .unwrap();
+        assert_eq!(manifest.mode, ClusterBootstrapMode::RecoverFromData);
+        assert!(manifest.force_new_cluster_required);
+        assert_eq!(manifest.seed_server_id, 9);
+        assert_eq!(manifest.shard_count, 2);
+        assert_eq!(manifest.shards.len(), 2);
+        assert!(manifest
+            .shards
+            .iter()
+            .any(|shard| { shard.shard_id == 0 && shard.commit_index >= shard.snapshot_index }));
+    }
+    {
+        let db =
+            Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 2, 1).with_server_id(9)).unwrap();
+        let manifest = db.load_cluster_bootstrap_manifest().unwrap().unwrap();
+        assert_eq!(manifest.cluster_id, "new-cluster");
+        assert_eq!(manifest.database_id, "tenant-a");
+        db.validate_cluster_bootstrap_manifest(&manifest).unwrap();
+
+        let mut stale = manifest.clone();
+        stale.shards[0].commit_index = stale.shards[0].commit_index.saturating_add(1);
+        let err = db.validate_cluster_bootstrap_manifest(&stale).unwrap_err();
+        assert!(err.to_string().contains("does not match local commit"));
+    }
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn cluster_membership_decommission_plans_primary_transfer_and_replica_removal() {
     let dir = temp_dir("facade-cluster-decommission");
     let table = ShardRoutingTable {

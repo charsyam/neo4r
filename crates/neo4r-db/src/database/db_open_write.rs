@@ -25,6 +25,7 @@ impl Neo4rDatabase {
         let shard_metadata = ShardMetadataStore::open(&config.data_dir)?;
         let membership_store = ClusterMembershipStore::open(&config.data_dir)?;
         let membership = load_or_initialize_membership(&config, &membership_store)?;
+        let bootstrap_manifest_store = ClusterBootstrapManifestStore::open(&config.data_dir)?;
         let rebalance_plan_store = RebalancePlanStore::open(&config.data_dir)?;
         let rebalance_execution_store = RebalanceExecutionStore::open(&config.data_dir)?;
         let rebalance_execution = rebalance_execution_store.load()?;
@@ -64,6 +65,7 @@ impl Neo4rDatabase {
             shard_metadata,
             membership_store,
             membership,
+            bootstrap_manifest_store,
             rebalance_plan_store,
             rebalance_execution_store,
             rebalance_execution,

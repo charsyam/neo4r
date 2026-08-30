@@ -83,6 +83,254 @@ impl Neo4rDatabase {
         &self.cluster_metadata
     }
 
+    pub fn plan_node_catch_up(&self, server_id: ServerId) -> DatabaseResult<NodeCatchUpPlan> {
+        let Some(node) = self
+            .membership
+            .nodes
+            .iter()
+            .find(|node| node.server_id == server_id)
+        else {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster node {server_id} does not exist"
+            )));
+        };
+        if matches!(
+            node.state,
+            NodeMembershipState::Rejected
+                | NodeMembershipState::Removed
+                | NodeMembershipState::Dead
+                | NodeMembershipState::Draining
+        ) {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster node {server_id} is not catch-up eligible"
+            )));
+        }
+
+        let mut sources = Vec::new();
+        for assignment in self
+            .membership
+            .shard_assignments
+            .iter()
+            .filter(|assignment| assignment.server_id == server_id)
+        {
+            if !matches!(
+                assignment.state,
+                ShardAssignmentState::Planned
+                    | ShardAssignmentState::CatchingUp
+                    | ShardAssignmentState::CaughtUp
+            ) {
+                continue;
+            }
+            let placement = self
+                .routing_table
+                .placement(assignment.shard_id)
+                .ok_or_else(|| {
+                    DatabaseError::InvalidConfig(format!(
+                        "routing table missing shard {}",
+                        assignment.shard_id
+                    ))
+                })?;
+            let primary_server_id = placement.primary_server_id().ok_or_else(|| {
+                DatabaseError::InvalidConfig(format!(
+                    "routing table missing primary for shard {}",
+                    assignment.shard_id
+                ))
+            })?;
+            let primary_address = self
+                .membership
+                .nodes
+                .iter()
+                .find(|node| node.server_id == primary_server_id)
+                .map(|node| node.address.clone())
+                .unwrap_or_default();
+            let target_index = self.committed_index(assignment.shard_id)?;
+            let snapshot_required = assignment.match_index == 0 && target_index > 0;
+            let start_index = if snapshot_required {
+                1
+            } else {
+                assignment.match_index.saturating_add(1)
+            };
+            sources.push(NodeCatchUpSource {
+                shard_id: assignment.shard_id,
+                primary_server_id,
+                primary_address,
+                snapshot_required,
+                start_index,
+                target_index,
+                current_match_index: assignment.match_index,
+            });
+        }
+        sources.sort_by_key(|source| source.shard_id);
+        let ready_to_promote = !sources.is_empty()
+            && sources
+                .iter()
+                .all(|source| source.current_match_index >= source.target_index);
+        Ok(NodeCatchUpPlan {
+            server_id,
+            routing_version: self.routing_table.version,
+            metadata_term: self.cluster_metadata.term,
+            sources,
+            ready_to_promote,
+        })
+    }
+
+    pub fn build_cluster_bootstrap_manifest(
+        &self,
+        mode: ClusterBootstrapMode,
+        cluster_id: impl Into<String>,
+        database_id: impl Into<String>,
+    ) -> DatabaseResult<ClusterBootstrapManifest> {
+        let mut shards = Vec::new();
+        for shard_id in 0..self.shard_map.shard_count() {
+            let snapshot_store =
+                neo4r_storage::SnapshotStore::open(&self.config.data_dir, shard_id)?;
+            let snapshot = snapshot_store.load()?;
+            let checksum = snapshot_payload_checksum(&snapshot_store)?;
+            shards.push(ClusterBootstrapShard {
+                shard_id,
+                commit_index: self.committed_index(shard_id)?,
+                snapshot_index: snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.last_included_index)
+                    .unwrap_or_default(),
+                snapshot_term: snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.last_included_term)
+                    .unwrap_or_default(),
+                snapshot_checksum: checksum,
+            });
+        }
+        Ok(ClusterBootstrapManifest {
+            format_version: 1,
+            mode,
+            cluster_id: cluster_id.into(),
+            database_id: database_id.into(),
+            seed_server_id: self.config.server_id,
+            shard_count: self.shard_map.shard_count(),
+            routing_version: self.routing_table.version,
+            metadata_term: self.cluster_metadata.term,
+            config_epoch: self.cluster_metadata.config_epoch,
+            force_new_cluster_required: mode == ClusterBootstrapMode::RecoverFromData,
+            shards,
+            membership: self.membership.clone(),
+        })
+    }
+
+    pub fn write_cluster_bootstrap_manifest(
+        &self,
+        mode: ClusterBootstrapMode,
+        cluster_id: impl Into<String>,
+        database_id: impl Into<String>,
+    ) -> DatabaseResult<ClusterBootstrapManifest> {
+        let manifest = self.build_cluster_bootstrap_manifest(mode, cluster_id, database_id)?;
+        self.validate_cluster_bootstrap_manifest(&manifest)?;
+        self.bootstrap_manifest_store.save(&manifest)?;
+        Ok(manifest)
+    }
+
+    pub fn load_cluster_bootstrap_manifest(
+        &self,
+    ) -> DatabaseResult<Option<ClusterBootstrapManifest>> {
+        self.bootstrap_manifest_store.load()
+    }
+
+    pub fn validate_cluster_bootstrap_manifest(
+        &self,
+        manifest: &ClusterBootstrapManifest,
+    ) -> DatabaseResult<()> {
+        if manifest.format_version != 1 {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "unsupported cluster bootstrap manifest version {}",
+                manifest.format_version
+            )));
+        }
+        if manifest.cluster_id.trim().is_empty() {
+            return Err(DatabaseError::InvalidConfig(
+                "cluster bootstrap manifest cluster_id must not be empty".to_string(),
+            ));
+        }
+        if manifest.database_id.trim().is_empty() {
+            return Err(DatabaseError::InvalidConfig(
+                "cluster bootstrap manifest database_id must not be empty".to_string(),
+            ));
+        }
+        if manifest.shard_count != self.shard_map.shard_count() {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster bootstrap manifest shard count {} does not match local shard count {}",
+                manifest.shard_count,
+                self.shard_map.shard_count()
+            )));
+        }
+        if manifest.routing_version != self.routing_table.version {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster bootstrap manifest routing version {} does not match local routing version {}",
+                manifest.routing_version, self.routing_table.version
+            )));
+        }
+        if manifest.config_epoch != self.cluster_metadata.config_epoch {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster bootstrap manifest config epoch {} does not match local config epoch {}",
+                manifest.config_epoch, self.cluster_metadata.config_epoch
+            )));
+        }
+        if manifest.force_new_cluster_required
+            != (manifest.mode == ClusterBootstrapMode::RecoverFromData)
+        {
+            return Err(DatabaseError::InvalidConfig(
+                "cluster bootstrap manifest force flag does not match mode".to_string(),
+            ));
+        }
+        if manifest.shards.len() != self.shard_map.shard_count() as usize {
+            return Err(DatabaseError::InvalidConfig(
+                "cluster bootstrap manifest must include every shard".to_string(),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for shard in &manifest.shards {
+            if shard.shard_id >= self.shard_map.shard_count() || !seen.insert(shard.shard_id) {
+                return Err(DatabaseError::InvalidConfig(format!(
+                    "cluster bootstrap manifest has invalid shard {}",
+                    shard.shard_id
+                )));
+            }
+            let local_commit = self.committed_index(shard.shard_id)?;
+            if shard.commit_index != local_commit {
+                return Err(DatabaseError::InvalidConfig(format!(
+                    "cluster bootstrap manifest shard {} commit {} does not match local commit {}",
+                    shard.shard_id, shard.commit_index, local_commit
+                )));
+            }
+            let snapshot_store =
+                neo4r_storage::SnapshotStore::open(&self.config.data_dir, shard.shard_id)?;
+            let snapshot = snapshot_store.load()?;
+            let local_snapshot_index = snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.last_included_index)
+                .unwrap_or_default();
+            let local_snapshot_term = snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.last_included_term)
+                .unwrap_or_default();
+            let local_checksum = snapshot_payload_checksum(&snapshot_store)?;
+            if shard.snapshot_index != local_snapshot_index
+                || shard.snapshot_term != local_snapshot_term
+                || shard.snapshot_checksum != local_checksum
+            {
+                return Err(DatabaseError::InvalidConfig(format!(
+                    "cluster bootstrap manifest shard {} snapshot metadata does not match local data",
+                    shard.shard_id
+                )));
+            }
+            if shard.snapshot_index > shard.commit_index {
+                return Err(DatabaseError::InvalidConfig(format!(
+                    "cluster bootstrap manifest shard {} snapshot is ahead of commit",
+                    shard.shard_id
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_metadata_authority(
         &mut self,
         server_id: ServerId,

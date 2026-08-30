@@ -50,6 +50,7 @@ pub struct Neo4rDatabase {
     shard_metadata: ShardMetadataStore,
     membership_store: ClusterMembershipStore,
     membership: ClusterMembership,
+    bootstrap_manifest_store: ClusterBootstrapManifestStore,
     rebalance_plan_store: RebalancePlanStore,
     rebalance_execution_store: RebalanceExecutionStore,
     rebalance_execution: Option<RebalanceExecution>,
@@ -258,11 +259,12 @@ mod helpers;
 use helpers::*;
 pub(super) use metadata_types::*;
 pub use metadata_types::{
-    ClusterManagementStatus, ClusterMetadataState, ClusterStatus, IndexLifecycleStatus,
-    MetadataOperationRecord, RaftShardStatus, RebalanceAdvanceResult, RebalanceAutomationSummary,
-    RebalanceExecution, RebalancePlan, RebalancePlanState, RebalancePolicy, RebalanceStep,
-    RebalanceStepExecution, RebalanceStepState, ShardStatus, StatisticsCatalog,
-    StorageMaintenanceResult, StorageStatus,
+    ClusterBootstrapManifest, ClusterBootstrapMode, ClusterBootstrapShard, ClusterManagementStatus,
+    ClusterMetadataState, ClusterStatus, IndexLifecycleStatus, MetadataOperationRecord,
+    NodeCatchUpPlan, NodeCatchUpSource, RaftShardStatus, RebalanceAdvanceResult,
+    RebalanceAutomationSummary, RebalanceExecution, RebalancePlan, RebalancePlanState,
+    RebalancePolicy, RebalanceStep, RebalanceStepExecution, RebalanceStepState, ShardStatus,
+    StatisticsCatalog, StorageMaintenanceResult, StorageStatus,
 };
 pub(super) use staged_overlay::*;
 pub use staged_overlay::{

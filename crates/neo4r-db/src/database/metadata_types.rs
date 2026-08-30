@@ -2,6 +2,9 @@ use super::*;
 
 mod codec;
 
+mod bootstrap;
+
+pub(super) use bootstrap::*;
 pub(super) use codec::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -211,6 +214,57 @@ pub struct ClusterMetadataState {
     pub term: u64,
     pub config_epoch: u64,
     pub policy: RebalancePolicy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClusterBootstrapMode {
+    JoinExisting,
+    RecoverFromData,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterBootstrapShard {
+    pub shard_id: ShardId,
+    pub commit_index: LogIndex,
+    pub snapshot_index: LogIndex,
+    pub snapshot_term: Term,
+    pub snapshot_checksum: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterBootstrapManifest {
+    pub format_version: u64,
+    pub mode: ClusterBootstrapMode,
+    pub cluster_id: String,
+    pub database_id: String,
+    pub seed_server_id: ServerId,
+    pub shard_count: u64,
+    pub routing_version: u64,
+    pub metadata_term: u64,
+    pub config_epoch: u64,
+    pub force_new_cluster_required: bool,
+    pub shards: Vec<ClusterBootstrapShard>,
+    pub membership: ClusterMembership,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpSource {
+    pub shard_id: ShardId,
+    pub primary_server_id: ServerId,
+    pub primary_address: String,
+    pub snapshot_required: bool,
+    pub start_index: LogIndex,
+    pub target_index: LogIndex,
+    pub current_match_index: LogIndex,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpPlan {
+    pub server_id: ServerId,
+    pub routing_version: u64,
+    pub metadata_term: u64,
+    pub sources: Vec<NodeCatchUpSource>,
+    pub ready_to_promote: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -163,6 +163,33 @@ impl Neo4rDatabaseHandle {
         Ok(self.lock()?.cluster_metadata().clone())
     }
 
+    pub fn plan_node_catch_up(&self, server_id: ServerId) -> DatabaseResult<NodeCatchUpPlan> {
+        self.lock()?.plan_node_catch_up(server_id)
+    }
+
+    pub fn write_cluster_bootstrap_manifest(
+        &self,
+        mode: ClusterBootstrapMode,
+        cluster_id: impl Into<String>,
+        database_id: impl Into<String>,
+    ) -> DatabaseResult<ClusterBootstrapManifest> {
+        self.lock()?
+            .write_cluster_bootstrap_manifest(mode, cluster_id, database_id)
+    }
+
+    pub fn load_cluster_bootstrap_manifest(
+        &self,
+    ) -> DatabaseResult<Option<ClusterBootstrapManifest>> {
+        self.lock()?.load_cluster_bootstrap_manifest()
+    }
+
+    pub fn validate_cluster_bootstrap_manifest(
+        &self,
+        manifest: &ClusterBootstrapManifest,
+    ) -> DatabaseResult<()> {
+        self.lock()?.validate_cluster_bootstrap_manifest(manifest)
+    }
+
     pub fn set_metadata_authority(
         &self,
         server_id: ServerId,

@@ -180,6 +180,92 @@ pub(crate) fn validate_restore_drill_manifest(manifest: &str) -> Result<(), Stri
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RestoreDrillEvidence {
+    pub(crate) snapshot_restored: bool,
+    pub(crate) wal_replayed: bool,
+    pub(crate) correctness_corpus_ran: bool,
+    pub(crate) seeded_cluster_from_restored_data: bool,
+}
+
+pub(crate) fn validate_restore_drill_evidence(
+    evidence: &RestoreDrillEvidence,
+) -> Result<(), String> {
+    if !evidence.snapshot_restored {
+        return Err("restore drill did not restore a snapshot".to_string());
+    }
+    if !evidence.wal_replayed {
+        return Err("restore drill did not replay WAL archive".to_string());
+    }
+    if !evidence.correctness_corpus_ran {
+        return Err("restore drill did not run query correctness corpus".to_string());
+    }
+    if !evidence.seeded_cluster_from_restored_data {
+        return Err("restore drill did not seed a cluster from restored data".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ReadConsistencyContract {
+    pub(crate) default_mode: String,
+    pub(crate) read_index_required_for_strong_reads: bool,
+    pub(crate) follower_stale_is_explicit: bool,
+    pub(crate) stale_reads_return_lag_metadata: bool,
+}
+
+pub(crate) fn validate_read_consistency_contract(
+    contract: &ReadConsistencyContract,
+) -> Result<(), String> {
+    if contract.default_mode != "read-index" {
+        return Err("read consistency default must be read-index".to_string());
+    }
+    if !contract.read_index_required_for_strong_reads {
+        return Err("strong reads must require read-index".to_string());
+    }
+    if !contract.follower_stale_is_explicit {
+        return Err("follower stale reads must be explicit".to_string());
+    }
+    if !contract.stale_reads_return_lag_metadata {
+        return Err("stale reads must expose lag metadata".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MultiNodeFixtureContract {
+    pub(crate) server_count: usize,
+    pub(crate) uses_real_tcp_ports: bool,
+    pub(crate) verifies_join: bool,
+    pub(crate) verifies_catch_up: bool,
+    pub(crate) verifies_redirect: bool,
+    pub(crate) verifies_leader_failover: bool,
+}
+
+pub(crate) fn validate_multi_node_fixture_contract(
+    contract: &MultiNodeFixtureContract,
+) -> Result<(), String> {
+    if contract.server_count < 3 {
+        return Err("multi-node fixture must run at least three servers".to_string());
+    }
+    if !contract.uses_real_tcp_ports {
+        return Err("multi-node fixture must use real TCP ports".to_string());
+    }
+    if !contract.verifies_join {
+        return Err("multi-node fixture must verify node join".to_string());
+    }
+    if !contract.verifies_catch_up {
+        return Err("multi-node fixture must verify catch-up".to_string());
+    }
+    if !contract.verifies_redirect {
+        return Err("multi-node fixture must verify redirect".to_string());
+    }
+    if !contract.verifies_leader_failover {
+        return Err("multi-node fixture must verify leader failover".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResourceAdmissionPolicy {
     pub(crate) max_concurrent_queries: u64,
     pub(crate) max_result_rows: u64,
@@ -213,6 +299,38 @@ pub(crate) fn evaluate_resource_admission(
         return Err(format!(
             "memory admission rejected: bytes={} limit={}",
             request.estimated_memory_bytes, policy.max_memory_bytes
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResourcePressureSample {
+    pub(crate) memory_used_bytes: u64,
+    pub(crate) memory_limit_bytes: u64,
+    pub(crate) disk_used_bytes: u64,
+    pub(crate) disk_limit_bytes: u64,
+    pub(crate) cpu_load_millis: u64,
+    pub(crate) cpu_limit_millis: u64,
+}
+
+pub(crate) fn evaluate_resource_pressure(sample: &ResourcePressureSample) -> Result<(), String> {
+    if sample.memory_used_bytes > sample.memory_limit_bytes {
+        return Err(format!(
+            "memory pressure admission rejected: used={} limit={}",
+            sample.memory_used_bytes, sample.memory_limit_bytes
+        ));
+    }
+    if sample.disk_used_bytes > sample.disk_limit_bytes {
+        return Err(format!(
+            "disk pressure admission rejected: used={} limit={}",
+            sample.disk_used_bytes, sample.disk_limit_bytes
+        ));
+    }
+    if sample.cpu_load_millis > sample.cpu_limit_millis {
+        return Err(format!(
+            "cpu pressure admission rejected: load={} limit={}",
+            sample.cpu_load_millis, sample.cpu_limit_millis
         ));
     }
     Ok(())
@@ -253,6 +371,66 @@ pub(crate) fn evaluate_slo_burn_rate(
             "slo replication lag burn too high: {} > {}",
             input.replication_lag_entries, thresholds.max_replication_lag_entries
         ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SecurityHardeningEvidence {
+    pub(crate) token_expiration_enforced: bool,
+    pub(crate) rbac_denials_are_audited: bool,
+    pub(crate) admin_sessions_are_http_only: bool,
+    pub(crate) csrf_required_for_admin_writes: bool,
+    pub(crate) tls_or_mtls_required_for_remote_admin: bool,
+}
+
+pub(crate) fn validate_security_hardening_evidence(
+    evidence: &SecurityHardeningEvidence,
+) -> Result<(), String> {
+    if !evidence.token_expiration_enforced {
+        return Err("token expiration must be enforced".to_string());
+    }
+    if !evidence.rbac_denials_are_audited {
+        return Err("RBAC denials must be audited".to_string());
+    }
+    if !evidence.admin_sessions_are_http_only {
+        return Err("admin sessions must be HttpOnly".to_string());
+    }
+    if !evidence.csrf_required_for_admin_writes {
+        return Err("admin writes must require CSRF protection".to_string());
+    }
+    if !evidence.tls_or_mtls_required_for_remote_admin {
+        return Err("remote admin must require TLS or mTLS".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UpgradeCompatibilityPlan {
+    pub(crate) mixed_version_protocol_checked: bool,
+    pub(crate) snapshot_fetch_compat_checked: bool,
+    pub(crate) membership_metadata_compat_checked: bool,
+    pub(crate) rollback_before_format_bump_checked: bool,
+    pub(crate) previous_release_fixture_checked: bool,
+}
+
+pub(crate) fn validate_upgrade_compatibility_plan(
+    plan: &UpgradeCompatibilityPlan,
+) -> Result<(), String> {
+    if !plan.mixed_version_protocol_checked {
+        return Err("upgrade plan missing mixed-version protocol check".to_string());
+    }
+    if !plan.snapshot_fetch_compat_checked {
+        return Err("upgrade plan missing snapshot fetch compatibility check".to_string());
+    }
+    if !plan.membership_metadata_compat_checked {
+        return Err("upgrade plan missing membership metadata compatibility check".to_string());
+    }
+    if !plan.rollback_before_format_bump_checked {
+        return Err("upgrade plan missing rollback-before-format-bump check".to_string());
+    }
+    if !plan.previous_release_fixture_checked {
+        return Err("upgrade plan missing previous release fixture check".to_string());
     }
     Ok(())
 }
@@ -442,6 +620,75 @@ mod tests {
     }
 
     #[test]
+    fn restore_drill_evidence_requires_snapshot_wal_corpus_and_seed() {
+        assert!(validate_restore_drill_evidence(&RestoreDrillEvidence {
+            snapshot_restored: true,
+            wal_replayed: true,
+            correctness_corpus_ran: true,
+            seeded_cluster_from_restored_data: true,
+        })
+        .is_ok());
+        assert!(validate_restore_drill_evidence(&RestoreDrillEvidence {
+            snapshot_restored: true,
+            wal_replayed: false,
+            correctness_corpus_ran: true,
+            seeded_cluster_from_restored_data: true,
+        })
+        .unwrap_err()
+        .contains("WAL"));
+    }
+
+    #[test]
+    fn read_consistency_contract_requires_read_index_default() {
+        assert!(
+            validate_read_consistency_contract(&ReadConsistencyContract {
+                default_mode: "read-index".to_string(),
+                read_index_required_for_strong_reads: true,
+                follower_stale_is_explicit: true,
+                stale_reads_return_lag_metadata: true,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_read_consistency_contract(&ReadConsistencyContract {
+                default_mode: "follower-stale".to_string(),
+                read_index_required_for_strong_reads: true,
+                follower_stale_is_explicit: true,
+                stale_reads_return_lag_metadata: true,
+            })
+            .unwrap_err()
+            .contains("read-index")
+        );
+    }
+
+    #[test]
+    fn multi_node_fixture_contract_requires_join_redirect_and_failover() {
+        assert!(
+            validate_multi_node_fixture_contract(&MultiNodeFixtureContract {
+                server_count: 3,
+                uses_real_tcp_ports: true,
+                verifies_join: true,
+                verifies_catch_up: true,
+                verifies_redirect: true,
+                verifies_leader_failover: true,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_multi_node_fixture_contract(&MultiNodeFixtureContract {
+                server_count: 2,
+                uses_real_tcp_ports: true,
+                verifies_join: true,
+                verifies_catch_up: true,
+                verifies_redirect: true,
+                verifies_leader_failover: true,
+            })
+            .unwrap_err()
+            .contains("three servers")
+        );
+    }
+
+    #[test]
     fn resource_admission_rejects_over_budget_requests() {
         let policy = ResourceAdmissionPolicy {
             max_concurrent_queries: 2,
@@ -471,6 +718,29 @@ mod tests {
     }
 
     #[test]
+    fn resource_pressure_rejects_memory_disk_and_cpu_pressure() {
+        assert!(evaluate_resource_pressure(&ResourcePressureSample {
+            memory_used_bytes: 512,
+            memory_limit_bytes: 1024,
+            disk_used_bytes: 1024,
+            disk_limit_bytes: 4096,
+            cpu_load_millis: 400,
+            cpu_limit_millis: 1000,
+        })
+        .is_ok());
+        assert!(evaluate_resource_pressure(&ResourcePressureSample {
+            memory_used_bytes: 2048,
+            memory_limit_bytes: 1024,
+            disk_used_bytes: 1024,
+            disk_limit_bytes: 4096,
+            cpu_load_millis: 400,
+            cpu_limit_millis: 1000,
+        })
+        .unwrap_err()
+        .contains("memory pressure"));
+    }
+
+    #[test]
     fn slo_burn_rate_rejects_latency_and_lag_regressions() {
         let thresholds = SloThresholds {
             max_error_rate: 0.01,
@@ -497,5 +767,55 @@ mod tests {
         )
         .unwrap_err()
         .contains("latency"));
+    }
+
+    #[test]
+    fn security_hardening_evidence_requires_admin_controls() {
+        assert!(
+            validate_security_hardening_evidence(&SecurityHardeningEvidence {
+                token_expiration_enforced: true,
+                rbac_denials_are_audited: true,
+                admin_sessions_are_http_only: true,
+                csrf_required_for_admin_writes: true,
+                tls_or_mtls_required_for_remote_admin: true,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_security_hardening_evidence(&SecurityHardeningEvidence {
+                token_expiration_enforced: true,
+                rbac_denials_are_audited: false,
+                admin_sessions_are_http_only: true,
+                csrf_required_for_admin_writes: true,
+                tls_or_mtls_required_for_remote_admin: true,
+            })
+            .unwrap_err()
+            .contains("RBAC")
+        );
+    }
+
+    #[test]
+    fn upgrade_compatibility_plan_requires_rollback_and_previous_fixture() {
+        assert!(
+            validate_upgrade_compatibility_plan(&UpgradeCompatibilityPlan {
+                mixed_version_protocol_checked: true,
+                snapshot_fetch_compat_checked: true,
+                membership_metadata_compat_checked: true,
+                rollback_before_format_bump_checked: true,
+                previous_release_fixture_checked: true,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_upgrade_compatibility_plan(&UpgradeCompatibilityPlan {
+                mixed_version_protocol_checked: true,
+                snapshot_fetch_compat_checked: true,
+                membership_metadata_compat_checked: true,
+                rollback_before_format_bump_checked: false,
+                previous_release_fixture_checked: true,
+            })
+            .unwrap_err()
+            .contains("rollback")
+        );
     }
 }

@@ -107,6 +107,16 @@ pub fn handle_tcp_replication_stream(
             write_tcp_snapshot_fetch_response(stream, &result)?;
             result.map(|_| ())
         }
+        TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC_V2 => {
+            let shard_id = read_u64(stream)?;
+            let offset = read_u64(stream)?;
+            let max_bytes = read_u32(stream)? as usize;
+            let result = db
+                .install_snapshot_request_for_shard(shard_id)
+                .and_then(|snapshot| slice_snapshot_fetch_chunk(snapshot, offset, max_bytes));
+            write_tcp_snapshot_fetch_chunk_response(stream, &result)?;
+            result.map(|_| ())
+        }
         TCP_CATCH_UP_REQUEST_MAGIC => {
             let request = read_tcp_catch_up_request_after_magic(stream, None)?;
             let result = read_catch_up_entries(db, &request);
@@ -230,12 +240,56 @@ pub fn request_tcp_snapshot_fetch(
     connect_timeout: Duration,
     shard_id: ShardId,
 ) -> DatabaseResult<Option<InstallSnapshotRequest>> {
+    let first =
+        request_tcp_snapshot_fetch_chunk(address, connect_timeout, shard_id, 0, 1024 * 1024)?;
+    let Some(first_chunk) = first.snapshot else {
+        return Ok(None);
+    };
+    if first_chunk.done {
+        return Ok(Some(first_chunk.request));
+    }
+    let mut assembler = SnapshotChunkAssembler::new(first_chunk)?;
+    while !assembler.resume_token().completed {
+        let offset = assembler.next_offset();
+        let chunk = request_tcp_snapshot_fetch_chunk(
+            address,
+            connect_timeout,
+            shard_id,
+            offset,
+            1024 * 1024,
+        )?;
+        if chunk.checksum != first.checksum || chunk.total_len != first.total_len {
+            return Err(DatabaseError::Replication(
+                "snapshot fetch changed while resuming".to_string(),
+            ));
+        }
+        let Some(snapshot_chunk) = chunk.snapshot else {
+            return Err(DatabaseError::Replication(
+                "snapshot fetch disappeared while resuming".to_string(),
+            ));
+        };
+        if let Some(snapshot) = assembler.push(snapshot_chunk)? {
+            return Ok(Some(snapshot));
+        }
+    }
+    Err(DatabaseError::Replication(
+        "snapshot fetch completed without assembled snapshot".to_string(),
+    ))
+}
+
+pub fn request_tcp_snapshot_fetch_chunk(
+    address: &str,
+    connect_timeout: Duration,
+    shard_id: ShardId,
+    offset: u64,
+    max_bytes: usize,
+) -> DatabaseResult<TcpSnapshotFetchChunk> {
     let mut stream = connect_tcp_replication(address, connect_timeout)?;
-    write_tcp_snapshot_fetch_request(&mut stream, shard_id)?;
+    write_tcp_snapshot_fetch_chunk_request(&mut stream, shard_id, offset, max_bytes)?;
     stream.flush().map_err(|err| {
-        DatabaseError::Replication(format!("flush snapshot fetch request: {err}"))
+        DatabaseError::Replication(format!("flush snapshot fetch chunk request: {err}"))
     })?;
-    read_tcp_snapshot_fetch_response(&mut stream)
+    read_tcp_snapshot_fetch_chunk_response(&mut stream)
 }
 
 pub fn request_tcp_replication_hello(
@@ -784,6 +838,7 @@ pub(super) fn write_tcp_install_snapshot_request(
         .map_err(|err| DatabaseError::Replication(format!("write snapshot payload: {err}")))
 }
 
+#[allow(dead_code)]
 pub(super) fn write_tcp_snapshot_fetch_request(
     writer: &mut impl Write,
     shard_id: ShardId,
@@ -792,6 +847,22 @@ pub(super) fn write_tcp_snapshot_fetch_request(
         .write_all(TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC)
         .map_err(|err| DatabaseError::Replication(format!("write snapshot fetch magic: {err}")))?;
     write_u64(writer, shard_id)
+}
+
+pub(super) fn write_tcp_snapshot_fetch_chunk_request(
+    writer: &mut impl Write,
+    shard_id: ShardId,
+    offset: u64,
+    max_bytes: usize,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC_V2)
+        .map_err(|err| {
+            DatabaseError::Replication(format!("write snapshot fetch v2 magic: {err}"))
+        })?;
+    write_u64(writer, shard_id)?;
+    write_u64(writer, offset)?;
+    write_u32(writer, max_bytes.min(u32::MAX as usize) as u32)
 }
 
 pub(super) fn read_tcp_install_snapshot_request_after_magic(

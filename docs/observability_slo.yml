@@ -20,7 +20,10 @@ required_metrics:
   - neo4r_slo_query_error_rate_ppm
   - neo4r_slo_latency_high_watermark_ms
   - neo4r_slo_replication_lag_entries
+  - neo4r_slo_burn_rate_ppm
+  - neo4r_database_slo_burn_rate_ppm
 validation:
   scrape_smoke: required
   alert_rule_presence: required
   slo_metric_presence: required
+  per_database_slo_labels: required

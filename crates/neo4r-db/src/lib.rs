@@ -45,15 +45,16 @@ pub use replication::{
     request_tcp_raft_leader_transfer, request_tcp_raft_pre_vote,
     request_tcp_raft_pre_vote_on_stream, request_tcp_raft_vote, request_tcp_raft_vote_on_stream,
     request_tcp_replication_hello, request_tcp_replication_hello_on_stream,
-    request_tcp_snapshot_fetch, send_tcp_raft_append_batch_on_stream,
-    send_tcp_replication_batch_on_stream, InProcessShardReplicator, MockRdmaReplicationProvider,
-    NoopShardReplicator, RaftAppendChannelResponse, RdmaProbeReport, RdmaReplicationProvider,
-    ReliableDatagramSocket, ReplicationAckPolicy, ReplicationChannel, ReplicationChannelAgreement,
+    request_tcp_snapshot_fetch, request_tcp_snapshot_fetch_chunk,
+    send_tcp_raft_append_batch_on_stream, send_tcp_replication_batch_on_stream,
+    InProcessShardReplicator, MockRdmaReplicationProvider, NoopShardReplicator,
+    RaftAppendChannelResponse, RdmaProbeReport, RdmaReplicationProvider, ReliableDatagramSocket,
+    ReplicationAckPolicy, ReplicationChannel, ReplicationChannelAgreement,
     ReplicationChannelCapabilities, ReplicationChannelConfig, ReplicationChannelKind,
     ReplicationChannelMetricsSnapshot, ReplicationChannelOffer, ReplicationEndpoint,
     ReplicationNodeIdentity, ReplicationOutcome, ShardReplicator, TcpCatchUpResult,
     TcpNodeCatchUpDataSource, TcpRaftAppendResponse, TcpReplicationChannel, TcpShardReplicator,
-    UdpReplicationChannel, UnsupportedReplicationChannel,
+    TcpSnapshotFetchChunk, UdpReplicationChannel, UnsupportedReplicationChannel,
 };
 #[cfg(feature = "rdma")]
 pub use replication::{

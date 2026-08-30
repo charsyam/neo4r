@@ -1,3 +1,5 @@
+use super::json_escape;
+
 pub(crate) struct WebMetricsSnapshot {
     pub(crate) http_requests: u64,
     pub(crate) http_errors: u64,
@@ -48,4 +50,71 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) slo_query_error_rate_ppm: u64,
     pub(crate) slo_latency_high_watermark_ms: u64,
     pub(crate) slo_replication_lag_entries: u64,
+    pub(crate) slo_burn_rate_ppm: u64,
+}
+
+impl WebMetricsSnapshot {
+    pub(crate) fn to_json(&self) -> String {
+        format!(
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{},\"slo_query_error_rate_ppm\":{},\"slo_latency_high_watermark_ms\":{},\"slo_replication_lag_entries\":{},\"slo_burn_rate_ppm\":{}}}",
+            self.http_requests,
+            self.http_errors,
+            self.auth_failures,
+            self.auth_rate_limited,
+            self.queries,
+            self.query_errors,
+            self.slow_queries,
+            self.slow_query_threshold_ms,
+            self.registry_requests,
+            self.stale_epoch_rejections,
+            self.redirects,
+            json_escape(&self.migration_state),
+            self.db_nodes,
+            self.db_relationships,
+            self.db_indexes,
+            self.db_vector_indexes,
+            self.db_shard_count,
+            self.db_local_partition_count,
+            self.db_committed_indexes
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.db_applied_indexes
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.tenant_database_count,
+            self.tenant_disabled_count,
+            self.index_ready_count,
+            self.index_building_count,
+            self.index_rebuilding_count,
+            self.index_failed_count,
+            self.raft_group_count,
+            self.raft_leader_count,
+            self.raft_term_max,
+            self.raft_snapshot_index_max,
+            self.raft_joint_consensus_count,
+            self.web_user_token_count,
+            self.web_audit_event_count,
+            self.replication_sent_batches,
+            self.replication_acked_batches,
+            self.replication_failed_batches,
+            self.replication_sent_entries,
+            self.replication_sent_bytes,
+            self.raft_election_rounds,
+            self.raft_append_conflicts,
+            self.raft_snapshot_installs,
+            self.raft_snapshot_install_millis,
+            self.query_plan_cost_model_version,
+            self.backup_restore_last_success_timestamp_seconds,
+            self.storage_repair_last_success_timestamp_seconds,
+            self.storage_repair_failures,
+            self.slo_query_error_rate_ppm,
+            self.slo_latency_high_watermark_ms,
+            self.slo_replication_lag_entries,
+            self.slo_burn_rate_ppm
+        )
+    }
 }

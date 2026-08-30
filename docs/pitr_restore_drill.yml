@@ -9,3 +9,8 @@ restore_targets:
       - wal-archive-readable
       - query-regression-corpus-runs
       - seed-new-cluster-from-restored-data
+evidence_required:
+  snapshot_restored: true
+  wal_replayed: true
+  correctness_corpus_ran: true
+  seeded_cluster_from_restored_data: true

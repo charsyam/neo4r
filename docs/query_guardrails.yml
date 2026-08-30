@@ -21,5 +21,6 @@ failure_contract:
   - timeout_returns_query_error
   - memory_budget_exceeded_is_retryable_after_limit_change
   - cancellation_releases_tenant_concurrency
+  - resource_pressure_rejects_before_execution
 required_checks:
   - scripts/query-guardrail-gate.sh

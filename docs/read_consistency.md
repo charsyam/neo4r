@@ -48,6 +48,8 @@ REPAIR_INVARIANTS
 For query APIs, `ReadConsistency::ReadIndex` is the strong default in Raft
 mode. `ReadConsistency::FollowerStale` is the explicit low-latency diagnostic
 escape hatch and should not be used for read-your-writes user flows.
+Stale-read responses must include applied/committed index metadata so callers
+can measure how far behind the serving replica is.
 
 The web equivalents are:
 

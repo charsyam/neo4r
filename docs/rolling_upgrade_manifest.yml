@@ -14,5 +14,6 @@ checks:
   - learner-membership-metadata-compatible
   - metadata-format-compatible
   - rollback-before-data-format-bump
+  - previous-release-fixture-compat
   - upgrade-smoke-from-current-release
   - leader-transfer-before-drain

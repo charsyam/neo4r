@@ -35,6 +35,9 @@ The native protocol exposes the same flow through:
 `neo4r-cli cluster chaos`, and `neo4r-cli cluster promote <server_id>` wrap
 these commands for operators. The TCP catch-up data source can fetch primary
 snapshots and request bounded WAL tails through the same replication listener.
+Snapshot fetch protocol v2 returns chunks with `offset`, `resume_offset`,
+`total_len`, and checksum metadata so interrupted installs can resume without
+discarding already transferred bytes.
 
 ## Recover From Data
 

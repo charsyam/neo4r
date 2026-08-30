@@ -9,6 +9,9 @@ required_controls:
   - audit-retention
   - auth-rate-limit
   - operational-confirmation-token
+  - rbac-denial-audit
+  - csrf-admin-writes
+  - http-only-admin-session
   - tls-native
   - tls-replication
   - tls-web-admin
@@ -48,5 +51,7 @@ deny_by_default: true
 required_checks:
   - rbac-role-boundary
   - rbac-grant-revoke-audit
+  - rbac-denial-audit
+  - csrf-admin-write-required
   - destructive-operation-confirmation
 policy_document: docs/rbac_policy.md

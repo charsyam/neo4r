@@ -9,6 +9,7 @@ Neo4r currently exposes protocol version `1` for every public boundary.
 | TCP replication append/catch-up | 1 | `crates/neo4r-db::replication::tests` |
 | TCP Raft vote/pre-vote/leader-transfer | 1 | `tcp_raft_pre_vote_codec_round_trips` |
 | TCP Raft snapshot install | 1 | `install_snapshot_request_chunks_payload_with_offsets` |
+| TCP Raft snapshot fetch | 1 | `tcp_snapshot_fetch_serves_primary_snapshot_for_node_catch_up` |
 
 Compatibility rules:
 

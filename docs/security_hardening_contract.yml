@@ -8,6 +8,7 @@ required_controls:
   - rbac-grant-revoke-audit-reason
   - audit-retention
   - auth-rate-limit
+  - operational-confirmation-token
   - tls-native
   - tls-replication
   - tls-web-admin
@@ -47,4 +48,5 @@ deny_by_default: true
 required_checks:
   - rbac-role-boundary
   - rbac-grant-revoke-audit
+  - destructive-operation-confirmation
 policy_document: docs/rbac_policy.md

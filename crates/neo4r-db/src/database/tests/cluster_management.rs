@@ -482,6 +482,20 @@ pub(super) fn bootstrap_safety_topology_backup_and_chaos_contracts_are_enforced(
         .operational_safety_decision("recover_from_data", Some(&safety.confirmation_token))
         .unwrap();
     assert!(confirmed.allowed);
+    for operation in [
+        "restore_pitr",
+        "token_revoke_all",
+        "rbac_grant",
+        "rbac_revoke",
+    ] {
+        let safety = db.operational_safety_decision(operation, None).unwrap();
+        assert!(!safety.allowed, "{operation} must require confirmation");
+        assert!(
+            db.operational_safety_decision(operation, Some(&safety.confirmation_token))
+                .unwrap()
+                .allowed
+        );
+    }
     assert!(db
         .chaos_checks_for_join_catch_up()
         .unwrap()

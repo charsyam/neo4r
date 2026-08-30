@@ -238,6 +238,9 @@ pub enum BackendRequest {
         force_new_cluster: bool,
     },
     TopologyObserve,
+    TopologyReconcile {
+        max_entries_per_request: Option<usize>,
+    },
     OperationalSafety {
         operation: String,
         confirmation: Option<String>,
@@ -276,6 +279,7 @@ pub fn backend_request_mutates_data(request: &BackendRequest) -> bool {
             | BackendRequest::RepairInvariants
             | BackendRequest::PromoteCaughtUpNode(_)
             | BackendRequest::WriteBootstrapManifest { .. }
+            | BackendRequest::TopologyReconcile { .. }
             | BackendRequest::QueryWriteShard { .. }
             | BackendRequest::QueryWriteBatchShard { .. }
     )
@@ -857,6 +861,9 @@ pub fn parse_request(line: &str) -> Result<BackendRequest, String> {
                 match_index,
             })
         }
+        "TOPOLOGY_RECONCILE" => Ok(BackendRequest::TopologyReconcile {
+            max_entries_per_request: parse_optional_usize(rest, "TOPOLOGY_RECONCILE limit")?,
+        }),
         "PROMOTE_CAUGHT_UP_NODE" => Ok(BackendRequest::PromoteCaughtUpNode(parse_single_id(
             rest,
             "PROMOTE_CAUGHT_UP_NODE requires server id",
@@ -930,6 +937,20 @@ fn parse_bool(value: Option<&str>, message: &str) -> Result<bool, String> {
         "0" | "false" | "FALSE" | "no" | "NO" => Ok(false),
         _ => Err(format!("{message}: expected true or false")),
     }
+}
+
+fn parse_optional_usize(rest: &str, message: &str) -> Result<Option<usize>, String> {
+    let value = rest.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| format!("{message} must be a positive integer"))?;
+    if parsed == 0 {
+        return Err(format!("{message} must be greater than zero"));
+    }
+    Ok(Some(parsed))
 }
 
 fn parse_replication_channel_kind(input: &str) -> Result<ReplicationChannelKind, String> {

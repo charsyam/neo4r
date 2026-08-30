@@ -182,3 +182,25 @@ pub(super) fn backend_advance_rebalance_runs_auto_pump_for_snapshot_bootstrap() 
     drop(db);
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+pub(super) fn topology_reconcile_advances_joining_node_control_loop() {
+    let dir = temp_dir("neo4r-server-topology-reconcile");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.register_cluster_node(2, "127.0.0.1:17688").unwrap();
+    let backend = TcpBackend::with_config(db.clone(), TcpBackendConfig::default());
+
+    let response = backend.execute_backend_request(
+        parse_request("TOPOLOGY_RECONCILE\t2").expect("topology reconcile should parse"),
+    );
+    let BackendResponse::OkTopologyObservation(text) = response else {
+        panic!("expected topology observation");
+    };
+    assert!(text.contains("observed="));
+    assert!(text.contains("action=advance_rebalance"));
+    assert!(text.contains("advance=action=prepared"));
+    assert!(text.contains("refreshed="));
+
+    drop(db);
+    let _ = fs::remove_dir_all(dir);
+}

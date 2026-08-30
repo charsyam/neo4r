@@ -10,6 +10,8 @@ faults:
   - network_partition_primary_replica
   - delayed_replication_channel
   - dropped_replication_batches
+  - interrupted_snapshot_fetch_resume
+  - topology_reconcile_loop
   - clock_skew_observation
   - rolling_restart
 invariants:
@@ -18,6 +20,8 @@ invariants:
   - no_stale_epoch_write_acceptance
   - read_your_writes_after_commit
   - routing_epoch_monotonic
+  - learner_does_not_vote_before_promotion
+  - snapshot_fetch_returns_consistent_payload
 required_checks:
   - scripts/cluster-chaos-smoke.sh
   - scripts/multi-node-live-gate.sh

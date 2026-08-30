@@ -3,6 +3,7 @@ set -euo pipefail
 
 cargo test -p neo4r-db tcp_install_snapshot_updates_replica_snapshot_payload
 cargo test -p neo4r-db tcp_raft_append_falls_back_to_install_snapshot_on_rejection
+cargo test -p neo4r-db tcp_snapshot_fetch_serves_primary_snapshot_for_node_catch_up
 cargo test -p neo4r-server cluster_control_plane
 
 if [[ "${NEO4R_RUN_MULTI_NODE:-0}" != "1" ]]; then

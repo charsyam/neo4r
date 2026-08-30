@@ -8,3 +8,4 @@ restore_targets:
       - metadata-reopens
       - wal-archive-readable
       - query-regression-corpus-runs
+      - seed-new-cluster-from-restored-data

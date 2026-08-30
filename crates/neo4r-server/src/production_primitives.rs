@@ -162,6 +162,23 @@ pub(crate) fn perf_baseline_within_thresholds(
     Ok(())
 }
 
+pub(crate) fn validate_restore_drill_manifest(manifest: &str) -> Result<(), String> {
+    for required in [
+        "policy: snapshot-plus-wal-archive",
+        "max_age_hours:",
+        "restore_targets:",
+        "metadata-reopens",
+        "wal-archive-readable",
+        "query-regression-corpus-runs",
+        "seed-new-cluster-from-restored-data",
+    ] {
+        if !manifest.contains(required) {
+            return Err(format!("restore drill manifest missing {required}"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResourceAdmissionPolicy {
     pub(crate) max_concurrent_queries: u64,
@@ -411,6 +428,17 @@ mod tests {
         assert!(perf_baseline_within_thresholds(&observed, &thresholds)
             .unwrap_err()
             .contains("performance regression"));
+    }
+
+    #[test]
+    fn restore_drill_manifest_requires_seed_and_query_checks() {
+        let manifest = "policy: snapshot-plus-wal-archive\nmax_age_hours: 24\nrestore_targets:\n  - expected_checks:\n      - metadata-reopens\n      - wal-archive-readable\n      - query-regression-corpus-runs\n      - seed-new-cluster-from-restored-data\n";
+        let missing_seed = "policy: snapshot-plus-wal-archive\nmax_age_hours: 24\nrestore_targets:\n  - expected_checks:\n      - metadata-reopens\n      - wal-archive-readable\n      - query-regression-corpus-runs\n";
+
+        assert!(validate_restore_drill_manifest(manifest).is_ok());
+        assert!(validate_restore_drill_manifest(missing_seed)
+            .unwrap_err()
+            .contains("seed-new-cluster"));
     }
 
     #[test]

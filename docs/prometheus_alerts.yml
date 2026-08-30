@@ -43,3 +43,10 @@ groups:
           severity: page
         annotations:
           summary: "Neo4r storage repair failures were observed"
+      - alert: Neo4rSloBurnRateHigh
+        expr: neo4r_slo_query_error_rate_ppm > 10000 or neo4r_slo_replication_lag_entries > 100
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Neo4r SLO burn rate is above the production threshold"

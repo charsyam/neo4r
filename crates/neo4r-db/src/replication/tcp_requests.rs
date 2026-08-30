@@ -1,4 +1,5 @@
 use super::tcp_responses::*;
+use super::tcp_snapshot_fetch::*;
 use super::*;
 
 pub(super) fn preflight_tcp_ack_capacity(
@@ -100,6 +101,12 @@ pub fn handle_tcp_replication_stream(
             write_tcp_install_snapshot_response(stream, &result)?;
             result.map(|_| ())
         }
+        TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC => {
+            let shard_id = read_u64(stream)?;
+            let result = db.install_snapshot_request_for_shard(shard_id);
+            write_tcp_snapshot_fetch_response(stream, &result)?;
+            result.map(|_| ())
+        }
         TCP_CATCH_UP_REQUEST_MAGIC => {
             let request = read_tcp_catch_up_request_after_magic(stream, None)?;
             let result = read_catch_up_entries(db, &request);
@@ -146,10 +153,11 @@ impl NodeCatchUpDataSource for TcpNodeCatchUpDataSource {
         &mut self,
         source: &NodeCatchUpSource,
     ) -> DatabaseResult<Option<InstallSnapshotRequest>> {
-        Err(DatabaseError::Replication(format!(
-            "snapshot fetch from primary {} for shard {} is not exposed by tcp protocol yet",
-            source.primary_server_id, source.shard_id
-        )))
+        request_tcp_snapshot_fetch(
+            &source.primary_address,
+            self.connect_timeout,
+            source.shard_id,
+        )
     }
 
     fn log_entries(
@@ -215,6 +223,19 @@ pub fn request_tcp_raft_leader_transfer(
         DatabaseError::Replication(format!("flush raft leader-transfer request: {err}"))
     })?;
     read_tcp_raft_leader_transfer_response(&mut stream)
+}
+
+pub fn request_tcp_snapshot_fetch(
+    address: &str,
+    connect_timeout: Duration,
+    shard_id: ShardId,
+) -> DatabaseResult<Option<InstallSnapshotRequest>> {
+    let mut stream = connect_tcp_replication(address, connect_timeout)?;
+    write_tcp_snapshot_fetch_request(&mut stream, shard_id)?;
+    stream.flush().map_err(|err| {
+        DatabaseError::Replication(format!("flush snapshot fetch request: {err}"))
+    })?;
+    read_tcp_snapshot_fetch_response(&mut stream)
 }
 
 pub fn request_tcp_replication_hello(
@@ -761,6 +782,16 @@ pub(super) fn write_tcp_install_snapshot_request(
     writer
         .write_all(&request.payload)
         .map_err(|err| DatabaseError::Replication(format!("write snapshot payload: {err}")))
+}
+
+pub(super) fn write_tcp_snapshot_fetch_request(
+    writer: &mut impl Write,
+    shard_id: ShardId,
+) -> DatabaseResult<()> {
+    writer
+        .write_all(TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC)
+        .map_err(|err| DatabaseError::Replication(format!("write snapshot fetch magic: {err}")))?;
+    write_u64(writer, shard_id)
 }
 
 pub(super) fn read_tcp_install_snapshot_request_after_magic(

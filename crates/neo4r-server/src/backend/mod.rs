@@ -26,6 +26,7 @@ mod transaction_protocol;
 mod transaction_store;
 mod web_auth_flow;
 mod web_index;
+mod web_metrics;
 
 #[allow(unused_imports)]
 pub(crate) use backend_core::*;
@@ -75,3 +76,4 @@ pub(crate) use transaction_store::*;
 pub(crate) use web_auth_flow::*;
 #[allow(unused_imports)]
 pub(crate) use web_index::*;
+pub(crate) use web_metrics::*;

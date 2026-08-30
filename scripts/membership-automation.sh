@@ -9,8 +9,10 @@ cargo test -p neo4r-db catch_up_executor_replays_plan_and_promotes_caught_up_nod
 cargo test -p neo4r-db learner_does_not_vote_until_promoted --quiet
 cargo test -p neo4r-db bootstrap_safety_topology_backup_and_chaos_contracts_are_enforced --quiet
 cargo test -p neo4r-db snapshot_chunk_resume_token_reports_next_offset --quiet
+cargo test -p neo4r-db tcp_snapshot_fetch_serves_primary_snapshot_for_node_catch_up --quiet
 cargo test -p neo4r-db cluster_membership_decommission_plans_primary_transfer_and_replica_removal --quiet
 cargo test -p neo4r-server backend_advance_rebalance_runs_auto_pump_for_snapshot_bootstrap --quiet
+cargo test -p neo4r-server topology_reconcile_advances_joining_node_control_loop --quiet
 cargo test -p neo4r-server cluster_bootstrap_and_topology_protocol_commands_execute --quiet
 
 echo "neo4r membership automation checks passed"

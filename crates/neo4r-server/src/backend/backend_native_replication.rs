@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::format_rebalance_execution;
+use crate::protocol::{format_rebalance_execution, format_topology_observation};
 impl TcpBackend {
     pub fn serve_replication_listener_once(&self, listener: TcpListener) -> io::Result<()> {
         let (stream, _) = listener.accept()?;
@@ -347,8 +347,44 @@ impl TcpBackend {
                 Ok(response) => BackendResponse::OkRebalanceExecution(response),
                 Err(err) => BackendResponse::Err(err),
             },
+            BackendRequest::TopologyReconcile {
+                max_entries_per_request,
+            } => match self.topology_reconcile_once(max_entries_per_request) {
+                Ok(response) => BackendResponse::OkTopologyObservation(response),
+                Err(err) => BackendResponse::Err(err),
+            },
             request => execute_request(&self.db, request),
         }
+    }
+
+    pub(crate) fn topology_reconcile_once(
+        &self,
+        max_entries_per_request: Option<usize>,
+    ) -> Result<String, String> {
+        let observation = self
+            .db
+            .topology_observation()
+            .map_err(|err| err.to_string())?;
+        let action_result = match observation.recommended_action.as_str() {
+            "execute_catch_up" => {
+                let results = self.catch_up_from_primaries_with_limit(max_entries_per_request)?;
+                format!("catch_up={}", format_catch_up_results(&results))
+            }
+            "advance_rebalance" => {
+                format!("advance={}", self.advance_rebalance_with_auto_pump()?)
+            }
+            _ => "idle".to_string(),
+        };
+        let refreshed = self
+            .db
+            .topology_observation()
+            .map_err(|err| err.to_string())?;
+        Ok(format!(
+            "observed={} result={} refreshed={}",
+            format_topology_observation(&observation),
+            action_result,
+            format_topology_observation(&refreshed)
+        ))
     }
 
     pub(crate) fn advance_rebalance_with_auto_pump(&self) -> Result<String, String> {

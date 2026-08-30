@@ -168,6 +168,17 @@ fn parses_cli_subcommands() {
         Some("PROMOTE_CAUGHT_UP_NODE\t2".to_string())
     );
 
+    let reconcile = CliArgs::parse([
+        "cluster".to_string(),
+        "reconcile".to_string(),
+        "64".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        reconcile.command,
+        Some("TOPOLOGY_RECONCILE\t64".to_string())
+    );
+
     let manifest = CliArgs::parse([
         "cluster".to_string(),
         "bootstrap-manifest".to_string(),

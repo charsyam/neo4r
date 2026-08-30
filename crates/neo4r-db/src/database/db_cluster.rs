@@ -546,7 +546,15 @@ impl Neo4rDatabase {
         );
         let dangerous = matches!(
             operation,
-            "recover_from_data" | "force_new_cluster" | "decommission_node" | "apply_gc"
+            "recover_from_data"
+                | "force_new_cluster"
+                | "decommission_node"
+                | "apply_gc"
+                | "restore_snapshot"
+                | "restore_pitr"
+                | "token_revoke_all"
+                | "rbac_grant"
+                | "rbac_revoke"
         );
         let allowed = !dangerous || supplied_confirmation == Some(token.as_str());
         OperationalSafetyDecision {

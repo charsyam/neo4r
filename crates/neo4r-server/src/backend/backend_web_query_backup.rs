@@ -1,58 +1,9 @@
 use super::*;
 
-pub(crate) struct WebMetricsSnapshot {
-    pub(crate) http_requests: u64,
-    pub(crate) http_errors: u64,
-    pub(crate) auth_failures: u64,
-    pub(crate) auth_rate_limited: u64,
-    pub(crate) queries: u64,
-    pub(crate) query_errors: u64,
-    pub(crate) slow_queries: u64,
-    pub(crate) slow_query_threshold_ms: u128,
-    pub(crate) registry_requests: u64,
-    pub(crate) stale_epoch_rejections: u64,
-    pub(crate) redirects: u64,
-    pub(crate) migration_state: String,
-    pub(crate) db_nodes: usize,
-    pub(crate) db_relationships: usize,
-    pub(crate) db_indexes: usize,
-    pub(crate) db_vector_indexes: usize,
-    pub(crate) db_shard_count: u64,
-    pub(crate) db_local_partition_count: usize,
-    pub(crate) db_committed_indexes: Vec<u64>,
-    pub(crate) db_applied_indexes: Vec<u64>,
-    pub(crate) tenant_database_count: usize,
-    pub(crate) tenant_disabled_count: usize,
-    pub(crate) index_ready_count: usize,
-    pub(crate) index_building_count: usize,
-    pub(crate) index_rebuilding_count: usize,
-    pub(crate) index_failed_count: usize,
-    pub(crate) raft_group_count: usize,
-    pub(crate) raft_leader_count: usize,
-    pub(crate) raft_term_max: u64,
-    pub(crate) raft_snapshot_index_max: u64,
-    pub(crate) raft_joint_consensus_count: usize,
-    pub(crate) web_user_token_count: usize,
-    pub(crate) web_audit_event_count: usize,
-    pub(crate) replication_sent_batches: usize,
-    pub(crate) replication_acked_batches: usize,
-    pub(crate) replication_failed_batches: usize,
-    pub(crate) replication_sent_entries: usize,
-    pub(crate) replication_sent_bytes: u64,
-    pub(crate) raft_election_rounds: usize,
-    pub(crate) raft_append_conflicts: usize,
-    pub(crate) raft_snapshot_installs: usize,
-    pub(crate) raft_snapshot_install_millis: u64,
-    pub(crate) query_plan_cost_model_version: u64,
-    pub(crate) backup_restore_last_success_timestamp_seconds: u64,
-    pub(crate) storage_repair_last_success_timestamp_seconds: u64,
-    pub(crate) storage_repair_failures: u64,
-}
-
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"backup_restore_last_success_timestamp_seconds\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{},\"slo_query_error_rate_ppm\":{},\"slo_latency_high_watermark_ms\":{},\"slo_replication_lag_entries\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
@@ -106,7 +57,10 @@ impl WebMetricsSnapshot {
             self.query_plan_cost_model_version,
             self.backup_restore_last_success_timestamp_seconds,
             self.storage_repair_last_success_timestamp_seconds,
-            self.storage_repair_failures
+            self.storage_repair_failures,
+            self.slo_query_error_rate_ppm,
+            self.slo_latency_high_watermark_ms,
+            self.slo_replication_lag_entries
         )
     }
 
@@ -225,6 +179,18 @@ impl WebMetricsSnapshot {
             prometheus_metric(
                 "neo4r_storage_repair_failures_total",
                 self.storage_repair_failures,
+            ),
+            prometheus_metric(
+                "neo4r_slo_query_error_rate_ppm",
+                self.slo_query_error_rate_ppm,
+            ),
+            prometheus_metric(
+                "neo4r_slo_latency_high_watermark_ms",
+                self.slo_latency_high_watermark_ms,
+            ),
+            prometheus_metric(
+                "neo4r_slo_replication_lag_entries",
+                self.slo_replication_lag_entries,
             ),
         ]
         .join("");
@@ -724,13 +690,33 @@ impl TcpBackend {
             .filter(|event| event.action == "repair.failure")
             .count() as u64;
         let replication = db.replication_channel_metrics().ok().flatten();
+        let queries = self.metrics.queries.load(Ordering::Relaxed);
+        let query_errors = self.metrics.query_errors.load(Ordering::Relaxed);
+        let slo_query_error_rate_ppm = if queries == 0 {
+            0
+        } else {
+            query_errors.saturating_mul(1_000_000) / queries
+        };
+        let slo_latency_high_watermark_ms = self
+            .slow_queries
+            .entries()
+            .iter()
+            .map(|entry| entry.elapsed_ms as u64)
+            .max()
+            .unwrap_or_default();
+        let slo_replication_lag_entries = committed_indexes
+            .iter()
+            .zip(applied_indexes.iter())
+            .map(|(committed, applied)| committed.saturating_sub(*applied))
+            .max()
+            .unwrap_or_default();
         WebMetricsSnapshot {
             http_requests: self.metrics.http_requests.load(Ordering::Relaxed),
             http_errors: self.metrics.http_errors.load(Ordering::Relaxed),
             auth_failures: self.metrics.auth_failures.load(Ordering::Relaxed),
             auth_rate_limited: self.metrics.auth_rate_limited.load(Ordering::Relaxed),
-            queries: self.metrics.queries.load(Ordering::Relaxed),
-            query_errors: self.metrics.query_errors.load(Ordering::Relaxed),
+            queries,
+            query_errors,
             slow_queries: self.metrics.slow_queries.load(Ordering::Relaxed),
             slow_query_threshold_ms: self.slow_query_threshold.as_millis(),
             registry_requests: self.metrics.registry_requests.load(Ordering::Relaxed),
@@ -810,6 +796,9 @@ impl TcpBackend {
             backup_restore_last_success_timestamp_seconds: latest_backup_or_restore,
             storage_repair_last_success_timestamp_seconds: latest_repair,
             storage_repair_failures: repair_failures,
+            slo_query_error_rate_ppm,
+            slo_latency_high_watermark_ms,
+            slo_replication_lag_entries,
         }
     }
 

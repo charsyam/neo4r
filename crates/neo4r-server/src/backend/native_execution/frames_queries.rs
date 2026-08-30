@@ -297,6 +297,9 @@ impl NativeExecutionContext {
                     format_catch_up_plan(&plan),
                 )))
             }
+            BackendRequest::TopologyReconcile {
+                max_entries_per_request,
+            } => self.execute_topology_reconcile(max_entries_per_request),
             BackendRequest::RecoverTransactionDecisions => {
                 Ok(format_response(&BackendResponse::OkTransactionRecovery(
                     recover_transaction_decisions(&self.db, &self.prepared_transactions)?,
@@ -309,6 +312,29 @@ impl NativeExecutionContext {
             }
             request => Ok(format_response(&execute_request(&self.db, request))),
         }
+    }
+
+    pub(crate) fn execute_topology_reconcile(
+        &self,
+        max_entries_per_request: Option<usize>,
+    ) -> Result<String, String> {
+        Ok(format_response(&BackendResponse::OkTopologyObservation(
+            TcpBackend::with_peer_stores(
+                self.db.clone(),
+                TcpBackendConfig {
+                    default_page_size: self.default_page_size,
+                    read_preference: self.read_preference,
+                    catch_up_connect_timeout: self.catch_up_connect_timeout,
+                    worker_count: 1,
+                    queue_capacity: 1,
+                },
+                self.query_peers.clone(),
+                self.replication_peers.clone(),
+                self.replication_peer_identities.clone(),
+            )
+            .with_replication_tls_channel_config(self.replication_tls_channel_config.get())
+            .topology_reconcile_once(max_entries_per_request)?,
+        )))
     }
 
     pub(crate) fn sync_index_catalog_from_peer(&self, server_id: u64) -> Result<(), String> {

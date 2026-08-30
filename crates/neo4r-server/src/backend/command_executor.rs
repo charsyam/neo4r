@@ -423,6 +423,12 @@ fn execute_request_inner(
         BackendRequest::TopologyObserve => Ok(BackendResponse::OkTopologyObservation(
             format_topology_observation(&db.topology_observation()?),
         )),
+        BackendRequest::TopologyReconcile { .. } => {
+            Ok(BackendResponse::OkTopologyObservation(format!(
+                "action=observe_only {}",
+                format_topology_observation(&db.topology_observation()?)
+            )))
+        }
         BackendRequest::OperationalSafety {
             operation,
             confirmation,

@@ -108,6 +108,9 @@ pub(super) fn parse_zero_arg_request(line: &str) -> Result<BackendRequest, Strin
             Err("BOOTSTRAP_SAFETY requires expected cluster id and force flag".to_string())
         }
         "TOPOLOGY_OBSERVE" => Ok(BackendRequest::TopologyObserve),
+        "TOPOLOGY_RECONCILE" => Ok(BackendRequest::TopologyReconcile {
+            max_entries_per_request: None,
+        }),
         "OPERATIONAL_SAFETY" => Err("OPERATIONAL_SAFETY requires operation".to_string()),
         "CHAOS_CHECKS" => Ok(BackendRequest::ChaosChecks),
         "APPLY_REBALANCE_STEP" => Err("APPLY_REBALANCE_STEP requires step".to_string()),

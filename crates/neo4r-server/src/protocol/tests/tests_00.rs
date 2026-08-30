@@ -507,6 +507,8 @@ pub(super) fn peer_management_and_catch_up_parse_but_require_backend_coordinator
         BackendResponse::OkCapabilities(capabilities)
             if capabilities.contains("ownership_epoch=true")
                 && capabilities.contains("snapshot_bootstrap=true")
+                && capabilities.contains("snapshot_fetch=true")
+                && capabilities.contains("topology_reconcile=true")
     ));
     assert!(matches!(
         execute_request(&db, parse_request("CATCH_UP_FROM_PRIMARIES").unwrap()),
@@ -934,6 +936,12 @@ pub(super) fn cluster_bootstrap_and_topology_protocol_commands_execute() {
     assert!(matches!(
         parse_request("TOPOLOGY_OBSERVE").unwrap(),
         BackendRequest::TopologyObserve
+    ));
+    assert!(matches!(
+        parse_request("TOPOLOGY_RECONCILE\t32").unwrap(),
+        BackendRequest::TopologyReconcile {
+            max_entries_per_request: Some(32)
+        }
     ));
     assert!(matches!(
         parse_request("OPERATIONAL_SAFETY\trecover_from_data\tCONFIRM").unwrap(),

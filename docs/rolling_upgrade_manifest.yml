@@ -10,6 +10,8 @@ to:
 checks:
   - backup-before-upgrade
   - mixed-version-protocol-compat
+  - mixed-version-snapshot-fetch-compat
+  - learner-membership-metadata-compatible
   - metadata-format-compatible
   - rollback-before-data-format-bump
   - upgrade-smoke-from-current-release

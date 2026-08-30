@@ -1,4 +1,7 @@
 use super::*;
+use crate::production_primitives::{
+    evaluate_resource_admission, ResourceAdmissionPolicy, ResourceAdmissionRequest,
+};
 
 #[derive(Clone, Default)]
 pub(crate) struct WebMetrics {
@@ -106,22 +109,29 @@ impl TenantQuota {
     }
 
     pub(crate) fn acquire_query(&self, database: &str) -> Result<TenantQueryPermit, String> {
-        let limit = self
+        let limits = *self
             .limits
             .lock()
-            .map_err(|_| "tenant quota limits lock poisoned".to_string())?
-            .max_concurrent_queries;
-        if let Some(limit) = limit {
+            .map_err(|_| "tenant quota limits lock poisoned".to_string())?;
+        if let Some(limit) = limits.max_concurrent_queries {
             let mut active = self
                 .active_queries
                 .lock()
                 .map_err(|_| "tenant quota lock poisoned".to_string())?;
             let current = active.entry(database.to_string()).or_default();
-            if *current >= limit {
-                return Err(format!(
-                    "tenant quota exceeded for database {database}: active_queries={current} limit={limit}"
-                ));
-            }
+            evaluate_resource_admission(
+                &ResourceAdmissionPolicy {
+                    max_concurrent_queries: limit as u64,
+                    max_result_rows: limits.max_result_rows.unwrap_or(usize::MAX) as u64,
+                    max_memory_bytes: u64::MAX,
+                },
+                &ResourceAdmissionRequest {
+                    active_queries: *current as u64,
+                    estimated_result_rows: 0,
+                    estimated_memory_bytes: 0,
+                },
+            )
+            .map_err(|err| format!("tenant quota exceeded for database {database}: {err}"))?;
             *current += 1;
         }
         Ok(TenantQueryPermit {
@@ -137,11 +147,21 @@ impl TenantQuota {
             .map_err(|_| "tenant quota limits lock poisoned".to_string())?
             .max_result_rows;
         if let Some(limit) = limit {
-            if rows > limit {
-                return Err(format!(
-                    "tenant result row quota exceeded for database {database}: rows={rows} limit={limit}"
-                ));
-            }
+            evaluate_resource_admission(
+                &ResourceAdmissionPolicy {
+                    max_concurrent_queries: u64::MAX,
+                    max_result_rows: limit as u64,
+                    max_memory_bytes: u64::MAX,
+                },
+                &ResourceAdmissionRequest {
+                    active_queries: 0,
+                    estimated_result_rows: rows as u64,
+                    estimated_memory_bytes: 0,
+                },
+            )
+            .map_err(|err| {
+                format!("tenant result row quota exceeded for database {database}: {err}")
+            })?;
         }
         Ok(())
     }

@@ -25,14 +25,16 @@ The native protocol exposes the same flow through:
 - `CATCH_UP_PLAN_PRIMARY <server_id>` to inspect per-shard snapshot/WAL targets.
 - `PROMOTE_CAUGHT_UP_NODE <server_id>` to promote a fully caught-up learner.
 - `TOPOLOGY_OBSERVE` to ask the controller for the next control-loop action.
+- `TOPOLOGY_RECONCILE [max_entries_per_request]` to run one controller step:
+  catch up from primaries when assignments are catching up, otherwise advance
+  rebalance when membership is ready to move.
 - `CHAOS_CHECKS` to expose join, retry, and promotion invariants for smoke
   gates.
 
-`neo4r-cli cluster topology`, `neo4r-cli cluster chaos`, and
-`neo4r-cli cluster promote <server_id>` wrap these commands for operators.
-The TCP catch-up data source can request bounded WAL tails from a primary. Full
-snapshot fetch over TCP is still blocked at the datasource boundary until the
-snapshot streaming RPC is exposed by the native protocol.
+`neo4r-cli cluster topology`, `neo4r-cli cluster reconcile [limit]`,
+`neo4r-cli cluster chaos`, and `neo4r-cli cluster promote <server_id>` wrap
+these commands for operators. The TCP catch-up data source can fetch primary
+snapshots and request bounded WAL tails through the same replication listener.
 
 ## Recover From Data
 

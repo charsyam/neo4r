@@ -17,6 +17,9 @@ required_metrics:
   - neo4r_backup_restore_last_success_timestamp_seconds
   - neo4r_storage_repair_last_success_timestamp_seconds
   - neo4r_storage_repair_failures_total
+  - neo4r_slo_query_error_rate_ppm
+  - neo4r_slo_latency_high_watermark_ms
+  - neo4r_slo_replication_lag_entries
 validation:
   scrape_smoke: required
   alert_rule_presence: required

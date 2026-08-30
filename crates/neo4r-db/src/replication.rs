@@ -21,6 +21,7 @@ const TCP_RAFT_VOTE_REQUEST_MAGIC: &[u8] = b"N4RRV1\n";
 const TCP_RAFT_PRE_VOTE_REQUEST_MAGIC: &[u8] = b"N4RPV1\n";
 const TCP_RAFT_LEADER_TRANSFER_REQUEST_MAGIC: &[u8] = b"N4RLT1\n";
 const TCP_RAFT_SNAPSHOT_REQUEST_MAGIC: &[u8] = b"N4RRS1\n";
+const TCP_RAFT_SNAPSHOT_FETCH_REQUEST_MAGIC: &[u8] = b"N4RSF1\n";
 const TCP_REPLICATION_RESPONSE_MAGIC: &[u8] = b"N4RRA1\n";
 const TCP_CATCH_UP_REQUEST_MAGIC: &[u8] = b"N4RCU1\n";
 const TCP_CATCH_UP_REQUEST_MAGIC_V2: &[u8] = b"N4RCU3\n";
@@ -853,6 +854,7 @@ mod rdma;
 mod rdma_rsocket;
 mod tcp_requests;
 mod tcp_responses;
+mod tcp_snapshot_fetch;
 mod udp;
 
 pub use channel::*;

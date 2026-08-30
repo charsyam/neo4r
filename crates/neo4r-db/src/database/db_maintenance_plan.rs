@@ -909,8 +909,17 @@ impl Neo4rDatabase {
             .placements
             .iter()
             .map(|placement| {
-                let primary_server_id = placement.primary_server_id();
                 let shard_index = placement.shard_id as usize;
+                let routing_primary_server_id = placement.primary_server_id();
+                let primary_server_id = self
+                    .raft_groups
+                    .as_ref()
+                    .and_then(|groups| groups.groups.get(shard_index))
+                    .and_then(|group| group.leader_id())
+                    .or(routing_primary_server_id);
+                let local_write_ready = self
+                    .local_shard_is_applied_through_commit(placement.shard_id)
+                    .unwrap_or(false);
                 ShardStatus {
                     shard_id: placement.shard_id,
                     primary_server_id,
@@ -921,7 +930,8 @@ impl Neo4rDatabase {
                         .map(|replica| replica.server_id)
                         .collect(),
                     has_local_copy: placement.has_server(self.config.server_id),
-                    is_local_primary: primary_server_id == Some(self.config.server_id),
+                    is_local_primary: primary_server_id == Some(self.config.server_id)
+                        && local_write_ready,
                     applied_index: applied_indexes.get(shard_index).copied().unwrap_or(0),
                     committed_index: committed_indexes.get(shard_index).copied().unwrap_or(0),
                     match_indexes: self

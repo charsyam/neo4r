@@ -652,6 +652,17 @@ pub(super) fn error_for_batch_response(err: &DatabaseError) -> DatabaseError {
             server_id: *server_id,
             primary_server_id: *primary_server_id,
         },
+        DatabaseError::ShardReplaying {
+            shard_id,
+            server_id,
+            applied,
+            committed,
+        } => DatabaseError::ShardReplaying {
+            shard_id: *shard_id,
+            server_id: *server_id,
+            applied: *applied,
+            committed: *committed,
+        },
         DatabaseError::UnexpectedLogIndex {
             shard_id,
             expected,

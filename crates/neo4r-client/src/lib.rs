@@ -54,6 +54,10 @@ pub struct RedirectInfo {
     pub ownership_epoch: u64,
     pub database: String,
     pub retryable: bool,
+    pub refresh: Option<String>,
+    pub server: Option<u64>,
+    pub applied: Option<u64>,
+    pub committed: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -913,7 +917,7 @@ fn parse_redirect_response(input: &str) -> Option<RedirectInfo> {
     let kind = parts.next()?;
     if !matches!(
         kind,
-        "MOVED" | "NOT_LEADER" | "STALE_ROUTING" | "STALE_EPOCH"
+        "MOVED" | "NOT_LEADER" | "STALE_ROUTING" | "STALE_EPOCH" | "REPLAYING"
     ) {
         return None;
     }
@@ -926,6 +930,10 @@ fn parse_redirect_response(input: &str) -> Option<RedirectInfo> {
         ownership_epoch: 0,
         database: "default".to_string(),
         retryable: false,
+        refresh: None,
+        server: None,
+        applied: None,
+        committed: None,
     };
     for part in parts {
         let Some((key, value)) = part.split_once('=') else {
@@ -939,6 +947,10 @@ fn parse_redirect_response(input: &str) -> Option<RedirectInfo> {
             "ownership_epoch" => redirect.ownership_epoch = value.parse().ok()?,
             "database" => redirect.database = value.to_string(),
             "retryable" => redirect.retryable = value == "true",
+            "refresh" => redirect.refresh = Some(value.to_string()),
+            "server" => redirect.server = value.parse().ok(),
+            "applied" => redirect.applied = value.parse().ok(),
+            "committed" => redirect.committed = value.parse().ok(),
             _ => {}
         }
     }

@@ -1,11 +1,46 @@
 use crate::protocol::*;
-use neo4r_db::{ClusterBootstrapMode, DatabaseResult, Neo4rDatabaseHandle, RebalancePolicy};
+use neo4r_db::{
+    ClusterBootstrapMode, DatabaseError, DatabaseResult, Neo4rDatabaseHandle, RebalancePolicy,
+};
 
 pub fn execute_request(db: &Neo4rDatabaseHandle, request: BackendRequest) -> BackendResponse {
     match execute_request_inner(db, request) {
         Ok(response) => response,
+        Err(DatabaseError::ShardReplaying {
+            shard_id,
+            server_id,
+            applied,
+            committed,
+        }) => replaying_error_response(db, shard_id, server_id, applied, committed),
         Err(err) => BackendResponse::Err(err.to_string()),
     }
+}
+
+fn replaying_error_response(
+    db: &Neo4rDatabaseHandle,
+    shard_id: u64,
+    server_id: u64,
+    applied: u64,
+    committed: u64,
+) -> BackendResponse {
+    let status = db.cluster_status().ok();
+    let shard_status = status.as_ref().and_then(|status| {
+        status
+            .shards
+            .iter()
+            .find(|shard| shard.shard_id == shard_id)
+    });
+    let leader = shard_status
+        .and_then(|shard| shard.primary_server_id)
+        .map(|leader| leader.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let routing_version = status
+        .as_ref()
+        .map(|status| status.routing_version)
+        .unwrap_or_default();
+    BackendResponse::Err(format!(
+        "REPLAYING\tshard={shard_id}\tserver={server_id}\tleader={leader}\taddress=missing\trouting_version={routing_version}\townership_epoch={routing_version}\tapplied={applied}\tcommitted={committed}\tretryable=true\trefresh=CLUSTER_REGISTRY"
+    ))
 }
 
 fn execute_request_inner(

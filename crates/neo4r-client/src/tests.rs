@@ -184,6 +184,10 @@ fn client_parses_redirect_response() {
     assert_eq!(redirect.ownership_epoch, 17);
     assert_eq!(redirect.database, "tenant_a");
     assert!(redirect.retryable);
+    assert_eq!(redirect.refresh, None);
+    assert_eq!(redirect.server, None);
+    assert_eq!(redirect.applied, None);
+    assert_eq!(redirect.committed, None);
 }
 
 #[test]
@@ -195,6 +199,25 @@ fn client_parses_typed_stale_epoch_response() {
     assert_eq!(redirect.kind, "STALE_EPOCH");
     assert_eq!(redirect.routing_version, 2);
     assert_eq!(redirect.ownership_epoch, 2);
+    assert!(redirect.retryable);
+}
+
+#[test]
+fn client_parses_replaying_topology_response() {
+    let redirect = parse_redirect_response(
+            "ERR\tREPLAYING\tshard=0\tserver=2\tleader=3\taddress=missing\trouting_version=7\townership_epoch=7\tapplied=4\tcommitted=9\tretryable=true\trefresh=CLUSTER_REGISTRY",
+        )
+        .unwrap();
+    assert_eq!(redirect.kind, "REPLAYING");
+    assert_eq!(redirect.shard_id, 0);
+    assert_eq!(redirect.server, Some(2));
+    assert_eq!(redirect.leader, Some(3));
+    assert_eq!(redirect.address, None);
+    assert_eq!(redirect.routing_version, 7);
+    assert_eq!(redirect.ownership_epoch, 7);
+    assert_eq!(redirect.applied, Some(4));
+    assert_eq!(redirect.committed, Some(9));
+    assert_eq!(redirect.refresh.as_deref(), Some("CLUSTER_REGISTRY"));
     assert!(redirect.retryable);
 }
 

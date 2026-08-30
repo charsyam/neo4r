@@ -1,8 +1,10 @@
 # neo4r
 
 `neo4r` is an experimental Rust property graph database. The current cluster
-path uses a Raft-backed shard replication path for server cluster mode, with
-static routing primaries during bootstrap.
+path uses a Raft-backed shard replication path for server cluster mode. When a
+routing table is not supplied explicitly, bootstrap routing now builds a
+peer-ring placement so each known node can be primary for some shards and a
+replica for others.
 
 The first milestone is intentionally small:
 
@@ -69,6 +71,31 @@ The initial sharding policy is intentionally simple:
 - node owner: `node_id % shard_count`
 - relationship owner: owner shard of the `from` node
 - boundary node copies are read-only cache data, not write authorities
+
+Automatic cluster bootstrap assigns shard primaries over the configured server
+ring instead of making one node primary for every shard. The ring starts with
+`--primary-server-id` so shard 0 remains the metadata authority, then includes
+the local server, `--replica-peer` entries, and `--peer` entries without
+duplicates. For three nodes and three shards this produces:
+
+```text
+shard 0: primary=1 replicas=2,3
+shard 1: primary=2 replicas=1,3
+shard 2: primary=3 replicas=1,2
+```
+
+This is the first Cassandra-style ownership step: every node can be the write
+authority for the ranges it owns while still serving as a replica for other
+ranges. Coordinated multi-shard writes, tunable consistency levels, read repair,
+and hinted handoff remain separate production work.
+
+In Raft-enabled mode, routing-table primary placement is bootstrap and fallback
+metadata. The effective write authority is the current Raft leader for each
+shard. After a replica wins an election, cluster status and local write guards
+use that elected leader without requiring a routing-table rewrite for the leader
+change. Election and write eligibility are readiness-gated: the server must host
+the shard locally and must have applied through its committed index before it can
+lead or accept writes for that shard.
 
 Shard-local graph state can also keep boundary node copies. These copies store
 the next node's selected labels/properties so cross-shard outgoing traversals can
@@ -327,6 +354,17 @@ must be refreshed, the server returns a structured redirect such as:
 ```text
 ERR	MOVED	shard=3	leader=2	address=127.0.0.1:17688	routing_version=17	ownership_epoch=17	database=tenant_a	retryable=true
 ```
+
+If the contacted replica owns the shard but is still replaying committed log
+entries, it returns a typed retryable error instead of accepting writes:
+
+```text
+ERR	REPLAYING	shard=3	server=2	leader=1	address=missing	routing_version=17	ownership_epoch=17	applied=12	committed=15	retryable=true	refresh=CLUSTER_REGISTRY
+```
+
+Clients first use `address` when it is present. When `address=missing`, clients
+refresh `CLUSTER_REGISTRY`, update the gossip-backed topology cache, and choose
+the leader/query peer for the requested shard from that fresh map.
 
 The Rust and Python SDKs parse retryable redirects, cache topology metadata, and
 automatically reconnect to the target address up to a bounded hop limit. HTTP

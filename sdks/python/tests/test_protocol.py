@@ -107,8 +107,31 @@ class ProtocolTests(unittest.TestCase):
                 "ownership_epoch": 17,
                 "database": "tenant_a",
                 "retryable": True,
+                "refresh": None,
+                "server": None,
+                "applied": None,
+                "committed": None,
             },
         )
+
+    def test_parse_replaying_topology_response(self):
+        redirect = _parse_redirect(
+            "ERR\tREPLAYING\tshard=0\tserver=2\tleader=3\taddress=missing\t"
+            "routing_version=7\townership_epoch=7\tapplied=4\tcommitted=9\t"
+            "retryable=true\trefresh=CLUSTER_REGISTRY"
+        )
+
+        self.assertEqual(redirect["kind"], "REPLAYING")
+        self.assertEqual(redirect["shard"], 0)
+        self.assertEqual(redirect["server"], 2)
+        self.assertEqual(redirect["leader"], 3)
+        self.assertIsNone(redirect["address"])
+        self.assertEqual(redirect["routing_version"], 7)
+        self.assertEqual(redirect["ownership_epoch"], 7)
+        self.assertEqual(redirect["applied"], 4)
+        self.assertEqual(redirect["committed"], 9)
+        self.assertTrue(redirect["retryable"])
+        self.assertEqual(redirect["refresh"], "CLUSTER_REGISTRY")
 
     def test_parse_typed_stale_epoch_response(self):
         redirect = _parse_redirect(

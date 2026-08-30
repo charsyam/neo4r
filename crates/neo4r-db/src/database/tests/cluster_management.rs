@@ -578,6 +578,115 @@ pub(super) fn cluster_membership_decommission_plans_primary_transfer_and_replica
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+pub(super) fn raft_elected_replica_becomes_effective_write_authority() {
+    let dir = temp_dir("facade-raft-failover-write-authority");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let db = Neo4rDatabaseHandle::open_with_replicator(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(2)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+        Arc::new(QuorumAckReplicator { peer_id: 1 }),
+    )
+    .unwrap();
+
+    let vote = db.start_raft_election(0).unwrap();
+    assert!(db
+        .record_raft_vote_response(
+            0,
+            1,
+            RequestVoteResponse {
+                term: vote.term,
+                vote_granted: true,
+            },
+        )
+        .unwrap());
+
+    let status = db.cluster_status().unwrap();
+    assert_eq!(status.shards[0].primary_server_id, Some(2));
+    assert!(status.shards[0].is_local_primary);
+
+    let node_id = db
+        .create_node(
+            vec!["Person".to_string()],
+            properties(&[("name", Value::String("failover".to_string()))]),
+        )
+        .unwrap();
+    assert_eq!(node_id, 0);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn lagging_raft_replica_is_not_election_candidate_or_local_primary() {
+    let dir = temp_dir("facade-raft-lagging-replica-write-gate");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(2)],
+        )],
+    };
+    let db = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(2)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    )
+    .unwrap();
+
+    {
+        let mut database = db.lock().unwrap();
+        database.commit_indexes[0] = 5;
+        database.next_log_indexes[0] = 1;
+    }
+
+    assert!(db
+        .raft_election_candidates(Duration::ZERO)
+        .unwrap()
+        .is_empty());
+    let err = db.start_raft_election(0).unwrap_err();
+    assert!(err.to_string().contains("replaying"));
+    assert!(!db.cluster_status().unwrap().shards[0].is_local_primary);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn non_replica_node_is_not_raft_election_candidate() {
+    let dir = temp_dir("facade-raft-non-replica-election-gate");
+    let routing_table = ShardRoutingTable {
+        version: 3,
+        placements: vec![ShardPlacement::new(
+            0,
+            vec![ShardReplica::primary(1), ShardReplica::replica(3)],
+        )],
+    };
+    let result = Neo4rDatabaseHandle::open(
+        DatabaseConfig::new(&dir, 1, 1)
+            .with_server_id(2)
+            .with_routing_table(routing_table)
+            .with_raft_enabled(true),
+    );
+    let err = match result {
+        Ok(_) => panic!("non-replica raft node must not open as a member"),
+        Err(err) => err,
+    };
+    assert_eq!(
+        err.to_string(),
+        "invalid database config: local server 2 is not a raft member"
+    );
+
+    let _ = fs::remove_dir_all(dir);
+}
+
 pub(super) fn open_test_db(dir: &Path) -> Neo4rDatabase {
     Neo4rDatabase::open(DatabaseConfig::new(dir, 1, 2).with_log_entries_per_segment(2)).unwrap()
 }
@@ -639,5 +748,18 @@ impl ShardReplicator for RecordingReplicator {
     fn publish(&self, entry: &LogEntry) -> DatabaseResult<ReplicationOutcome> {
         self.entries.lock().unwrap().push(entry.clone());
         Ok(ReplicationOutcome::local(entry.origin_server_id))
+    }
+}
+
+pub(super) struct QuorumAckReplicator {
+    peer_id: u64,
+}
+
+impl ShardReplicator for QuorumAckReplicator {
+    fn publish(&self, entry: &LogEntry) -> DatabaseResult<ReplicationOutcome> {
+        Ok(ReplicationOutcome {
+            acked_server_ids: vec![entry.origin_server_id, self.peer_id],
+            acked_match_indexes: vec![(self.peer_id, entry.shard_id, entry.index)],
+        })
     }
 }

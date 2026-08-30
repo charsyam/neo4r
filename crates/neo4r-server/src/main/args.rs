@@ -765,27 +765,42 @@ impl ServerArgs {
         }
         let cluster_requested = self.primary_server_id != self.server_id
             || !self.replica_peers.is_empty()
+            || !self.peers.is_empty()
             || self.replication_bind_addr.is_some();
         if !cluster_requested {
             return Ok(None);
         }
-        let mut replicas = vec![ShardReplica::primary(self.primary_server_id)];
+        let mut ring = Vec::new();
+        push_unique_server(&mut ring, self.primary_server_id);
+        push_unique_server(&mut ring, self.server_id);
         for peer in &self.replica_peers {
-            replicas.push(ShardReplica::replica(peer.server_id));
+            push_unique_server(&mut ring, peer.server_id);
         }
-        if self.server_id != self.primary_server_id
-            && !replicas
-                .iter()
-                .any(|replica| replica.server_id == self.server_id)
-        {
-            replicas.push(ShardReplica::replica(self.server_id));
+        for peer in &self.peers {
+            push_unique_server(&mut ring, peer.server_id);
         }
         Ok(Some(ShardRoutingTable {
             version: 1,
             placements: (0..self.shard_count)
-                .map(|shard_id| ShardPlacement::new(shard_id, replicas.clone()))
+                .map(|shard_id| {
+                    let primary = ring[shard_id as usize % ring.len()];
+                    let mut replicas = vec![ShardReplica::primary(primary)];
+                    replicas.extend(
+                        ring.iter()
+                            .copied()
+                            .filter(|server_id| *server_id != primary)
+                            .map(ShardReplica::replica),
+                    );
+                    ShardPlacement::new(shard_id, replicas)
+                })
                 .collect(),
         }))
+    }
+}
+
+fn push_unique_server(servers: &mut Vec<u64>, server_id: u64) {
+    if !servers.contains(&server_id) {
+        servers.push(server_id);
     }
 }
 

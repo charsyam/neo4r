@@ -28,10 +28,13 @@ Redirects and topology changes are typed error payloads:
 ```text
 ERR\tMOVED\tshard=<id>\tleader=<server>\taddress=<host:port>\trouting_version=<n>\tdatabase=<name>\tretryable=true
 ERR\tSTALE_EPOCH\ttx_epoch=<n>\tcurrent_epoch=<n>\trouting_version=<n>\townership_epoch=<n>\tretryable=true
+ERR\tREPLAYING\tshard=<id>\tserver=<server>\tleader=<server|none>\taddress=<host:port|missing>\trouting_version=<n>\townership_epoch=<n>\tapplied=<n>\tcommitted=<n>\tretryable=true\trefresh=CLUSTER_REGISTRY
 ```
 
 SDKs should automatically follow retryable redirects with a bounded retry
-budget and update their topology cache from redirect or registry responses.
+budget when `address` is present. If `address=missing`, the error must include
+`refresh=CLUSTER_REGISTRY`; clients refresh the gossip-backed registry and pick
+the shard leader or another query peer from the updated topology cache.
 
 ## HTTP
 

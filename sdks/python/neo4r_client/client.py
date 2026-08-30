@@ -268,6 +268,7 @@ def _parse_redirect(text: str) -> dict[str, Any] | None:
         "NOT_LEADER",
         "STALE_ROUTING",
         "STALE_EPOCH",
+        "REPLAYING",
     }:
         return None
     redirect: dict[str, Any] = {
@@ -279,6 +280,10 @@ def _parse_redirect(text: str) -> dict[str, Any] | None:
         "ownership_epoch": 0,
         "database": "default",
         "retryable": False,
+        "refresh": None,
+        "server": None,
+        "applied": None,
+        "committed": None,
     }
     for part in parts[2:]:
         if "=" not in part:
@@ -298,6 +303,14 @@ def _parse_redirect(text: str) -> dict[str, Any] | None:
             redirect["database"] = value
         elif key == "retryable":
             redirect["retryable"] = value == "true"
+        elif key == "refresh":
+            redirect["refresh"] = value
+        elif key == "server":
+            redirect["server"] = int(value)
+        elif key == "applied":
+            redirect["applied"] = int(value)
+        elif key == "committed":
+            redirect["committed"] = int(value)
     if redirect["ownership_epoch"] == 0:
         redirect["ownership_epoch"] = redirect["routing_version"]
     return redirect

@@ -22,6 +22,12 @@ pub enum DatabaseError {
         server_id: ServerId,
         primary_server_id: Option<ServerId>,
     },
+    ShardReplaying {
+        shard_id: ShardId,
+        server_id: ServerId,
+        applied: LogIndex,
+        committed: LogIndex,
+    },
     UnexpectedLogIndex {
         shard_id: ShardId,
         expected: LogIndex,
@@ -59,6 +65,15 @@ impl fmt::Display for DatabaseError {
                 f,
                 "server {server_id} is not primary for shard {shard_id}; primary is {primary_server_id:?}"
             ),
+            Self::ShardReplaying {
+                shard_id,
+                server_id,
+                applied,
+                committed,
+            } => write!(
+                f,
+                "server {server_id} cannot serve shard {shard_id}: replaying applied {applied} committed {committed}"
+            ),
             Self::UnexpectedLogIndex {
                 shard_id,
                 expected,
@@ -93,6 +108,7 @@ impl std::error::Error for DatabaseError {
             Self::MissingShardLog(_) => None,
             Self::ShardNotLocal { .. } => None,
             Self::ShardNotPrimary { .. } => None,
+            Self::ShardReplaying { .. } => None,
             Self::UnexpectedLogIndex { .. } => None,
             Self::LogConflict { .. } => None,
             Self::Replication(_) => None,

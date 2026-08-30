@@ -796,7 +796,7 @@ fn builds_cluster_routing_table_from_replication_args() {
         "--primary-server-id".to_string(),
         "1".to_string(),
         "--shards".to_string(),
-        "2".to_string(),
+        "3".to_string(),
         "--replica-peer".to_string(),
         "2=127.0.0.1:9702".to_string(),
         "--peer".to_string(),
@@ -807,13 +807,31 @@ fn builds_cluster_routing_table_from_replication_args() {
     let table = args.routing_table().unwrap().unwrap();
 
     assert_eq!(table.version, 1);
-    assert_eq!(table.placements.len(), 2);
-    for placement in &table.placements {
-        assert_eq!(
-            placement.replicas,
-            vec![ShardReplica::primary(1), ShardReplica::replica(2)]
-        );
-    }
+    assert_eq!(table.placements.len(), 3);
+    assert_eq!(
+        table.placements[0].replicas,
+        vec![
+            ShardReplica::primary(1),
+            ShardReplica::replica(2),
+            ShardReplica::replica(3)
+        ]
+    );
+    assert_eq!(
+        table.placements[1].replicas,
+        vec![
+            ShardReplica::primary(2),
+            ShardReplica::replica(1),
+            ShardReplica::replica(3)
+        ]
+    );
+    assert_eq!(
+        table.placements[2].replicas,
+        vec![
+            ShardReplica::primary(3),
+            ShardReplica::replica(1),
+            ShardReplica::replica(2)
+        ]
+    );
     assert_eq!(metadata_primary_server_id(&table).unwrap(), 1);
 }
 
@@ -836,6 +854,32 @@ fn replica_node_routing_table_includes_local_replica() {
     assert_eq!(
         table.placements[0].replicas,
         vec![ShardReplica::primary(1), ShardReplica::replica(2)]
+    );
+}
+
+#[test]
+fn peer_only_cluster_args_build_ring_routing_table() {
+    let args = ServerArgs::parse([
+        "--server-id".to_string(),
+        "1".to_string(),
+        "--primary-server-id".to_string(),
+        "1".to_string(),
+        "--shards".to_string(),
+        "2".to_string(),
+        "--peer".to_string(),
+        "2=127.0.0.1:9702".to_string(),
+    ])
+    .unwrap();
+
+    let table = args.routing_table().unwrap().unwrap();
+
+    assert_eq!(
+        table.placements[0].replicas,
+        vec![ShardReplica::primary(1), ShardReplica::replica(2)]
+    );
+    assert_eq!(
+        table.placements[1].replicas,
+        vec![ShardReplica::primary(2), ShardReplica::replica(1)]
     );
 }
 

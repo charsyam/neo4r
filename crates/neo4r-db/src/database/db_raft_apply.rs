@@ -384,11 +384,33 @@ impl Neo4rDatabase {
     }
 
     pub fn start_raft_election(&mut self, shard_id: ShardId) -> DatabaseResult<RequestVoteRequest> {
-        let Some(raft_groups) = self.raft_groups.as_mut() else {
+        if self.raft_groups.is_none() {
             return Err(DatabaseError::Replication(
                 "raft is not enabled for this database".to_string(),
             ));
-        };
+        }
+        if !self
+            .routing_table
+            .has_local_copy(shard_id, self.config.server_id)
+        {
+            return Err(DatabaseError::ShardNotPrimary {
+                shard_id,
+                server_id: self.config.server_id,
+                primary_server_id: self.routing_table.primary_server_id(shard_id),
+            });
+        }
+        if !self.local_shard_is_applied_through_commit(shard_id)? {
+            return Err(DatabaseError::ShardReplaying {
+                shard_id,
+                server_id: self.config.server_id,
+                applied: self.applied_index(shard_id)?,
+                committed: self.commit_index(shard_id)?,
+            });
+        }
+        let raft_groups = self
+            .raft_groups
+            .as_mut()
+            .expect("raft_groups checked above");
         let group = raft_groups.group_mut(shard_id)?;
         if group.role() == &RaftRole::Leader {
             return Err(DatabaseError::Replication(format!(
@@ -458,6 +480,7 @@ impl Neo4rDatabase {
         let mut candidates = Vec::new();
         for placement in &self.routing_table.placements {
             if placement.has_server(self.config.server_id)
+                && self.local_shard_is_applied_through_commit(placement.shard_id)?
                 && raft_groups.should_start_election(placement.shard_id, timeout)?
             {
                 candidates.push(placement.shard_id);
@@ -840,6 +863,40 @@ impl Neo4rDatabase {
     }
 
     pub(super) fn ensure_local_primary(&self, shard_id: ShardId) -> DatabaseResult<()> {
+        if let Some(raft_groups) = self.raft_groups.as_ref() {
+            if !self
+                .routing_table
+                .has_local_copy(shard_id, self.config.server_id)
+            {
+                return Err(DatabaseError::ShardNotPrimary {
+                    shard_id,
+                    server_id: self.config.server_id,
+                    primary_server_id: self.routing_table.primary_server_id(shard_id),
+                });
+            }
+            if !self.local_shard_is_applied_through_commit(shard_id)? {
+                return Err(DatabaseError::ShardReplaying {
+                    shard_id,
+                    server_id: self.config.server_id,
+                    applied: self.applied_index(shard_id)?,
+                    committed: self.commit_index(shard_id)?,
+                });
+            }
+            let group = raft_groups
+                .groups
+                .get(shard_id as usize)
+                .ok_or(DatabaseError::MissingShardLog(shard_id))?;
+            if group.role() == &RaftRole::Leader {
+                return Ok(());
+            }
+            return Err(DatabaseError::ShardNotPrimary {
+                shard_id,
+                server_id: self.config.server_id,
+                primary_server_id: group
+                    .leader_id()
+                    .or_else(|| self.routing_table.primary_server_id(shard_id)),
+            });
+        }
         let primary_server_id = self.routing_table.primary_server_id(shard_id);
         if primary_server_id == Some(self.config.server_id) {
             Ok(())
@@ -850,6 +907,20 @@ impl Neo4rDatabase {
                 primary_server_id,
             })
         }
+    }
+
+    pub(super) fn applied_index(&self, shard_id: ShardId) -> DatabaseResult<LogIndex> {
+        self.next_log_indexes
+            .get(shard_id as usize)
+            .map(|next| next.saturating_sub(1))
+            .ok_or(DatabaseError::MissingShardLog(shard_id))
+    }
+
+    pub(super) fn local_shard_is_applied_through_commit(
+        &self,
+        shard_id: ShardId,
+    ) -> DatabaseResult<bool> {
+        Ok(self.applied_index(shard_id)? >= self.commit_index(shard_id)?)
     }
 
     pub(super) fn ensure_local_copy(&self, shard_id: ShardId) -> DatabaseResult<()> {

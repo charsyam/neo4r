@@ -2,8 +2,6 @@
 
 mod peer_store;
 mod protocol;
-#[path = "backend/restore_guard.rs"]
-mod restore_guard;
 mod tenant;
 mod web_auth;
 
@@ -28,12 +26,10 @@ use peer_store::{
 };
 use protocol::{
     backend_request_mutates_data, decode_index_catalog, decode_query_batch_payload,
-    decode_query_rows, encode_query_batch_payload, encode_query_rows, execute_request,
-    format_protocol_capabilities, format_query_plan, format_response, format_routing_table,
-    parse_query_payload, parse_request, write_response, BackendRedirect, BackendResponse,
-    RedirectKind,
+    decode_query_rows, encode_query_batch_payload, encode_query_rows, format_protocol_capabilities,
+    format_query_plan, format_response, format_routing_table, parse_query_payload, parse_request,
+    write_response, BackendRedirect, BackendResponse, RedirectKind,
 };
-use restore_guard::{restore_maintenance_mode_path, RestoreLock};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
@@ -116,227 +112,11 @@ impl Default for TcpBackendConfig {
     }
 }
 
-#[derive(Clone, Default)]
-struct WebMetrics {
-    http_requests: Arc<AtomicU64>,
-    http_errors: Arc<AtomicU64>,
-    auth_failures: Arc<AtomicU64>,
-    auth_rate_limited: Arc<AtomicU64>,
-    queries: Arc<AtomicU64>,
-    query_errors: Arc<AtomicU64>,
-    slow_queries: Arc<AtomicU64>,
-    registry_requests: Arc<AtomicU64>,
-    stale_epoch_rejections: Arc<AtomicU64>,
-    redirects: Arc<AtomicU64>,
-}
-
-#[derive(Clone, Default)]
-struct AuthFailureLimiter {
-    entries: Arc<Mutex<HashMap<String, AuthFailureEntry>>>,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct AuthFailureEntry {
-    window_start_ms: u128,
-    failures: u64,
-}
-
-impl AuthFailureLimiter {
-    fn record_and_should_limit(&self, key: &str, now_ms: u128) -> bool {
-        const WINDOW_MS: u128 = 60_000;
-        const MAX_FAILURES: u64 = 5;
-        let Ok(mut entries) = self.entries.lock() else {
-            return true;
-        };
-        let entry = entries.entry(key.to_string()).or_default();
-        if now_ms.saturating_sub(entry.window_start_ms) > WINDOW_MS {
-            *entry = AuthFailureEntry {
-                window_start_ms: now_ms,
-                failures: 0,
-            };
-        }
-        entry.failures = entry.failures.saturating_add(1);
-        entry.failures > MAX_FAILURES
-    }
-}
-
-#[derive(Clone, Default)]
-struct SlowQueryLog {
-    entries: Arc<Mutex<Vec<SlowQueryEntry>>>,
-}
-
-#[derive(Clone)]
-struct SlowQueryEntry {
-    unix_ms: u128,
-    elapsed_ms: u128,
-    query: String,
-}
-
-#[derive(Clone, Default)]
-struct TenantQuota {
-    limits: Arc<Mutex<TenantQuotaLimits>>,
-    active_queries: Arc<Mutex<HashMap<String, usize>>>,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct TenantQuotaLimits {
-    max_concurrent_queries: Option<usize>,
-    max_result_rows: Option<usize>,
-}
-
-struct TenantQueryPermit {
-    active_queries: Arc<Mutex<HashMap<String, usize>>>,
-    database: String,
-}
-
-#[derive(Clone, Default)]
-struct ReplicationTlsChannelConfigStore {
-    config: Arc<Mutex<Option<ReplicationTlsConfig>>>,
-}
-
-impl ReplicationTlsChannelConfigStore {
-    fn set(&self, config: Option<ReplicationTlsConfig>) {
-        if let Ok(mut current) = self.config.lock() {
-            *current = config;
-        }
-    }
-
-    fn get(&self) -> Option<ReplicationTlsConfig> {
-        self.config.lock().ok().and_then(|config| config.clone())
-    }
-}
-
-impl TenantQuota {
-    fn configure(&self, max_concurrent_queries: Option<usize>, max_result_rows: Option<usize>) {
-        if let Ok(mut limits) = self.limits.lock() {
-            limits.max_concurrent_queries = max_concurrent_queries;
-            limits.max_result_rows = max_result_rows;
-        }
-    }
-
-    fn acquire_query(&self, database: &str) -> Result<TenantQueryPermit, String> {
-        let limit = self
-            .limits
-            .lock()
-            .map_err(|_| "tenant quota limits lock poisoned".to_string())?
-            .max_concurrent_queries;
-        if let Some(limit) = limit {
-            let mut active = self
-                .active_queries
-                .lock()
-                .map_err(|_| "tenant quota lock poisoned".to_string())?;
-            let current = active.entry(database.to_string()).or_default();
-            if *current >= limit {
-                return Err(format!(
-                    "tenant quota exceeded for database {database}: active_queries={current} limit={limit}"
-                ));
-            }
-            *current += 1;
-        }
-        Ok(TenantQueryPermit {
-            active_queries: self.active_queries.clone(),
-            database: database.to_string(),
-        })
-    }
-
-    fn validate_result_rows(&self, database: &str, rows: usize) -> Result<(), String> {
-        let limit = self
-            .limits
-            .lock()
-            .map_err(|_| "tenant quota limits lock poisoned".to_string())?
-            .max_result_rows;
-        if let Some(limit) = limit {
-            if rows > limit {
-                return Err(format!(
-                    "tenant result row quota exceeded for database {database}: rows={rows} limit={limit}"
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Drop for TenantQueryPermit {
-    fn drop(&mut self) {
-        let Ok(mut active) = self.active_queries.lock() else {
-            return;
-        };
-        if let Some(current) = active.get_mut(&self.database) {
-            *current = current.saturating_sub(1);
-            if *current == 0 {
-                active.remove(&self.database);
-            }
-        }
-    }
-}
-
-#[path = "backend/backend_core.rs"]
-mod backend_core;
-#[path = "backend/backend_native_replication.rs"]
-mod backend_native_replication;
-#[path = "backend/backend_web_admin.rs"]
-mod backend_web_admin;
-#[path = "backend/backend_web_query_backup.rs"]
-mod backend_web_query_backup;
-#[path = "backend/distributed_query.rs"]
-mod distributed_query;
-#[path = "backend/http_json_backup.rs"]
-mod http_json_backup;
-#[path = "backend/native_execution.rs"]
-mod native_execution;
-#[path = "backend/native_transport.rs"]
-mod native_transport;
-#[path = "backend/native_worker.rs"]
-mod native_worker;
-#[path = "backend/prepared_query.rs"]
-mod prepared_query;
-#[path = "backend/remote_transactions.rs"]
-mod remote_transactions;
-#[path = "backend/replication_admin.rs"]
-mod replication_admin;
-#[path = "backend/replication_tls.rs"]
-mod replication_tls;
-#[path = "backend/transaction_protocol.rs"]
-mod transaction_protocol;
-#[path = "backend/transaction_store.rs"]
-mod transaction_store;
-#[path = "backend/web_index.rs"]
-mod web_index;
+mod backend;
 
 #[allow(unused_imports)]
-use backend_core::*;
-#[allow(unused_imports)]
-use backend_native_replication::*;
-#[allow(unused_imports)]
-use backend_web_admin::*;
-#[allow(unused_imports)]
-use backend_web_query_backup::*;
-#[allow(unused_imports)]
-use distributed_query::*;
-#[allow(unused_imports)]
-use http_json_backup::*;
-#[allow(unused_imports)]
-use native_execution::*;
-pub use native_transport::NativeTlsConfig;
-#[allow(unused_imports)]
-use native_transport::*;
-#[allow(unused_imports)]
-use native_worker::*;
-#[allow(unused_imports)]
-use prepared_query::*;
-#[allow(unused_imports)]
-use remote_transactions::*;
-#[allow(unused_imports)]
-use replication_admin::*;
-#[allow(unused_imports)]
-use replication_tls::*;
-pub use replication_tls::{ReplicationTlsConfig, TlsReplicationChannel};
-#[allow(unused_imports)]
-use transaction_protocol::*;
-#[allow(unused_imports)]
-use transaction_store::*;
-#[allow(unused_imports)]
-use web_index::*;
+use backend::*;
+pub use backend::{NativeTlsConfig, ReplicationTlsConfig, TlsReplicationChannel};
 fn default_worker_count() -> usize {
     thread::available_parallelism()
         .map(usize::from)

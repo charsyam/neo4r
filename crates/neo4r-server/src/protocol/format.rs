@@ -31,7 +31,7 @@ pub(crate) fn format_protocol_capabilities() -> String {
     .join(" ")
 }
 
-pub(super) fn format_cluster_status(status: &ClusterStatus) -> String {
+pub(crate) fn format_cluster_status(status: &ClusterStatus) -> String {
     let shards = status
         .shards
         .iter()
@@ -75,7 +75,7 @@ pub(crate) fn format_routing_table(routing_table: &ShardRoutingTable) -> String 
     )
 }
 
-pub(super) fn format_redirect_response(redirect: &BackendRedirect) -> String {
+pub(crate) fn format_redirect_response(redirect: &BackendRedirect) -> String {
     let kind = match redirect.kind {
         RedirectKind::Moved => "MOVED",
         RedirectKind::NotLeader => "NOT_LEADER",
@@ -97,7 +97,7 @@ pub(super) fn format_redirect_response(redirect: &BackendRedirect) -> String {
     )
 }
 
-pub(super) fn format_raft_status(status: &[neo4r_db::RaftShardStatus]) -> String {
+pub(crate) fn format_raft_status(status: &[neo4r_db::RaftShardStatus]) -> String {
     let shards = status
         .iter()
         .map(|shard| {
@@ -122,7 +122,7 @@ pub(super) fn format_raft_status(status: &[neo4r_db::RaftShardStatus]) -> String
     format!("raft_shards={} [{}]", status.len(), shards)
 }
 
-pub(super) fn format_cluster_membership(membership: &ClusterMembership) -> String {
+pub(crate) fn format_cluster_membership(membership: &ClusterMembership) -> String {
     let nodes = membership
         .nodes
         .iter()
@@ -160,7 +160,7 @@ pub(super) fn format_cluster_membership(membership: &ClusterMembership) -> Strin
     )
 }
 
-pub(super) fn format_node_state(state: NodeMembershipState) -> &'static str {
+pub(crate) fn format_node_state(state: NodeMembershipState) -> &'static str {
     match state {
         NodeMembershipState::Negotiating => "negotiating",
         NodeMembershipState::Joining => "joining",
@@ -173,7 +173,7 @@ pub(super) fn format_node_state(state: NodeMembershipState) -> &'static str {
     }
 }
 
-pub(super) fn format_assignment_state(state: ShardAssignmentState) -> &'static str {
+pub(crate) fn format_assignment_state(state: ShardAssignmentState) -> &'static str {
     match state {
         ShardAssignmentState::Planned => "planned",
         ShardAssignmentState::CatchingUp => "catching_up",
@@ -186,7 +186,7 @@ pub(super) fn format_assignment_state(state: ShardAssignmentState) -> &'static s
     }
 }
 
-pub(super) fn format_cluster_metadata(metadata: &ClusterMetadataState) -> String {
+pub(crate) fn format_cluster_metadata(metadata: &ClusterMetadataState) -> String {
     format!(
         "authority={} term={} config_epoch={} policy=replication_factor:{}:max_steps:{}",
         metadata.authority_server_id,
@@ -197,7 +197,7 @@ pub(super) fn format_cluster_metadata(metadata: &ClusterMetadataState) -> String
     )
 }
 
-pub(super) fn format_cluster_management_status(status: &ClusterManagementStatus) -> String {
+pub(crate) fn format_cluster_management_status(status: &ClusterManagementStatus) -> String {
     let migration_state = status
         .rebalance_execution
         .as_ref()
@@ -231,7 +231,7 @@ pub(super) fn format_cluster_management_status(status: &ClusterManagementStatus)
     )
 }
 
-pub(super) fn format_rebalance_automation(
+pub(crate) fn format_rebalance_automation(
     summary: &neo4r_db::RebalanceAutomationSummary,
 ) -> String {
     format!(
@@ -246,7 +246,7 @@ pub(super) fn format_rebalance_automation(
     )
 }
 
-pub(super) fn format_rebalance_plan(plan: &RebalancePlan) -> String {
+pub(crate) fn format_rebalance_plan(plan: &RebalancePlan) -> String {
     let steps = plan
         .steps
         .iter()
@@ -291,7 +291,7 @@ pub(crate) fn format_rebalance_execution(execution: &RebalanceExecution) -> Stri
     )
 }
 
-pub(super) fn format_rebalance_plan_state(state: RebalancePlanState) -> &'static str {
+pub(crate) fn format_rebalance_plan_state(state: RebalancePlanState) -> &'static str {
     match state {
         RebalancePlanState::Proposed => "proposed",
         RebalancePlanState::Running => "running",
@@ -301,7 +301,7 @@ pub(super) fn format_rebalance_plan_state(state: RebalancePlanState) -> &'static
     }
 }
 
-pub(super) fn format_rebalance_step_state(state: RebalanceStepState) -> &'static str {
+pub(crate) fn format_rebalance_step_state(state: RebalanceStepState) -> &'static str {
     match state {
         RebalanceStepState::Pending => "pending",
         RebalanceStepState::Preparing => "preparing",
@@ -314,7 +314,7 @@ pub(super) fn format_rebalance_step_state(state: RebalanceStepState) -> &'static
     }
 }
 
-pub(super) fn format_rebalance_step(step: &RebalanceStep) -> String {
+pub(crate) fn format_rebalance_step(step: &RebalanceStep) -> String {
     match step {
         RebalanceStep::AddReplica {
             shard_id,
@@ -359,7 +359,7 @@ pub(crate) fn format_query_plan(plan: &DistributedQueryPlan) -> String {
     )
 }
 
-pub(super) fn format_query_profile(profile: &QueryProfile) -> String {
+pub(crate) fn format_query_profile(profile: &QueryProfile) -> String {
     format!(
         "plan=[{}] operators=[{}] metrics=planning_us:{}:execution_us:{}:rows:{}:scanned_nodes:{}:scanned_relationships:{}:indexes:{}:cache_hits:{}:cache_misses:{}:index_cache_hits:{}:index_cache_misses:{}",
         format_query_plan(&profile.plan),
@@ -382,7 +382,7 @@ pub(super) fn format_query_profile(profile: &QueryProfile) -> String {
     )
 }
 
-pub(super) fn format_query_operator_profile(profile: &QueryOperatorProfile) -> String {
+pub(crate) fn format_query_operator_profile(profile: &QueryOperatorProfile) -> String {
     let children = profile
         .children
         .iter()
@@ -395,7 +395,7 @@ pub(super) fn format_query_operator_profile(profile: &QueryOperatorProfile) -> S
     )
 }
 
-pub(super) fn format_storage_status(status: &StorageStatus) -> String {
+pub(crate) fn format_storage_status(status: &StorageStatus) -> String {
     format!(
         "data_dir={} total_bytes={} files={} wal_segments={} checkpoints={} metadata_files={} committed=[{}] cache_hits={} cache_misses={} index_cache_hits={} index_cache_misses={} wal_pruned_until=[{}]",
         status.data_dir.display(),
@@ -423,7 +423,7 @@ pub(super) fn format_storage_status(status: &StorageStatus) -> String {
     )
 }
 
-pub(super) fn format_statistics_catalog(statistics: &StatisticsCatalog) -> String {
+pub(crate) fn format_statistics_catalog(statistics: &StatisticsCatalog) -> String {
     format!(
         "nodes={} relationships={} labels=[{}] node_properties=[{}] relationship_types=[{}] indexes={} vector_indexes={}",
         statistics.node_count,
@@ -451,7 +451,7 @@ pub(super) fn format_statistics_catalog(statistics: &StatisticsCatalog) -> Strin
     )
 }
 
-pub(super) fn format_storage_maintenance(result: &StorageMaintenanceResult) -> String {
+pub(crate) fn format_storage_maintenance(result: &StorageMaintenanceResult) -> String {
     format!(
         "action={} files_touched={} bytes_observed={} pruned_until=[{}] safety_manifest={}",
         result.action,
@@ -467,7 +467,7 @@ pub(super) fn format_storage_maintenance(result: &StorageMaintenanceResult) -> S
     )
 }
 
-pub(super) fn format_metadata_log(records: &[MetadataOperationRecord]) -> String {
+pub(crate) fn format_metadata_log(records: &[MetadataOperationRecord]) -> String {
     let entries = records
         .iter()
         .map(|record| {
@@ -481,7 +481,7 @@ pub(super) fn format_metadata_log(records: &[MetadataOperationRecord]) -> String
     format!("count={} [{}]", records.len(), entries)
 }
 
-pub(super) fn format_query_route(route: &QueryRoute) -> String {
+pub(crate) fn format_query_route(route: &QueryRoute) -> String {
     match route {
         QueryRoute::LocalOnly => "local".to_string(),
         QueryRoute::RequiresRemoteShards(shards) => {
@@ -490,7 +490,7 @@ pub(super) fn format_query_route(route: &QueryRoute) -> String {
     }
 }
 
-pub(super) fn format_traversal_policy(policy: &RemoteTraversalPolicy) -> String {
+pub(crate) fn format_traversal_policy(policy: &RemoteTraversalPolicy) -> String {
     match policy {
         RemoteTraversalPolicy::BoundaryCacheOnly => "boundary_cache".to_string(),
         RemoteTraversalPolicy::RemoteShardHop(shards) => {
@@ -499,7 +499,7 @@ pub(super) fn format_traversal_policy(policy: &RemoteTraversalPolicy) -> String 
     }
 }
 
-pub(super) fn format_access_plan(plan: &QueryAccessPlan) -> String {
+pub(crate) fn format_access_plan(plan: &QueryAccessPlan) -> String {
     match plan {
         QueryAccessPlan::NodeUniqueIndexSeek { label, property } => {
             format!("node_unique_index_seek({label}.{property})")
@@ -525,7 +525,7 @@ pub(super) fn format_access_plan(plan: &QueryAccessPlan) -> String {
     }
 }
 
-pub(super) fn format_shard_list(shards: &[ShardId]) -> String {
+pub(crate) fn format_shard_list(shards: &[ShardId]) -> String {
     shards
         .iter()
         .map(ToString::to_string)
@@ -533,7 +533,7 @@ pub(super) fn format_shard_list(shards: &[ShardId]) -> String {
         .join(",")
 }
 
-pub(super) fn format_vector_index_status(statuses: &[neo4r_db::VectorIndexStatus]) -> String {
+pub(crate) fn format_vector_index_status(statuses: &[neo4r_db::VectorIndexStatus]) -> String {
     if statuses.is_empty() {
         return "none".to_string();
     }
@@ -554,7 +554,7 @@ pub(super) fn format_vector_index_status(statuses: &[neo4r_db::VectorIndexStatus
         .join(",")
 }
 
-pub(super) fn format_shard_status(status: &ShardStatus) -> String {
+pub(crate) fn format_shard_status(status: &ShardStatus) -> String {
     let primary = status
         .primary_server_id
         .map(|server_id| server_id.to_string())

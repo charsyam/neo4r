@@ -17,7 +17,5 @@ pub(crate) struct NativeExecutionContext {
     pub(crate) replication_tls_channel_config: ReplicationTlsChannelConfigStore,
 }
 
-#[path = "native_execution/frames_queries.rs"]
-mod native_execution_frames_queries;
-#[path = "native_execution/transactions.rs"]
-mod native_execution_transactions;
+mod frames_queries;
+mod transactions;

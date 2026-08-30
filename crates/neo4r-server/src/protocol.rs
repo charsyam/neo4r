@@ -3,12 +3,11 @@ use neo4r_core::{
 };
 use neo4r_db::{
     ClusterManagementStatus, ClusterMembership, ClusterMetadataState, ClusterStatus,
-    DatabaseResult, DistributedQueryPlan, IndexCatalog, IndexDefinition, IndexKind,
-    MetadataOperationRecord, Neo4rDatabaseHandle, NodeMembershipState, QueryAccessPlan,
-    QueryOperatorProfile, QueryProfile, QueryRoute, RebalanceExecution, RebalancePlan,
-    RebalancePlanState, RebalancePolicy, RebalanceStep, RebalanceStepState, RemoteTraversalPolicy,
-    ReplicationChannelKind, ShardAssignmentState, ShardStatus, StatisticsCatalog,
-    StorageMaintenanceResult, StorageStatus,
+    DistributedQueryPlan, IndexCatalog, IndexDefinition, IndexKind, MetadataOperationRecord,
+    NodeMembershipState, QueryAccessPlan, QueryOperatorProfile, QueryProfile, QueryRoute,
+    RebalanceExecution, RebalancePlan, RebalancePlanState, RebalanceStep, RebalanceStepState,
+    RemoteTraversalPolicy, ReplicationChannelKind, ShardAssignmentState, ShardStatus,
+    StatisticsCatalog, StorageMaintenanceResult, StorageStatus,
 };
 use neo4r_query::{QueryParams, QueryRow};
 use std::io::{self, Write};
@@ -858,13 +857,10 @@ mod format;
 mod parse_helpers;
 mod row_codec;
 
-pub use execute::{execute_request, format_response, write_response};
-pub(crate) use format::{
-    format_protocol_capabilities, format_query_plan, format_rebalance_execution,
-    format_routing_table,
-};
-pub use parse_helpers::decode_index_catalog;
+pub use execute::{format_response, write_response};
+pub(crate) use format::*;
 use parse_helpers::*;
+pub use parse_helpers::{decode_index_catalog, encode_index_catalog};
 use row_codec::*;
 pub use row_codec::{
     decode_query_batch_payload, decode_query_rows, encode_query_batch_payload, encode_query_rows,

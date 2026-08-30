@@ -811,24 +811,15 @@ impl TcpBackend {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        let Ok(mut entries) = self.slow_queries.entries.lock() else {
-            self.metrics.http_errors.fetch_add(1, Ordering::Relaxed);
-            return;
-        };
-        entries.push(SlowQueryEntry {
+        self.slow_queries.push(SlowQueryEntry {
             unix_ms,
             elapsed_ms: elapsed.as_millis(),
             query: query.to_string(),
         });
-        if entries.len() > 128 {
-            entries.remove(0);
-        }
     }
 
     pub(crate) fn slow_queries_json(&self) -> String {
-        let Ok(entries) = self.slow_queries.entries.lock() else {
-            return "{\"queries\":[],\"error\":\"slow query log lock poisoned\"}".to_string();
-        };
+        let entries = self.slow_queries.entries();
         format!(
             "{{\"queries\":[{}]}}",
             entries

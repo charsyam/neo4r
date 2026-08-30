@@ -49,17 +49,19 @@ use Rust module boundaries instead of text-level composition:
 
 - `neo4r-query::cypher`: facade plus `parse`, `binding`, and `execute`
   submodules.
-- `neo4r-db::database`: public DB facade plus focused DB, cluster, schema,
-  Cypher write, and helper submodules.
+- `neo4r-db::database`: public DB facade plus focused config, DB, cluster,
+  schema, Cypher write, and helper submodules.
 - `neo4r-db::replication`: replication facade plus TCP request and response
   codec modules.
-- `neo4r-server::protocol`: request model facade plus execute, parse helper,
-  format, and row codec modules.
-- `neo4r-server` backend: root facade plus feature modules for HTTP admin,
-  web query/backup, native execution, worker pools, transaction handling,
-  distributed query, remote transactions, replication admin, and web assets.
+- `neo4r-server::protocol`: request/response model facade plus parse helper,
+  format, row codec, and response writing modules. DB command execution lives
+  in the backend layer.
+- `neo4r-server::backend`: nested backend facade plus feature modules for HTTP
+  admin, web query/backup, native execution, worker pools, transaction
+  handling, distributed query, remote transactions, replication admin, shared
+  backend state, and web assets.
 - DB/server/protocol tests: behavior-named real Rust modules with shared test
-  fixtures imported through the parent test module.
+  fixtures imported through dedicated support modules.
 
 The facade imports only the sibling functions and types it needs. Sibling module
 contracts are kept at `pub(super)` or `pub(crate)` depending on whether the
@@ -75,9 +77,8 @@ consumer is a direct sibling or another backend submodule.
 
 ## Next Formalization Targets
 
-1. Move backend modules from root-level `#[path]` modules into a nested
-   `server::backend` facade once public re-exports are fully explicit.
-2. Continue splitting the remaining 800-1000 line DB files by store, planning,
+1. Continue splitting the remaining 800-1000 line DB files by store, planning,
    metadata persistence, and validation responsibilities before they grow.
-3. Extract shared test fixtures into dedicated `support` modules so test modules
-   no longer need broad parent imports.
+2. Split the largest server HTTP modules into route, authorization, and
+   response-building submodules.
+3. Continue replacing broad parent test imports with explicit support imports.

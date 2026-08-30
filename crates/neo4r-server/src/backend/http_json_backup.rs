@@ -1,10 +1,8 @@
 use super::*;
-#[path = "http_json_backup/backup.rs"]
-mod http_json_backup_backup;
-#[path = "http_json_backup/json.rs"]
-mod http_json_backup_json;
-pub(crate) use http_json_backup_backup::*;
-pub(crate) use http_json_backup_json::*;
+mod backup;
+mod json;
+pub(crate) use backup::*;
+pub(crate) use json::*;
 
 pub(crate) struct HttpRequest {
     pub(crate) method: String,

@@ -4,6 +4,7 @@ set -euo pipefail
 grep -q "native_protocol_version" docs/release_compatibility_matrix.yml
 grep -q "storage_manifest_format" docs/release_compatibility_matrix.yml
 grep -q "unknown_keys_rejected" docs/release_compatibility_matrix.yml
+grep -q "previous-release-compatibility-fixture" docs/previous_release_fixture.yml
 
 scripts/protocol-compat.sh
 scripts/protocol-matrix.sh

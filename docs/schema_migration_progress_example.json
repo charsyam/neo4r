@@ -1,0 +1,10 @@
+{
+  "migration_id": "idx-person-email-v1",
+  "index_name": "person_email",
+  "state": "backfilling",
+  "processed_rows": 1024,
+  "total_estimated_rows": 4096,
+  "retry_count": 1,
+  "last_error": null,
+  "updated_unix_ms": 1788070000000
+}

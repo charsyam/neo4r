@@ -139,7 +139,7 @@ pub(super) fn pitr_restore_apply_requires_confirmation_and_writes_manifest() {
 
     let confirmed_body = "{\"target_physical_ms\":18446744073709551615,\"target_logical\":0,\"confirm\":\"RESTORE_PITR\"}";
     let accepted = web_request(
-        backend,
+        backend.clone(),
         &format!(
             "POST /api/admin/restore-pitr/apply HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
             confirmed_body.len(),
@@ -152,6 +152,26 @@ pub(super) fn pitr_restore_apply_requires_confirmation_and_writes_manifest() {
     assert!(manifest.contains("pitr_restore_manifest:v1"));
     assert!(manifest.contains("target_physical_ms=18446744073709551615"));
     assert!(manifest.contains("\"target_index\":1"));
+
+    let pending = web_request(
+        backend.clone(),
+        "GET /api/admin/restore-pitr/pending HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\n\r\n",
+    );
+    assert!(pending.contains("HTTP/1.1 200 OK"), "{pending}");
+    assert!(pending.contains("\"pending\":true"));
+    assert!(pending.contains("pitr_restore_manifest:v1"));
+
+    let complete_body = "{\"confirm\":\"PITR_COMPLETE\"}";
+    let completed = web_request(
+        backend,
+        &format!(
+            "POST /api/admin/restore-pitr/complete HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            complete_body.len(),
+            complete_body
+        ),
+    );
+    assert!(completed.contains("HTTP/1.1 200 OK"), "{completed}");
+    assert!(!dir.join("system").join("pitr-restore.pending").exists());
     let _ = fs::remove_dir_all(dir);
 }
 

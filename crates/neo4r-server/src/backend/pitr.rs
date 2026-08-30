@@ -75,6 +75,65 @@ impl TcpBackend {
         ))
     }
 
+    pub(crate) fn pitr_restore_pending_json(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        database_name: &str,
+    ) -> Result<String, String> {
+        let manifest_path = pitr_pending_manifest_path(db)?;
+        let Some(manifest) = std::fs::read_to_string(&manifest_path)
+            .map(Some)
+            .or_else(|err| {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            })
+            .map_err(|err| err.to_string())?
+        else {
+            return Ok(format!(
+                "{{\"database\":\"{}\",\"pending\":false}}",
+                json_escape(database_name)
+            ));
+        };
+        Ok(format!(
+            "{{\"database\":\"{}\",\"pending\":true,\"manifest\":\"{}\",\"content\":\"{}\"}}",
+            json_escape(database_name),
+            json_escape(&manifest_path.display().to_string()),
+            json_escape(&manifest)
+        ))
+    }
+
+    pub(crate) fn pitr_restore_complete_json(
+        &self,
+        db: &Neo4rDatabaseHandle,
+        database_name: &str,
+        body: &str,
+    ) -> Result<String, String> {
+        if extract_optional_json_string_field(body, "confirm")?.as_deref() != Some("PITR_COMPLETE")
+        {
+            return Err("PITR completion requires confirm=\"PITR_COMPLETE\"".to_string());
+        }
+        let manifest_path = pitr_pending_manifest_path(db)?;
+        std::fs::remove_file(&manifest_path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                "no pending PITR restore manifest".to_string()
+            } else {
+                err.to_string()
+            }
+        })?;
+        self.audit_admin(
+            "restore.pitr.complete",
+            database_name,
+            &format!("manifest={}", manifest_path.display()),
+        );
+        Ok(format!(
+            "{{\"database\":\"{}\",\"pending\":false,\"completed\":true}}",
+            json_escape(database_name)
+        ))
+    }
+
     fn pitr_restore_plan_shards(
         &self,
         db: &Neo4rDatabaseHandle,
@@ -102,4 +161,12 @@ impl TcpBackend {
         }
         Ok(shard_plans)
     }
+}
+
+fn pitr_pending_manifest_path(db: &Neo4rDatabaseHandle) -> Result<std::path::PathBuf, String> {
+    Ok(db
+        .data_dir()
+        .map_err(|err| err.to_string())?
+        .join("system")
+        .join("pitr-restore.pending"))
 }

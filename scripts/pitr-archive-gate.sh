@@ -14,4 +14,5 @@ cargo test -p neo4r-db pitr_timestamp_target_selects_committed_entries_at_or_bef
 cargo test -p neo4r-server pitr_restore_plan_requires_admin_and_reports_target_indexes --quiet
 cargo test -p neo4r-server pitr_restore_apply_requires_confirmation_and_writes_manifest --quiet
 cargo test -p neo4r-client parses_cli_subcommands --quiet
+scripts/pitr-restore-worker-gate.sh
 echo "neo4r PITR archive gate passed"

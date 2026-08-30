@@ -78,7 +78,9 @@ pub(crate) fn web_action_for_request(request: &HttpRequest) -> Option<WebAction>
         ("POST", "/api/backup") => Some(WebAction::BackupAdmin),
         ("POST", "/api/restore")
         | ("POST", "/api/admin/restore-pitr")
-        | ("POST", "/api/admin/restore-pitr/apply") => Some(WebAction::RestoreAdmin),
+        | ("POST", "/api/admin/restore-pitr/apply")
+        | ("GET", "/api/admin/restore-pitr/pending")
+        | ("POST", "/api/admin/restore-pitr/complete") => Some(WebAction::RestoreAdmin),
         ("POST", "/api/admin/raft/step-down")
         | ("POST", "/api/admin/raft/snapshot")
         | ("POST", "/api/admin/raft/transfer-leader") => Some(WebAction::RaftAdmin),

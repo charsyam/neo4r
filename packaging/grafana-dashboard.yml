@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4r-grafana-dashboard
+  labels:
+    grafana_dashboard: "1"
+data:
+  neo4r-production-overview.json: |
+    {
+      "title": "Neo4r Production Overview",
+      "schemaVersion": 39,
+      "panels": [
+        { "title": "Raft Leaders", "type": "timeseries", "targets": [{ "expr": "neo4r_raft_leaders" }] },
+        { "title": "Shard Lag", "type": "timeseries", "targets": [{ "expr": "neo4r_database_shard_lag" }] },
+        { "title": "Backup/Restore Last Success", "type": "stat", "targets": [{ "expr": "neo4r_backup_restore_last_success_timestamp_seconds" }] },
+        { "title": "Storage Repair Failures", "type": "timeseries", "targets": [{ "expr": "neo4r_storage_repair_failures_total" }] }
+      ]
+    }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: neo4r-alerts
+spec:
+  groups:
+    - name: neo4r-operational-alerts
+      rules:
+        - alert: Neo4rRaftNoLeader
+          expr: neo4r_raft_leaders == 0
+          for: 30s
+          labels:
+            severity: page
+        - alert: Neo4rStorageRepairFailures
+          expr: increase(neo4r_storage_repair_failures_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: page

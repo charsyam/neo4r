@@ -3,6 +3,7 @@ set -euo pipefail
 
 grep -q "Transfer shard leadership" docs/tls_rotation_runbook.md
 grep -q "certificate expires" docs/tls_rotation_runbook.md
+grep -q "neo4r_tls_cert_not_after_seconds" docs/tls_cert_inventory.yml
 grep -q "web_tls_require_client_auth: true" packaging/server.production.yml
 grep -Eq "replication_tls_mode: (external|required)" packaging/server.production.yml
 

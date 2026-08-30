@@ -1,0 +1,21 @@
+version: 1
+scope: tls-cert-hot-reload-and-expiry
+watched_files:
+  - native_tls_cert
+  - native_tls_key
+  - native_tls_client_ca
+  - web_tls_cert
+  - web_tls_key
+  - web_tls_client_ca
+  - replication_tls_cert
+  - replication_tls_key
+  - replication_tls_client_ca
+  - replication_tls_ca
+metrics:
+  - neo4r_tls_cert_not_after_seconds
+  - neo4r_tls_cert_reload_success_total
+  - neo4r_tls_cert_reload_failure_total
+reload:
+  trigger: file_mtime_change
+  strategy: build_new_acceptor_before_swap
+  rollback: keep_previous_valid_config

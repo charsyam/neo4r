@@ -3,6 +3,8 @@
 Neo4r web/admin RBAC is action-based. HTTP routes do not compare raw role names
 as the source of truth; routes are assigned to `WebAction`, and
 `web_role_allows_action(role, action)` evaluates the minimum required role.
+The policy model is allow-list based with explicit deny precedence: any future
+resource-level deny must be evaluated before role inheritance or wildcard grants.
 
 ## Roles
 
@@ -59,3 +61,5 @@ in RocksDB through the token record's `database_roles` field.
 When `database_roles` is empty, the token's base role applies to every database.
 Revoking a database-scoped role removes only that override; it does not revoke
 the token itself. To remove all access, call the token revoke endpoint.
+This preserves backward compatibility while making deny precedence explicit for
+future per-resource policies.

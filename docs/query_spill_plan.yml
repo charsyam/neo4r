@@ -1,0 +1,17 @@
+version: 1
+scope: query-spill-executor
+spill_directory: /var/lib/neo4r/query-spill
+operators:
+  sort:
+    spill_format: sorted-runs-v1
+    merge_strategy: bounded-fan-in
+  aggregate:
+    spill_format: hash-partitions-v1
+    merge_strategy: partitioned-merge
+limits:
+  max_operator_memory_bytes: 67108864
+  max_spill_bytes_per_query: 1073741824
+cleanup:
+  on_success: remove_query_spill_dir
+  on_cancel: remove_query_spill_dir
+  on_startup: remove_orphaned_spill_dirs

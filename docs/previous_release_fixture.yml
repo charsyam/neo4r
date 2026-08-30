@@ -1,0 +1,15 @@
+version: 1
+scope: previous-release-compatibility-fixture
+fixtures:
+  - name: protocol-v1-frame
+    path: docs/protocol_matrix.md
+  - name: yaml-production-config
+    path: packaging/server.production.yml
+  - name: pitr-archive-contract
+    path: docs/pitr_archive_contract.yml
+  - name: backup-restore-contract
+    path: docs/backup_restore.md
+comparison:
+  previous_artifact_env: NEO4R_PREVIOUS_RELEASE_DIR
+  default_mode: current-fixture-self-check
+  required_when_env_present: true

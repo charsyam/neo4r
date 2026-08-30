@@ -15,14 +15,18 @@ required_files=(
   docs/query_cost_model.yml
   docs/query_statistics_maintenance.yml
   docs/query_guardrails.yml
+  docs/query_spill_plan.yml
   docs/prometheus_alerts.yml
   docs/grafana_dashboard.json
   docs/observability_slo.yml
   docs/security_hardening_contract.yml
   docs/rbac_policy.md
   docs/tls_rotation_runbook.md
+  docs/tls_cert_inventory.yml
   docs/schema_migration_contract.yml
+  docs/schema_migration_progress_example.json
   docs/safe_watermark_gc.yml
+  docs/gc_executor_contract.yml
   docs/repair_automation_contract.yml
   docs/packaging_readiness.yml
   docs/raft_production_semantics.md
@@ -30,11 +34,13 @@ required_files=(
   docs/incident_runbook.md
   docs/chaos_longevity_plan.yml
   docs/pitr_restore_apply.md
+  docs/previous_release_fixture.yml
   docs/restore_drill_schedule.yml
   docs/slo_dashboard_example.yml
   packaging/neo4r-server.service
   packaging/neo4r-server.env
   packaging/neo4r.logrotate
+  packaging/grafana-dashboard.yml
   packaging/server.production.yml
   packaging/kubernetes/neo4r-configmap.yml
   packaging/kubernetes/neo4r-service.yml
@@ -81,10 +87,17 @@ grep -q "frequency: daily" docs/restore_drill_schedule.yml
 grep -q "RESTORE_PITR" docs/pitr_restore_apply.md
 grep -q "node_kill_restart" docs/chaos_longevity_plan.yml
 grep -q "operator_memory_budget_bytes" docs/query_guardrails.yml
+grep -q "sorted-runs-v1" docs/query_spill_plan.yml
 grep -q "durable_progress_key" docs/schema_migration_contract.yml
+grep -q '"processed_rows"' docs/schema_migration_progress_example.json
 grep -q "all_voters_match_index_above_delete_index" docs/safe_watermark_gc.yml
+grep -q "GC_DELETE" docs/gc_executor_contract.yml
 grep -q "Neo4r Production Overview" docs/grafana_dashboard.json
+grep -q "kind: PrometheusRule" packaging/grafana-dashboard.yml
 grep -q "native_protocol_version" docs/release_compatibility_matrix.yml
+grep -q "NEO4R_PREVIOUS_RELEASE_DIR" docs/previous_release_fixture.yml
 grep -q "Transfer shard leadership" docs/tls_rotation_runbook.md
+grep -q "neo4r_tls_cert_not_after_seconds" docs/tls_cert_inventory.yml
+grep -q "workflow_dispatch" .github/workflows/production-live.yml
 
 echo "neo4r production artifact checks passed"

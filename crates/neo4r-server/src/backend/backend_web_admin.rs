@@ -525,6 +525,20 @@ impl TcpBackend {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
+            ("GET", "/api/admin/restore-pitr/pending") => {
+                match selected_db()
+                    .and_then(|db| self.pitr_restore_pending_json(&db, &database_name))
+                {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
+            ("POST", "/api/admin/restore-pitr/complete") => match selected_db()
+                .and_then(|db| self.pitr_restore_complete_json(&db, &database_name, &request.body))
+            {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
             ("POST", "/api/query") if !web_role_allows_action(role, WebAction::GraphWrite) => {
                 HttpResponse::json_status(403, json_error("forbidden"))
             }

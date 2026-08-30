@@ -1,0 +1,17 @@
+version: 1
+scope: backup-wal-snapshot-gc-executor
+state_file: system/gc-state.json
+plan_file: system/gc-plan.json
+phases:
+  - discover_candidates
+  - compute_safe_watermark
+  - verify_remote_archive_checksum
+  - write_gc_plan
+  - delete_payloads
+  - persist_gc_state
+  - emit_audit_event
+safety:
+  dry_run_default: true
+  destructive_confirmation: GC_DELETE
+  never_delete_pending_restore_inputs: true
+  keep_latest_successful_backup: true

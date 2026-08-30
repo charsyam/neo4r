@@ -6,6 +6,10 @@ PITR restore has two HTTP phases.
    hybrid timestamp and returns a dry-run plan.
 2. `POST /api/admin/restore-pitr/apply` requires `confirm: "RESTORE_PITR"` and
    writes `system/pitr-restore.pending` under the selected database directory.
+3. `GET /api/admin/restore-pitr/pending` returns the durable pending manifest so
+   an operator or restore worker can verify the exact target before replay.
+4. `POST /api/admin/restore-pitr/complete` requires `confirm: "PITR_COMPLETE"`
+   and removes the pending manifest after the restore worker has completed.
 
 The pending manifest is durable and contains the selected database, target
 hybrid timestamp, and target shard indexes. Restore application workers must

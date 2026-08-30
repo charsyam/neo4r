@@ -265,6 +265,49 @@ impl WebUserTokenStore {
         Ok(())
     }
 
+    pub(super) fn grant_database_role(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+        role: WebRole,
+    ) -> Result<WebUserToken, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web token store lock poisoned".to_string())?;
+        let user_key = web_user_token_key(name, token_id);
+        let Some(value) = kv.get(&user_key).map_err(|err| err.to_string())? else {
+            return Err(format!("unknown token {name:?}/{token_id:?}"));
+        };
+        let mut record = decode_web_user_token(&value)?;
+        record.database_roles.insert(database.to_string(), role);
+        kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+            .map_err(|err| err.to_string())?;
+        Ok(record)
+    }
+
+    pub(super) fn revoke_database_role(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+    ) -> Result<WebUserToken, String> {
+        let mut kv = self
+            .kv
+            .lock()
+            .map_err(|_| "web token store lock poisoned".to_string())?;
+        let user_key = web_user_token_key(name, token_id);
+        let Some(value) = kv.get(&user_key).map_err(|err| err.to_string())? else {
+            return Err(format!("unknown token {name:?}/{token_id:?}"));
+        };
+        let mut record = decode_web_user_token(&value)?;
+        record.database_roles.remove(database);
+        kv.put(&user_key, encode_web_user_token(&record).as_bytes())
+            .map_err(|err| err.to_string())?;
+        Ok(record)
+    }
+
     fn touch_last_used(
         &self,
         name: &str,

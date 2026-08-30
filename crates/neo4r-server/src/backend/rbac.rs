@@ -65,6 +65,8 @@ pub(crate) fn web_action_for_request(request: &HttpRequest) -> Option<WebAction>
         | ("POST", "/api/admin/users/delete")
         | ("POST", "/api/admin/users/tokens")
         | ("POST", "/api/admin/users/tokens/revoke")
+        | ("POST", "/api/admin/grant-role")
+        | ("POST", "/api/admin/revoke-role")
         | ("POST", "/api/admin/tokens/cleanup") => Some(WebAction::TokenAdmin),
         ("GET", "/api/admin/databases")
         | ("POST", "/api/admin/databases")
@@ -74,9 +76,9 @@ pub(crate) fn web_action_for_request(request: &HttpRequest) -> Option<WebAction>
         | ("POST", "/api/admin/audit/prune")
         | ("GET", "/api/admin/audit/export") => Some(WebAction::AuditAdmin),
         ("POST", "/api/backup") => Some(WebAction::BackupAdmin),
-        ("POST", "/api/restore") | ("POST", "/api/admin/restore-pitr") => {
-            Some(WebAction::RestoreAdmin)
-        }
+        ("POST", "/api/restore")
+        | ("POST", "/api/admin/restore-pitr")
+        | ("POST", "/api/admin/restore-pitr/apply") => Some(WebAction::RestoreAdmin),
         ("POST", "/api/admin/raft/step-down")
         | ("POST", "/api/admin/raft/snapshot")
         | ("POST", "/api/admin/raft/transfer-leader") => Some(WebAction::RaftAdmin),

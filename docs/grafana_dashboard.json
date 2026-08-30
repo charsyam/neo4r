@@ -1,0 +1,31 @@
+{
+  "title": "Neo4r Production Overview",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "Raft Leaders",
+      "type": "timeseries",
+      "targets": [{ "expr": "neo4r_raft_leaders" }]
+    },
+    {
+      "title": "Shard Lag",
+      "type": "timeseries",
+      "targets": [{ "expr": "neo4r_database_shard_lag" }]
+    },
+    {
+      "title": "Backup/Restore Last Success",
+      "type": "stat",
+      "targets": [{ "expr": "neo4r_backup_restore_last_success_timestamp_seconds" }]
+    },
+    {
+      "title": "Storage Repair Failures",
+      "type": "timeseries",
+      "targets": [{ "expr": "neo4r_storage_repair_failures_total" }]
+    },
+    {
+      "title": "Query Errors",
+      "type": "timeseries",
+      "targets": [{ "expr": "rate(neo4r_query_errors_total[5m])" }]
+    }
+  ]
+}

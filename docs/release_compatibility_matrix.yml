@@ -1,0 +1,22 @@
+version: 1
+scope: release-compatibility-matrix
+golden_dimensions:
+  - native_protocol_version
+  - query_result_contract
+  - rust_sdk_api
+  - python_sdk_api
+  - yaml_config_format
+  - storage_manifest_format
+  - backup_manifest_format
+  - raft_snapshot_format
+rules:
+  protocol: additive_or_version_bumped
+  sdk: no_silent_breaking_changes
+  config: unknown_keys_rejected
+  storage: old_snapshot_and_wal_reopen_required
+required_checks:
+  - scripts/protocol-compat.sh
+  - scripts/protocol-matrix.sh
+  - scripts/sdk-api-parity.sh
+  - scripts/sdk-compat.sh
+  - scripts/compatibility-matrix-gate.sh

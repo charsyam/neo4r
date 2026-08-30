@@ -1,0 +1,25 @@
+version: 1
+scope: online-schema-index-migration
+state_machine:
+  - planned
+  - building
+  - backfilling
+  - ready
+  - failed
+  - retrying
+  - dropped
+resume:
+  durable_progress_key: system/schema-migration-progress
+  retry_policy: bounded_exponential_backoff
+  idempotent_steps_required: true
+operator_visibility:
+  - index_name
+  - state
+  - processed_rows
+  - total_estimated_rows
+  - last_error
+  - retry_count
+required_checks:
+  - vector index rebuild status survives reopen
+  - index catalog sync from peer
+  - scripts/schema-migration-gate.sh

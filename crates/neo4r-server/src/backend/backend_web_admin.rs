@@ -364,6 +364,28 @@ impl TcpBackend {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
             },
+            ("POST", "/api/admin/grant-role")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/grant-role") => {
+                match self.grant_web_database_role(&request.body) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
+            ("POST", "/api/admin/revoke-role")
+                if !web_role_allows_action(role, WebAction::TokenAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/revoke-role") => {
+                match self.revoke_web_database_role(&request.body) {
+                    Ok(body) => HttpResponse::json(body),
+                    Err(err) => HttpResponse::json_status(400, json_error(&err)),
+                }
+            }
             ("POST", "/api/admin/cleanup-expired-tokens")
                 if !web_role_allows_action(role, WebAction::TokenAdmin) =>
             {
@@ -488,6 +510,17 @@ impl TcpBackend {
             }
             ("POST", "/api/admin/restore-pitr") => match selected_db()
                 .and_then(|db| self.pitr_restore_plan_json(&db, &database_name, &request.body))
+            {
+                Ok(body) => HttpResponse::json(body),
+                Err(err) => HttpResponse::json_status(400, json_error(&err)),
+            },
+            ("POST", "/api/admin/restore-pitr/apply")
+                if !web_role_allows_action(role, WebAction::RestoreAdmin) =>
+            {
+                HttpResponse::json_status(403, json_error("forbidden"))
+            }
+            ("POST", "/api/admin/restore-pitr/apply") => match selected_db()
+                .and_then(|db| self.pitr_restore_apply_json(&db, &database_name, &request.body))
             {
                 Ok(body) => HttpResponse::json(body),
                 Err(err) => HttpResponse::json_status(400, json_error(&err)),
@@ -806,6 +839,47 @@ impl TcpBackend {
             .ok_or_else(|| "web user token store is unavailable".to_string())?
             .revoke(&name, &token_id)?;
         self.audit_admin("token.revoke", &format!("{name}/{token_id}"), "revoked");
+        self.web_users_json()
+    }
+
+    pub(crate) fn grant_web_database_role(&self, body: &str) -> Result<String, String> {
+        let name = extract_json_string_field(body, "name")?;
+        let token_id = extract_json_string_field(body, "token_id")?;
+        let database = extract_json_string_field(body, "database")?;
+        let role = parse_web_role(&extract_json_string_field(body, "role")?)?;
+        let reason = extract_optional_json_string_field(body, "reason")?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "unspecified".to_string());
+        validate_database_name(&database)?;
+        self.web_user_tokens
+            .as_ref()
+            .ok_or_else(|| "web user token store is unavailable".to_string())?
+            .grant_database_role(&name, &token_id, &database, role)?;
+        self.audit_admin(
+            "rbac.grant",
+            &format!("{name}/{token_id}/{database}"),
+            &format!("role={} reason={}", role.as_str(), reason),
+        );
+        self.web_users_json()
+    }
+
+    pub(crate) fn revoke_web_database_role(&self, body: &str) -> Result<String, String> {
+        let name = extract_json_string_field(body, "name")?;
+        let token_id = extract_json_string_field(body, "token_id")?;
+        let database = extract_json_string_field(body, "database")?;
+        let reason = extract_optional_json_string_field(body, "reason")?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "unspecified".to_string());
+        validate_database_name(&database)?;
+        self.web_user_tokens
+            .as_ref()
+            .ok_or_else(|| "web user token store is unavailable".to_string())?
+            .revoke_database_role(&name, &token_id, &database)?;
+        self.audit_admin(
+            "rbac.revoke",
+            &format!("{name}/{token_id}/{database}"),
+            &format!("reason={reason}"),
+        );
         self.web_users_json()
     }
 

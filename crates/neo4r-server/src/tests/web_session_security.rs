@@ -117,6 +117,100 @@ pub(super) fn pitr_restore_plan_requires_admin_and_reports_target_indexes() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+pub(super) fn pitr_restore_apply_requires_confirmation_and_writes_manifest() {
+    let dir = temp_dir("neo4r-web-pitr-apply");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1)).unwrap();
+    db.execute_cypher(r#"CREATE (n:Pitr {name: "Before"})"#)
+        .unwrap();
+    let body = "{\"target_physical_ms\":18446744073709551615,\"target_logical\":0}";
+    let backend = TcpBackend::new(db.clone())
+        .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250));
+
+    let rejected = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/restore-pitr/apply HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    );
+    assert!(rejected.contains("HTTP/1.1 400 Bad Request"), "{rejected}");
+
+    let confirmed_body = "{\"target_physical_ms\":18446744073709551615,\"target_logical\":0,\"confirm\":\"RESTORE_PITR\"}";
+    let accepted = web_request(
+        backend,
+        &format!(
+            "POST /api/admin/restore-pitr/apply HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            confirmed_body.len(),
+            confirmed_body
+        ),
+    );
+    assert!(accepted.contains("HTTP/1.1 200 OK"), "{accepted}");
+    assert!(accepted.contains("\"accepted\":true"));
+    let manifest = fs::read_to_string(dir.join("system").join("pitr-restore.pending")).unwrap();
+    assert!(manifest.contains("pitr_restore_manifest:v1"));
+    assert!(manifest.contains("target_physical_ms=18446744073709551615"));
+    assert!(manifest.contains("\"target_index\":1"));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn rbac_grant_and_revoke_role_record_audit_reason() {
+    let dir = temp_dir("neo4r-web-rbac-grant-revoke");
+    let config = DatabaseConfig::new(&dir, 1, 1);
+    let db = Neo4rDatabaseHandle::open(config.clone()).unwrap();
+    let backend = TcpBackend::new(db)
+        .with_multi_tenant_config(config)
+        .unwrap()
+        .with_web_options(Some("admin:secret".to_string()), Duration::from_millis(250));
+    let invoke_body = "{\"name\":\"alice\",\"token_id\":\"main\",\"role\":\"reader\",\"token\":\"alice-token\",\"expired_at\":\"0\"}";
+    let invoke = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/invoke-token HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            invoke_body.len(),
+            invoke_body
+        ),
+    );
+    assert!(invoke.contains("HTTP/1.1 200 OK"), "{invoke}");
+
+    let grant_body = "{\"name\":\"alice\",\"token_id\":\"main\",\"database\":\"tenant_a\",\"role\":\"writer\",\"reason\":\"ticket-123\"}";
+    let grant = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/grant-role HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            grant_body.len(),
+            grant_body
+        ),
+    );
+    assert!(grant.contains("HTTP/1.1 200 OK"), "{grant}");
+    assert!(grant.contains("tenant_a=writer"));
+
+    let revoke_body =
+        "{\"name\":\"alice\",\"token_id\":\"main\",\"database\":\"tenant_a\",\"reason\":\"ticket-124\"}";
+    let revoke = web_request(
+        backend.clone(),
+        &format!(
+            "POST /api/admin/revoke-role HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\ncontent-length: {}\r\n\r\n{}",
+            revoke_body.len(),
+            revoke_body
+        ),
+    );
+    assert!(revoke.contains("HTTP/1.1 200 OK"), "{revoke}");
+    assert!(!revoke.contains("tenant_a=writer"));
+
+    let audit = web_request(
+        backend,
+        "GET /api/admin/audit-log HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer admin:secret\r\n\r\n",
+    );
+    assert!(audit.contains("rbac.grant"));
+    assert!(audit.contains("reason=ticket-123"));
+    assert!(audit.contains("rbac.revoke"));
+    assert!(audit.contains("reason=ticket-124"));
+    let _ = fs::remove_dir_all(dir);
+}
+
 fn json_response_field(response: &str, name: &str) -> String {
     response
         .split(&format!("\"{name}\":\""))

@@ -1,0 +1,27 @@
+version: 1
+scope: s3-compatible-backup-restore-e2e
+provider: s3-compatible
+default_ci_mode: contract
+live_mode_env: NEO4R_RUN_OBJECT_STORAGE_E2E
+required_env:
+  - NEO4R_S3_ENDPOINT
+  - NEO4R_S3_BUCKET
+  - NEO4R_S3_ACCESS_KEY
+  - NEO4R_S3_SECRET_KEY
+flow:
+  - create_source_database
+  - write_graph_fixture
+  - backup_to_local_manifest
+  - upload_manifest_and_payload
+  - download_to_isolated_restore_dir
+  - restore_dry_run
+  - restore_apply_with_confirmation
+  - verify_checksum_and_query_results
+retention:
+  delete_order:
+    - expired_wal_archives
+    - expired_backup_payloads
+    - expired_manifests_after_payload_delete
+required_checks:
+  - scripts/object-storage-smoke.sh
+  - scripts/object-storage-e2e.sh

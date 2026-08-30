@@ -10,7 +10,10 @@ archive:
     target_unit: hybrid_timestamp
     selection_rule: replay committed entries with entry.timestamp <= target_timestamp
     rejection_rule: reject targets below snapshot lower bound unless matching snapshot is selected
-    dry_run_required: true
+    dry_run_endpoint: /api/admin/restore-pitr
+    apply_endpoint: /api/admin/restore-pitr/apply
+    apply_confirmation: RESTORE_PITR
+    pending_manifest: system/pitr-restore.pending
   required_checks:
     - archive-readable
     - segment-contiguity
@@ -19,3 +22,4 @@ archive:
     - timestamp-targeted-restore-dry-run
     - pitr-restore-plan-api
     - pitr-restore-cli-command
+    - pitr-restore-apply-manifest

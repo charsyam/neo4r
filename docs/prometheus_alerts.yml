@@ -36,3 +36,10 @@ groups:
           severity: warning
         annotations:
           summary: "Neo4r Raft append conflicts were observed"
+      - alert: Neo4rStorageRepairFailures
+        expr: increase(neo4r_storage_repair_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Neo4r storage repair failures were observed"

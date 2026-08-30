@@ -232,6 +232,48 @@ impl HttpAdminClient {
         )
     }
 
+    pub fn grant_role(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+        role: &str,
+        reason: Option<&str>,
+    ) -> ClientResult<String> {
+        let mut payload = format!(
+            r#"{{"name":"{}","token_id":"{}","database":"{}","role":"{}""#,
+            json_escape(name),
+            json_escape(token_id),
+            json_escape(database),
+            json_escape(role)
+        );
+        if let Some(reason) = reason {
+            payload.push_str(&format!(r#","reason":"{}""#, json_escape(reason)));
+        }
+        payload.push('}');
+        self.request_json("POST", "/api/admin/grant-role", &payload, None)
+    }
+
+    pub fn revoke_role(
+        &self,
+        name: &str,
+        token_id: &str,
+        database: &str,
+        reason: Option<&str>,
+    ) -> ClientResult<String> {
+        let mut payload = format!(
+            r#"{{"name":"{}","token_id":"{}","database":"{}""#,
+            json_escape(name),
+            json_escape(token_id),
+            json_escape(database)
+        );
+        if let Some(reason) = reason {
+            payload.push_str(&format!(r#","reason":"{}""#, json_escape(reason)));
+        }
+        payload.push('}');
+        self.request_json("POST", "/api/admin/revoke-role", &payload, None)
+    }
+
     pub fn cleanup_expired_tokens(&self) -> ClientResult<String> {
         self.request_json("POST", "/api/admin/cleanup-expired-tokens", "{}", None)
     }
@@ -284,6 +326,27 @@ impl HttpAdminClient {
             &format!(
                 r#"{{"target_physical_ms":{},"target_logical":{},"dry_run":true}}"#,
                 target_physical_ms, target_logical
+            ),
+            None,
+        )
+    }
+
+    pub fn restore_pitr_apply(
+        &self,
+        target_physical_ms: u64,
+        target_logical: u32,
+        database: Option<&str>,
+        confirm: &str,
+    ) -> ClientResult<String> {
+        let endpoint = admin_path("/api/admin/restore-pitr/apply", database);
+        self.request_json(
+            "POST",
+            &endpoint,
+            &format!(
+                r#"{{"target_physical_ms":{},"target_logical":{},"confirm":"{}"}}"#,
+                target_physical_ms,
+                target_logical,
+                json_escape(confirm)
             ),
             None,
         )

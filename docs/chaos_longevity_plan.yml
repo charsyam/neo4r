@@ -1,0 +1,24 @@
+version: 1
+scope: multi-node-chaos-longevity
+default_ci_mode: contract
+live_mode_env: NEO4R_RUN_CHAOS_LONGEVITY
+duration:
+  smoke_seconds: 60
+  production_minimum_hours: 24
+faults:
+  - node_kill_restart
+  - network_partition_primary_replica
+  - delayed_replication_channel
+  - dropped_replication_batches
+  - clock_skew_observation
+  - rolling_restart
+invariants:
+  - committed_index_never_decreases
+  - applied_index_catches_up_after_heal
+  - no_stale_epoch_write_acceptance
+  - read_your_writes_after_commit
+  - routing_epoch_monotonic
+required_checks:
+  - scripts/cluster-chaos-smoke.sh
+  - scripts/multi-node-live-gate.sh
+  - scripts/production-chaos-longevity-gate.sh

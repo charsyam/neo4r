@@ -29,7 +29,11 @@ required_admin_methods=(
   list_databases
   invoke_token
   revoke_token
+  grant_role
+  revoke_role
   maintenance_mode
+  restore_pitr_plan
+  restore_pitr_apply
   query
   metrics
   routing_table

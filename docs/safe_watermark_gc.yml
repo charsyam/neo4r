@@ -1,0 +1,16 @@
+version: 1
+scope: wal-archive-snapshot-gc
+watermarks:
+  committed_index: never_delete_above_committed
+  applied_index: never_delete_unapplied_state
+  snapshot_index: wal_before_snapshot_can_be_collected_after_archive
+  archive_index: backup_retention_must_reference_existing_payload
+delete_preconditions:
+  - newest_retained_snapshot_covers_deleted_wal
+  - remote_archive_checksum_verified
+  - all_voters_match_index_above_delete_index
+  - no_pending_restore_manifest
+  - no_running_backup_manifest
+required_checks:
+  - scripts/wal-compaction.sh
+  - scripts/safe-watermark-gc-gate.sh

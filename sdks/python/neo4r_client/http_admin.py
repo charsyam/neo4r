@@ -50,6 +50,40 @@ class HttpAdminClient:
             {"name": name, "token_id": token_id},
         )
 
+    def grant_role(
+        self,
+        name: str,
+        token_id: str,
+        database: str,
+        role: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": name,
+            "token_id": token_id,
+            "database": database,
+            "role": role,
+        }
+        if reason is not None:
+            payload["reason"] = reason
+        return self._json("POST", "/api/admin/grant-role", payload)
+
+    def revoke_role(
+        self,
+        name: str,
+        token_id: str,
+        database: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": name,
+            "token_id": token_id,
+            "database": database,
+        }
+        if reason is not None:
+            payload["reason"] = reason
+        return self._json("POST", "/api/admin/revoke-role", payload)
+
     def maintenance_mode(
         self,
         enabled: bool,
@@ -59,6 +93,37 @@ class HttpAdminClient:
         if database is not None:
             payload["database"] = database
         return self._json("POST", "/api/admin/maintenance-mode", payload)
+
+    def restore_pitr_plan(
+        self,
+        target_physical_ms: int,
+        target_logical: int = 0,
+        database: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "target_physical_ms": target_physical_ms,
+            "target_logical": target_logical,
+            "dry_run": True,
+        }
+        if database is not None:
+            payload["database"] = database
+        return self._json("POST", "/api/admin/restore-pitr", payload)
+
+    def restore_pitr_apply(
+        self,
+        target_physical_ms: int,
+        target_logical: int = 0,
+        database: str | None = None,
+        confirm: str = "RESTORE_PITR",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "target_physical_ms": target_physical_ms,
+            "target_logical": target_logical,
+            "confirm": confirm,
+        }
+        if database is not None:
+            payload["database"] = database
+        return self._json("POST", "/api/admin/restore-pitr/apply", payload)
 
     def query(
         self,

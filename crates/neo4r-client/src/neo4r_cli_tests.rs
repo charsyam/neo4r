@@ -107,6 +107,45 @@ fn parses_cli_subcommands() {
     assert_eq!(pitr.restore_pitr_target_ms, Some(12345));
     assert_eq!(pitr.restore_pitr_target_logical, 7);
 
+    let pitr_apply = CliArgs::parse([
+        "admin".to_string(),
+        "restore-pitr-apply".to_string(),
+        "12345".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(pitr_apply.restore_pitr_target_ms, Some(12345));
+    assert_eq!(
+        pitr_apply.restore_pitr_apply_confirm,
+        Some("RESTORE_PITR".to_string())
+    );
+
+    let grant = CliArgs::parse([
+        "admin".to_string(),
+        "grant-role".to_string(),
+        "alice".to_string(),
+        "main".to_string(),
+        "tenant_a".to_string(),
+        "writer".to_string(),
+        "--grant-role-reason".to_string(),
+        "ticket-1".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(grant.grant_role_user, Some("alice".to_string()));
+    assert_eq!(grant.grant_role_database, Some("tenant_a".to_string()));
+    assert_eq!(grant.grant_role, "writer");
+    assert_eq!(grant.grant_role_reason, Some("ticket-1".to_string()));
+
+    let revoke = CliArgs::parse([
+        "admin".to_string(),
+        "revoke-role".to_string(),
+        "alice".to_string(),
+        "main".to_string(),
+        "tenant_a".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(revoke.revoke_role_user, Some("alice".to_string()));
+    assert_eq!(revoke.revoke_role_database, Some("tenant_a".to_string()));
+
     let backup = CliArgs::parse([
         "backup".to_string(),
         "create".to_string(),

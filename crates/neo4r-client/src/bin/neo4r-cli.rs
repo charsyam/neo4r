@@ -331,6 +331,36 @@ fn execute_admin_action(args: &CliArgs) -> Result<(), CliError> {
         })?;
         println!("{}", admin.revoke_token(user, token_id)?);
     }
+    if let Some(user) = &args.grant_role_user {
+        let token_id = args.grant_role_token_id.as_deref().ok_or_else(|| {
+            CliError::Usage("--grant-role-user requires --grant-role-token-id".to_string())
+        })?;
+        let database = args.grant_role_database.as_deref().ok_or_else(|| {
+            CliError::Usage("--grant-role-user requires --grant-role-database".to_string())
+        })?;
+        println!(
+            "{}",
+            admin.grant_role(
+                user,
+                token_id,
+                database,
+                &args.grant_role,
+                args.grant_role_reason.as_deref(),
+            )?
+        );
+    }
+    if let Some(user) = &args.revoke_role_user {
+        let token_id = args.revoke_role_token_id.as_deref().ok_or_else(|| {
+            CliError::Usage("--revoke-role-user requires --revoke-role-token-id".to_string())
+        })?;
+        let database = args.revoke_role_database.as_deref().ok_or_else(|| {
+            CliError::Usage("--revoke-role-user requires --revoke-role-database".to_string())
+        })?;
+        println!(
+            "{}",
+            admin.revoke_role(user, token_id, database, args.revoke_role_reason.as_deref(),)?
+        );
+    }
     if let Some(path) = &args.backup_path {
         println!("{}", admin.backup(path, database)?);
     }
@@ -346,10 +376,22 @@ fn execute_admin_action(args: &CliArgs) -> Result<(), CliError> {
         );
     }
     if let Some(target) = args.restore_pitr_target_ms {
-        println!(
-            "{}",
-            admin.restore_pitr_plan(target, args.restore_pitr_target_logical, database)?
-        );
+        if let Some(confirm) = args.restore_pitr_apply_confirm.as_deref() {
+            println!(
+                "{}",
+                admin.restore_pitr_apply(
+                    target,
+                    args.restore_pitr_target_logical,
+                    database,
+                    confirm
+                )?
+            );
+        } else {
+            println!(
+                "{}",
+                admin.restore_pitr_plan(target, args.restore_pitr_target_logical, database)?
+            );
+        }
     }
     if args.admin_raft_status {
         println!("{}", admin.raft_status(database)?);
@@ -505,6 +547,7 @@ struct CliArgs {
     restore_confirm: Option<String>,
     restore_pitr_target_ms: Option<u64>,
     restore_pitr_target_logical: u32,
+    restore_pitr_apply_confirm: Option<String>,
     list_users: bool,
     delete_user: Option<String>,
     cleanup_expired_tokens: bool,
@@ -521,6 +564,15 @@ struct CliArgs {
     invoke_database_role: String,
     revoke_user: Option<String>,
     revoke_token_id: Option<String>,
+    grant_role_user: Option<String>,
+    grant_role_token_id: Option<String>,
+    grant_role_database: Option<String>,
+    grant_role: String,
+    grant_role_reason: Option<String>,
+    revoke_role_user: Option<String>,
+    revoke_role_token_id: Option<String>,
+    revoke_role_database: Option<String>,
+    revoke_role_reason: Option<String>,
     admin_raft_status: bool,
     admin_audit_log: bool,
     prune_audit_retention_days: Option<u64>,
@@ -553,6 +605,7 @@ impl CliArgs {
             restore_confirm: None,
             restore_pitr_target_ms: None,
             restore_pitr_target_logical: 0,
+            restore_pitr_apply_confirm: None,
             list_users: false,
             delete_user: None,
             cleanup_expired_tokens: false,
@@ -569,6 +622,15 @@ impl CliArgs {
             invoke_database_role: "reader".to_string(),
             revoke_user: None,
             revoke_token_id: None,
+            grant_role_user: None,
+            grant_role_token_id: None,
+            grant_role_database: None,
+            grant_role: "reader".to_string(),
+            grant_role_reason: None,
+            revoke_role_user: None,
+            revoke_role_token_id: None,
+            revoke_role_database: None,
+            revoke_role_reason: None,
             admin_raft_status: false,
             admin_audit_log: false,
             prune_audit_retention_days: None,
@@ -612,6 +674,9 @@ impl CliArgs {
                     parsed.restore_pitr_target_logical =
                         parse_u64_arg(next_arg(&mut args, &arg)?, &arg)? as u32
                 }
+                "--restore-pitr-apply-confirm" => {
+                    parsed.restore_pitr_apply_confirm = Some(next_arg(&mut args, &arg)?)
+                }
                 "--list-users" => parsed.list_users = true,
                 "--delete-user" => parsed.delete_user = Some(next_arg(&mut args, &arg)?),
                 "--cleanup-expired-tokens" => parsed.cleanup_expired_tokens = true,
@@ -632,6 +697,27 @@ impl CliArgs {
                 }
                 "--revoke-user" => parsed.revoke_user = Some(next_arg(&mut args, &arg)?),
                 "--revoke-token-id" => parsed.revoke_token_id = Some(next_arg(&mut args, &arg)?),
+                "--grant-role-user" => parsed.grant_role_user = Some(next_arg(&mut args, &arg)?),
+                "--grant-role-token-id" => {
+                    parsed.grant_role_token_id = Some(next_arg(&mut args, &arg)?)
+                }
+                "--grant-role-database" => {
+                    parsed.grant_role_database = Some(next_arg(&mut args, &arg)?)
+                }
+                "--grant-role" => parsed.grant_role = next_arg(&mut args, &arg)?,
+                "--grant-role-reason" => {
+                    parsed.grant_role_reason = Some(next_arg(&mut args, &arg)?)
+                }
+                "--revoke-role-user" => parsed.revoke_role_user = Some(next_arg(&mut args, &arg)?),
+                "--revoke-role-token-id" => {
+                    parsed.revoke_role_token_id = Some(next_arg(&mut args, &arg)?)
+                }
+                "--revoke-role-database" => {
+                    parsed.revoke_role_database = Some(next_arg(&mut args, &arg)?)
+                }
+                "--revoke-role-reason" => {
+                    parsed.revoke_role_reason = Some(next_arg(&mut args, &arg)?)
+                }
                 "--admin-raft-status" => parsed.admin_raft_status = true,
                 "--admin-audit-log" => parsed.admin_audit_log = true,
                 "--prune-audit-retention-days" => {
@@ -687,6 +773,8 @@ impl CliArgs {
             || self.enable_database.is_some()
             || self.invoke_user.is_some()
             || self.revoke_user.is_some()
+            || self.grant_role_user.is_some()
+            || self.revoke_role_user.is_some()
             || self.admin_raft_status
             || self.admin_audit_log
             || self.prune_audit_retention_days.is_some()
@@ -769,6 +857,42 @@ fn normalize_admin_subcommand(args: &[String]) -> Result<Vec<String>, CliError> 
             normalized.extend_from_slice(&args[3..]);
             Ok(normalized)
         }
+        Some("restore-pitr-apply") if args.len() >= 3 => {
+            let mut normalized = vec![
+                "--restore-pitr-target-ms".to_string(),
+                args[2].clone(),
+                "--restore-pitr-apply-confirm".to_string(),
+                "RESTORE_PITR".to_string(),
+            ];
+            normalized.extend_from_slice(&args[3..]);
+            Ok(normalized)
+        }
+        Some("grant-role") if args.len() >= 6 => {
+            let mut normalized = vec![
+                "--grant-role-user".to_string(),
+                args[2].clone(),
+                "--grant-role-token-id".to_string(),
+                args[3].clone(),
+                "--grant-role-database".to_string(),
+                args[4].clone(),
+                "--grant-role".to_string(),
+                args[5].clone(),
+            ];
+            normalized.extend_from_slice(&args[6..]);
+            Ok(normalized)
+        }
+        Some("revoke-role") if args.len() >= 5 => {
+            let mut normalized = vec![
+                "--revoke-role-user".to_string(),
+                args[2].clone(),
+                "--revoke-role-token-id".to_string(),
+                args[3].clone(),
+                "--revoke-role-database".to_string(),
+                args[4].clone(),
+            ];
+            normalized.extend_from_slice(&args[5..]);
+            Ok(normalized)
+        }
         Some("cleanup-tokens") => Ok(with_tail(
             vec!["--cleanup-expired-tokens".to_string()],
             args,
@@ -783,7 +907,7 @@ fn normalize_admin_subcommand(args: &[String]) -> Result<Vec<String>, CliError> 
             Ok(normalized)
         }
         _ => Err(CliError::Usage(
-            "admin subcommand supports: users, databases, audit, raft, restore-pitr TARGET_MS, cleanup-tokens, prune-audit DAYS".to_string(),
+            "admin subcommand supports: users, databases, audit, raft, restore-pitr TARGET_MS, restore-pitr-apply TARGET_MS, grant-role USER TOKEN_ID DB ROLE, revoke-role USER TOKEN_ID DB, cleanup-tokens, prune-audit DAYS".to_string(),
         )),
     }
 }
@@ -814,7 +938,7 @@ fn usage() -> &'static str {
     "usage: neo4r-cli [--addr ADDR] [--tls-ca CA.pem] [--tls-server-name NAME] [--tls-client-cert CERT.pem --tls-client-key KEY.pem] [--query CYPHER|--plan CYPHER|--profile CYPHER|--command COMMAND] [--history] [--history-file PATH] [--no-history]
        neo4r-cli [--http-host HOST] [--http-port PORT] [--admin-token TOKEN] [--database DB] [--backup PATH|--restore PATH|--list-users|--invoke-user USER|--list-databases]
        neo4r-cli query|plan|profile|command PAYLOAD
-       neo4r-cli admin users|databases|audit|raft|cleanup-tokens|prune-audit DAYS
+       neo4r-cli admin users|databases|audit|raft|restore-pitr TARGET_MS|restore-pitr-apply TARGET_MS|grant-role USER TOKEN_ID DB ROLE|revoke-role USER TOKEN_ID DB|cleanup-tokens|prune-audit DAYS
        neo4r-cli backup create|restore PATH"
 }
 

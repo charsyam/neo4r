@@ -1,0 +1,25 @@
+version: 1
+scope: query-operator-guardrails
+limits:
+  statement_timeout_ms: required
+  tenant_concurrency: required
+  result_row_quota: required
+  operator_memory_budget_bytes: required
+  spill_directory: required_for_large_sort_or_hash
+operators:
+  scan:
+    account_rows: true
+  traversal:
+    account_frontier: true
+  sort:
+    account_memory: true
+    spill_when_budget_exceeded: true
+  aggregate:
+    account_hash_table: true
+    spill_when_budget_exceeded: true
+failure_contract:
+  - timeout_returns_query_error
+  - memory_budget_exceeded_is_retryable_after_limit_change
+  - cancellation_releases_tenant_concurrency
+required_checks:
+  - scripts/query-guardrail-gate.sh

@@ -4,6 +4,8 @@ required_controls:
   - token-expiry
   - token-revoke
   - per-database-roles
+  - db-action-resource-grant
+  - rbac-grant-revoke-audit-reason
   - audit-retention
   - auth-rate-limit
   - tls-native
@@ -39,7 +41,10 @@ roles:
       - tenant-admin
       - raft-admin
       - repair-admin
+      - rbac-grant
+      - rbac-revoke
 deny_by_default: true
 required_checks:
   - rbac-role-boundary
+  - rbac-grant-revoke-audit
 policy_document: docs/rbac_policy.md

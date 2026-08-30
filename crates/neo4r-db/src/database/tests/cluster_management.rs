@@ -1,6 +1,9 @@
 #![allow(unused_imports)]
 use super::*;
-use neo4r_core::{GraphState, ShardPlacement, ShardReplica, Term, Value};
+use crate::{InstallSnapshotRequest, RaftSnapshotMetadata, SnapshotChunkAssembler};
+use neo4r_core::{
+    Command, GraphState, HybridTimestamp, LogEntry, ShardPlacement, ShardReplica, Term, Value,
+};
 use neo4r_query::QueryValue;
 use std::fs;
 use std::net::TcpListener;
@@ -319,6 +322,198 @@ pub(super) fn cluster_bootstrap_manifest_persists_recover_from_data_boundary() {
     }
 
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn catch_up_executor_replays_plan_and_promotes_caught_up_node() {
+    struct FixtureSource {
+        snapshot: InstallSnapshotRequest,
+        entries: Vec<LogEntry>,
+    }
+
+    impl NodeCatchUpDataSource for FixtureSource {
+        fn install_snapshot_request(
+            &mut self,
+            _source: &NodeCatchUpSource,
+        ) -> DatabaseResult<Option<InstallSnapshotRequest>> {
+            Ok(Some(self.snapshot.clone()))
+        }
+
+        fn log_entries(
+            &mut self,
+            _source: &NodeCatchUpSource,
+            start_index: LogIndex,
+            max_entries: Option<usize>,
+        ) -> DatabaseResult<Vec<LogEntry>> {
+            let mut entries = self
+                .entries
+                .iter()
+                .filter(|entry| entry.index >= start_index)
+                .cloned()
+                .collect::<Vec<_>>();
+            if let Some(max_entries) = max_entries {
+                entries.truncate(max_entries);
+            }
+            Ok(entries)
+        }
+    }
+
+    let dir = temp_dir("facade-catch-up-executor");
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.register_cluster_node(1, "127.0.0.1:17687").unwrap();
+    db.register_cluster_node(2, "127.0.0.1:17688").unwrap();
+    db.prepare_rebalance_step(RebalanceStep::AddReplica {
+        shard_id: 0,
+        server_id: 2,
+    })
+    .unwrap();
+    let plan = NodeCatchUpPlan {
+        server_id: 2,
+        routing_version: db.routing_table().unwrap().version,
+        metadata_term: db.cluster_metadata().unwrap().term,
+        sources: vec![NodeCatchUpSource {
+            shard_id: 0,
+            primary_server_id: 1,
+            primary_address: "127.0.0.1:17687".to_string(),
+            snapshot_required: true,
+            start_index: 2,
+            target_index: 2,
+            current_match_index: 0,
+        }],
+        ready_to_promote: false,
+    };
+    let mut source = FixtureSource {
+        snapshot: InstallSnapshotRequest {
+            term: 1,
+            leader_id: 1,
+            metadata: RaftSnapshotMetadata {
+                shard_id: 0,
+                last_included_term: 1,
+                last_included_index: 1,
+            },
+            payload: snapshot_payload(&dir, 0, 1, 1, "SnapshotAlice"),
+        },
+        entries: vec![LogEntry::new_with_metadata(
+            0,
+            1,
+            2,
+            1,
+            plan.routing_version,
+            HybridTimestamp::new(2, 0),
+            Command::CreateNode {
+                id: 2,
+                labels: vec!["Person".to_string()],
+                properties: properties(&[("name", Value::String("TailBob".to_string()))]),
+            },
+        )],
+    };
+
+    let execution = db
+        .execute_node_catch_up_plan(&plan, &mut source, Some(1))
+        .unwrap();
+    assert_eq!(execution.installed_snapshots, 1);
+    assert_eq!(execution.replayed_entries, 1);
+    assert!(execution.ready_to_promote);
+    assert_eq!(db.node(1).unwrap().unwrap().labels, vec!["Person"]);
+    assert_eq!(db.node(2).unwrap().unwrap().labels, vec!["Person"]);
+
+    db.mark_shard_caught_up(0, 2, execution.shard_results[0].match_index)
+        .unwrap();
+    db.promote_caught_up_node_to_voter(2).unwrap();
+    assert!(db
+        .routing_table()
+        .unwrap()
+        .placement(0)
+        .unwrap()
+        .has_server(2));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn bootstrap_safety_topology_backup_and_chaos_contracts_are_enforced() {
+    let dir = temp_dir("facade-bootstrap-production-contracts");
+    let backup_manifest = dir.join("backup-manifest.txt");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(&backup_manifest, "backup ok").unwrap();
+    let db = Neo4rDatabaseHandle::open(DatabaseConfig::new(&dir, 1, 1).with_server_id(1)).unwrap();
+    db.register_cluster_node(2, "127.0.0.1:17688").unwrap();
+    db.prepare_rebalance_step(RebalanceStep::AddReplica {
+        shard_id: 0,
+        server_id: 2,
+    })
+    .unwrap();
+    let manifest = db
+        .write_cluster_bootstrap_manifest(
+            ClusterBootstrapMode::RecoverFromData,
+            "recovered-cluster",
+            "tenant-a",
+        )
+        .unwrap();
+
+    let blocked = db
+        .bootstrap_safety_decision(&manifest, "recovered-cluster", false)
+        .unwrap();
+    assert!(!blocked.allowed);
+    assert!(blocked.requires_force_new_cluster);
+    let allowed = db
+        .bootstrap_safety_decision(&manifest, "recovered-cluster", true)
+        .unwrap();
+    assert!(allowed.allowed);
+    let mismatched = db
+        .bootstrap_safety_decision(&manifest, "old-cluster", true)
+        .unwrap();
+    assert!(!mismatched.allowed);
+    assert!(mismatched.reason.contains("cluster id mismatch"));
+
+    let link = db
+        .backup_bootstrap_link(&backup_manifest, &manifest)
+        .unwrap();
+    assert!(link.safe_to_seed);
+    assert_eq!(link.database_id, "tenant-a");
+
+    let topology = db.topology_observation().unwrap();
+    assert_eq!(topology.recommended_action, "execute_catch_up");
+    let safety = db
+        .operational_safety_decision("recover_from_data", None)
+        .unwrap();
+    assert!(!safety.allowed);
+    let confirmed = db
+        .operational_safety_decision("recover_from_data", Some(&safety.confirmation_token))
+        .unwrap();
+    assert!(confirmed.allowed);
+    assert!(db
+        .chaos_checks_for_join_catch_up()
+        .unwrap()
+        .iter()
+        .all(|check| check.passed));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+pub(super) fn snapshot_chunk_resume_token_reports_next_offset() {
+    let request = InstallSnapshotRequest {
+        term: 3,
+        leader_id: 1,
+        metadata: RaftSnapshotMetadata {
+            shard_id: 7,
+            last_included_term: 2,
+            last_included_index: 11,
+        },
+        payload: b"abcdef".to_vec(),
+    };
+    let mut chunks = request.chunks(3).into_iter();
+    let first = chunks.next().unwrap();
+    let mut assembler = SnapshotChunkAssembler::new(first).unwrap();
+    let token = assembler.resume_token();
+    assert_eq!(token.shard_id, 7);
+    assert_eq!(token.snapshot_index, 11);
+    assert_eq!(token.next_offset, 3);
+    assert!(!token.completed);
+    let assembled = assembler.push(chunks.next().unwrap()).unwrap().unwrap();
+    assert_eq!(assembled.payload, b"abcdef");
+    assert!(assembler.resume_token().completed);
 }
 
 #[test]

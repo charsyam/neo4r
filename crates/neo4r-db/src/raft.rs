@@ -1,4 +1,4 @@
-use crate::{DatabaseError, DatabaseResult};
+use crate::{DatabaseError, DatabaseResult, SnapshotResumeToken};
 use neo4r_core::{Command, LogEntry, LogIndex, ServerId, ShardId, Term};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};

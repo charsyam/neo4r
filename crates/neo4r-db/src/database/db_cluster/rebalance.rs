@@ -314,6 +314,56 @@ impl Neo4rDatabase {
         Ok(self.membership.clone())
     }
 
+    pub fn promote_caught_up_node_to_voter(
+        &mut self,
+        server_id: ServerId,
+    ) -> DatabaseResult<ClusterMembership> {
+        self.ensure_metadata_authority()?;
+        let plan = self.plan_node_catch_up(server_id)?;
+        if !plan.ready_to_promote {
+            return Err(DatabaseError::InvalidConfig(format!(
+                "cluster node {server_id} is not fully caught up"
+            )));
+        }
+        let mut add_steps = self
+            .rebalance_execution
+            .as_ref()
+            .map(|execution| {
+                execution
+                    .steps
+                    .iter()
+                    .filter_map(|execution_step| match execution_step.step {
+                        RebalanceStep::AddReplica {
+                            shard_id,
+                            server_id: step_server_id,
+                        } if step_server_id == server_id => Some(shard_id),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if add_steps.is_empty() {
+            add_steps = self
+                .membership
+                .shard_assignments
+                .iter()
+                .filter(|assignment| {
+                    assignment.server_id == server_id
+                        && assignment.state == ShardAssignmentState::CaughtUp
+                })
+                .map(|assignment| assignment.shard_id)
+                .collect();
+        }
+        for shard_id in add_steps {
+            self.apply_rebalance_step(RebalanceStep::AddReplica {
+                shard_id,
+                server_id,
+            })?;
+        }
+        self.finish_drained_nodes()?;
+        Ok(self.membership.clone())
+    }
+
     pub fn apply_rebalance_step(
         &mut self,
         step: RebalanceStep,

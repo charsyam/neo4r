@@ -167,6 +167,16 @@ impl Neo4rDatabaseHandle {
         self.lock()?.plan_node_catch_up(server_id)
     }
 
+    pub fn execute_node_catch_up_plan(
+        &self,
+        plan: &NodeCatchUpPlan,
+        source: &mut impl NodeCatchUpDataSource,
+        max_entries_per_request: Option<usize>,
+    ) -> DatabaseResult<NodeCatchUpExecution> {
+        self.lock()?
+            .execute_node_catch_up_plan(plan, source, max_entries_per_request)
+    }
+
     pub fn write_cluster_bootstrap_manifest(
         &self,
         mode: ClusterBootstrapMode,
@@ -188,6 +198,44 @@ impl Neo4rDatabaseHandle {
         manifest: &ClusterBootstrapManifest,
     ) -> DatabaseResult<()> {
         self.lock()?.validate_cluster_bootstrap_manifest(manifest)
+    }
+
+    pub fn bootstrap_safety_decision(
+        &self,
+        manifest: &ClusterBootstrapManifest,
+        expected_cluster_id: &str,
+        force_new_cluster: bool,
+    ) -> DatabaseResult<BootstrapSafetyDecision> {
+        Ok(self
+            .lock()?
+            .bootstrap_safety_decision(manifest, expected_cluster_id, force_new_cluster))
+    }
+
+    pub fn backup_bootstrap_link(
+        &self,
+        backup_manifest_path: impl Into<PathBuf>,
+        manifest: &ClusterBootstrapManifest,
+    ) -> DatabaseResult<BackupBootstrapLink> {
+        self.lock()?
+            .backup_bootstrap_link(backup_manifest_path, manifest)
+    }
+
+    pub fn topology_observation(&self) -> DatabaseResult<TopologyObservation> {
+        Ok(self.lock()?.topology_observation())
+    }
+
+    pub fn operational_safety_decision(
+        &self,
+        operation: &str,
+        supplied_confirmation: Option<&str>,
+    ) -> DatabaseResult<OperationalSafetyDecision> {
+        Ok(self
+            .lock()?
+            .operational_safety_decision(operation, supplied_confirmation))
+    }
+
+    pub fn chaos_checks_for_join_catch_up(&self) -> DatabaseResult<Vec<ClusterChaosCheck>> {
+        Ok(self.lock()?.chaos_checks_for_join_catch_up())
     }
 
     pub fn set_metadata_authority(
@@ -244,6 +292,13 @@ impl Neo4rDatabaseHandle {
     ) -> DatabaseResult<ClusterMembership> {
         self.lock()?
             .mark_shard_caught_up(shard_id, server_id, match_index)
+    }
+
+    pub fn promote_caught_up_node_to_voter(
+        &self,
+        server_id: ServerId,
+    ) -> DatabaseResult<ClusterMembership> {
+        self.lock()?.promote_caught_up_node_to_voter(server_id)
     }
 
     pub fn committed_indexes(&self) -> DatabaseResult<Vec<LogIndex>> {

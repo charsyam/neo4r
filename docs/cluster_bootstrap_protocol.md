@@ -10,11 +10,15 @@
 4. `plan_node_catch_up(server_id)` returns a durable execution contract:
    shard id, primary server id/address, whether a snapshot is required, replay
    start index, target commit index, and current match index.
-5. The joining node installs the snapshot when required, replays WAL entries
-   through the target index, then reports the observed match index.
-6. Once every assigned shard has `match_index >= target_index`, the plan is
-   `ready_to_promote` and the membership change can be finalized through the
-   routing table/Raft configuration path.
+5. `execute_node_catch_up_plan` installs the snapshot when required, replays WAL
+   entries through the target index, and returns per-shard match indexes.
+6. The authority records the reported match indexes with `mark_shard_caught_up`.
+7. Once every assigned shard has `match_index >= target_index`,
+   `promote_caught_up_node_to_voter` applies the routing/Raft membership change
+   and moves the assignment from learner catch-up to serving replica.
+
+The executor accepts a `NodeCatchUpDataSource` so TCP, UDP, RDMA, or fixture
+sources use the same state-machine apply path.
 
 ## Recover From Data
 
@@ -32,3 +36,18 @@ node must validate the manifest against local commit and snapshot metadata
 before using the data directory as a new seed. Operators should only use this
 mode with an explicit force-new-cluster workflow, because it rewrites cluster
 identity and must not race with a still-live old cluster.
+
+## Safety And Operations
+
+- `bootstrap_safety_decision` blocks recover-from-data unless the expected
+  cluster id matches and the caller supplies a force-new-cluster confirmation.
+- `operational_safety_decision` returns a confirmation token derived from the
+  operation, config epoch, and routing version for destructive operations.
+- `backup_bootstrap_link` ties a backup manifest to a bootstrap manifest before
+  a backup can seed a new cluster.
+- `topology_observation` drives the control loop: `execute_catch_up`,
+  `advance_rebalance`, or `idle`.
+- `chaos_checks_for_join_catch_up` exposes invariants for join, snapshot retry,
+  and rebalance control-loop smoke gates.
+- `SnapshotChunkAssembler::resume_token` reports the next byte offset and
+  snapshot boundary for interrupted snapshot streaming.

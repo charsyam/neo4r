@@ -38,6 +38,20 @@ impl SnapshotChunkAssembler {
         self.try_finish()
     }
 
+    pub fn next_offset(&self) -> u64 {
+        self.next_offset
+    }
+
+    pub fn resume_token(&self) -> SnapshotResumeToken {
+        SnapshotResumeToken {
+            shard_id: self.metadata.shard_id,
+            snapshot_index: self.metadata.last_included_index,
+            snapshot_term: self.metadata.last_included_term,
+            next_offset: self.next_offset,
+            completed: self.done_offset == Some(self.next_offset),
+        }
+    }
+
     fn validate(&self, chunk: &InstallSnapshotChunk) -> DatabaseResult<()> {
         if chunk.request.term != self.term
             || chunk.request.leader_id != self.leader_id
@@ -71,6 +85,7 @@ impl SnapshotChunkAssembler {
             offset += chunk.len() as u64;
             payload.extend_from_slice(&chunk);
         }
+        self.next_offset = done_offset;
         Ok(Some(InstallSnapshotRequest {
             term: self.term,
             leader_id: self.leader_id,

@@ -196,6 +196,20 @@ pub struct Neo4rReadTransaction {
     options: QueryOptions,
 }
 
+pub trait NodeCatchUpDataSource {
+    fn install_snapshot_request(
+        &mut self,
+        source: &NodeCatchUpSource,
+    ) -> DatabaseResult<Option<InstallSnapshotRequest>>;
+
+    fn log_entries(
+        &mut self,
+        source: &NodeCatchUpSource,
+        start_index: LogIndex,
+        max_entries: Option<usize>,
+    ) -> DatabaseResult<Vec<LogEntry>>;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadConsistency {
     Strong,
@@ -259,12 +273,14 @@ mod helpers;
 use helpers::*;
 pub(super) use metadata_types::*;
 pub use metadata_types::{
-    ClusterBootstrapManifest, ClusterBootstrapMode, ClusterBootstrapShard, ClusterManagementStatus,
-    ClusterMetadataState, ClusterStatus, IndexLifecycleStatus, MetadataOperationRecord,
-    NodeCatchUpPlan, NodeCatchUpSource, RaftShardStatus, RebalanceAdvanceResult,
-    RebalanceAutomationSummary, RebalanceExecution, RebalancePlan, RebalancePlanState,
-    RebalancePolicy, RebalanceStep, RebalanceStepExecution, RebalanceStepState, ShardStatus,
-    StatisticsCatalog, StorageMaintenanceResult, StorageStatus,
+    BackupBootstrapLink, BootstrapSafetyDecision, ClusterBootstrapManifest, ClusterBootstrapMode,
+    ClusterBootstrapShard, ClusterChaosCheck, ClusterManagementStatus, ClusterMetadataState,
+    ClusterStatus, IndexLifecycleStatus, MetadataOperationRecord, NodeCatchUpExecution,
+    NodeCatchUpPlan, NodeCatchUpShardExecution, NodeCatchUpSource, OperationalSafetyDecision,
+    RaftShardStatus, RebalanceAdvanceResult, RebalanceAutomationSummary, RebalanceExecution,
+    RebalancePlan, RebalancePlanState, RebalancePolicy, RebalanceStep, RebalanceStepExecution,
+    RebalanceStepState, ShardStatus, SnapshotResumeToken, StatisticsCatalog,
+    StorageMaintenanceResult, StorageStatus, TopologyObservation,
 };
 pub(super) use staged_overlay::*;
 pub use staged_overlay::{

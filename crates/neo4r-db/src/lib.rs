@@ -11,16 +11,19 @@ pub use consensus::{
     StaticPrimaryShardReplication,
 };
 pub use database::{
-    create_node_routing_key, merge_node_routing_key, ClusterBootstrapManifest,
-    ClusterBootstrapMode, ClusterBootstrapShard, ClusterManagementStatus, ClusterMetadataState,
-    ClusterStatus, CreateNodeRoutingKey, DatabaseConfig, DistributedQueryPlan, FailureInjection,
-    IndexLifecycleStatus, MetadataOperationRecord, Neo4rDatabase, Neo4rDatabaseHandle,
-    Neo4rReadSnapshot, Neo4rReadTransaction, NodeCatchUpPlan, NodeCatchUpSource, QueryAccessPlan,
+    create_node_routing_key, merge_node_routing_key, BackupBootstrapLink, BootstrapSafetyDecision,
+    ClusterBootstrapManifest, ClusterBootstrapMode, ClusterBootstrapShard, ClusterChaosCheck,
+    ClusterManagementStatus, ClusterMetadataState, ClusterStatus, CreateNodeRoutingKey,
+    DatabaseConfig, DistributedQueryPlan, FailureInjection, IndexLifecycleStatus,
+    MetadataOperationRecord, Neo4rDatabase, Neo4rDatabaseHandle, Neo4rReadSnapshot,
+    Neo4rReadTransaction, NodeCatchUpDataSource, NodeCatchUpExecution, NodeCatchUpPlan,
+    NodeCatchUpShardExecution, NodeCatchUpSource, OperationalSafetyDecision, QueryAccessPlan,
     QueryMetrics, QueryOperatorProfile, QueryOptions, QueryProfile, QueryRoute, RaftShardStatus,
     ReadConsistency, ReadIsolation, RebalanceAdvanceResult, RebalanceAutomationSummary,
     RebalanceExecution, RebalancePlan, RebalancePlanState, RebalancePolicy, RebalanceStep,
     RebalanceStepExecution, RebalanceStepState, RemoteTraversalPolicy, ShardStatus,
-    StatisticsCatalog, StorageMaintenanceResult, StorageStatus, VectorIndexStatus,
+    SnapshotResumeToken, StatisticsCatalog, StorageMaintenanceResult, StorageStatus,
+    TopologyObservation, VectorIndexStatus,
 };
 pub use error::{DatabaseError, DatabaseResult};
 pub use neo4r_storage::{

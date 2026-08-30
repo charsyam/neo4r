@@ -1,5 +1,127 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClusterBootstrapMode {
+    JoinExisting,
+    RecoverFromData,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterBootstrapShard {
+    pub shard_id: ShardId,
+    pub commit_index: LogIndex,
+    pub snapshot_index: LogIndex,
+    pub snapshot_term: Term,
+    pub snapshot_checksum: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterBootstrapManifest {
+    pub format_version: u64,
+    pub mode: ClusterBootstrapMode,
+    pub cluster_id: String,
+    pub database_id: String,
+    pub seed_server_id: ServerId,
+    pub shard_count: u64,
+    pub routing_version: u64,
+    pub metadata_term: u64,
+    pub config_epoch: u64,
+    pub force_new_cluster_required: bool,
+    pub shards: Vec<ClusterBootstrapShard>,
+    pub membership: ClusterMembership,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpSource {
+    pub shard_id: ShardId,
+    pub primary_server_id: ServerId,
+    pub primary_address: String,
+    pub snapshot_required: bool,
+    pub start_index: LogIndex,
+    pub target_index: LogIndex,
+    pub current_match_index: LogIndex,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpPlan {
+    pub server_id: ServerId,
+    pub routing_version: u64,
+    pub metadata_term: u64,
+    pub sources: Vec<NodeCatchUpSource>,
+    pub ready_to_promote: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpExecution {
+    pub server_id: ServerId,
+    pub installed_snapshots: usize,
+    pub replayed_entries: usize,
+    pub shard_results: Vec<NodeCatchUpShardExecution>,
+    pub ready_to_promote: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeCatchUpShardExecution {
+    pub shard_id: ShardId,
+    pub snapshot_installed: bool,
+    pub replay_start_index: LogIndex,
+    pub replay_end_index: LogIndex,
+    pub replayed_entries: usize,
+    pub match_index: LogIndex,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotResumeToken {
+    pub shard_id: ShardId,
+    pub snapshot_index: LogIndex,
+    pub snapshot_term: Term,
+    pub next_offset: u64,
+    pub completed: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BootstrapSafetyDecision {
+    pub allowed: bool,
+    pub mode: ClusterBootstrapMode,
+    pub requires_force_new_cluster: bool,
+    pub expected_cluster_id: String,
+    pub observed_cluster_id: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BackupBootstrapLink {
+    pub backup_manifest_path: PathBuf,
+    pub bootstrap_cluster_id: String,
+    pub database_id: String,
+    pub shard_count: u64,
+    pub safe_to_seed: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TopologyObservation {
+    pub joining_nodes: usize,
+    pub catching_up_assignments: usize,
+    pub caught_up_assignments: usize,
+    pub draining_nodes: usize,
+    pub recommended_action: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationalSafetyDecision {
+    pub allowed: bool,
+    pub confirmation_required: bool,
+    pub confirmation_token: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterChaosCheck {
+    pub scenario: String,
+    pub passed: bool,
+    pub checked_invariant: String,
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::database) struct ClusterBootstrapManifestStore {
     path: PathBuf,

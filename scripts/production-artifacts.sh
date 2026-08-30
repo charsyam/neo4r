@@ -34,6 +34,7 @@ required_files=(
   docs/incident_runbook.md
   docs/chaos_longevity_plan.yml
   docs/pitr_restore_apply.md
+  docs/cluster_bootstrap_protocol.md
   docs/previous_release_fixture.yml
   docs/restore_drill_schedule.yml
   docs/slo_dashboard_example.yml
@@ -85,6 +86,8 @@ grep -q "scripts/raft-soak.sh" docs/raft_production_semantics.md
 grep -q "neo4r_backup_restore_last_success_timestamp_seconds" docs/slo_dashboard_example.yml
 grep -q "frequency: daily" docs/restore_drill_schedule.yml
 grep -q "RESTORE_PITR" docs/pitr_restore_apply.md
+grep -q "execute_node_catch_up_plan" docs/cluster_bootstrap_protocol.md
+grep -q "force-new-cluster" docs/cluster_bootstrap_protocol.md
 grep -q "node_kill_restart" docs/chaos_longevity_plan.yml
 grep -q "operator_memory_budget_bytes" docs/query_guardrails.yml
 grep -q "sorted-runs-v1" docs/query_spill_plan.yml

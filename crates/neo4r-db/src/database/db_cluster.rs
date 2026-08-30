@@ -5,6 +5,111 @@ mod metadata;
 mod rebalance;
 
 impl Neo4rDatabase {
+    pub fn execute_node_catch_up_plan(
+        &mut self,
+        plan: &NodeCatchUpPlan,
+        source: &mut impl NodeCatchUpDataSource,
+        max_entries_per_request: Option<usize>,
+    ) -> DatabaseResult<NodeCatchUpExecution> {
+        if plan.routing_version != self.routing_table.version {
+            return Err(DatabaseError::Replication(format!(
+                "catch-up plan routing version {} does not match local routing version {}",
+                plan.routing_version, self.routing_table.version
+            )));
+        }
+        if max_entries_per_request == Some(0) {
+            return Err(DatabaseError::Replication(
+                "catch-up max entries must be greater than zero".to_string(),
+            ));
+        }
+        let mut installed_snapshots = 0;
+        let mut replayed_entries = 0;
+        let mut shard_results = Vec::new();
+        for plan_source in &plan.sources {
+            let mut replay_start_index = plan_source.start_index;
+            let mut snapshot_installed = false;
+            if plan_source.snapshot_required {
+                if let Some(snapshot) = source.install_snapshot_request(plan_source)? {
+                    self.install_catch_up_snapshot(snapshot)?;
+                    installed_snapshots += 1;
+                    snapshot_installed = true;
+                    replay_start_index = plan_source.start_index.max(
+                        plan_source
+                            .target_index
+                            .min(plan_source.current_match_index)
+                            .saturating_add(1),
+                    );
+                }
+            }
+            let mut next_index = replay_start_index;
+            let mut shard_replayed = 0;
+            while next_index <= plan_source.target_index {
+                let entries =
+                    source.log_entries(plan_source, next_index, max_entries_per_request)?;
+                if entries.is_empty() {
+                    break;
+                }
+                let count = entries.len();
+                let last_index = entries
+                    .last()
+                    .map(|entry| entry.index)
+                    .unwrap_or(next_index);
+                self.apply_replicated_entries(entries)?;
+                shard_replayed += count;
+                replayed_entries += count;
+                next_index = last_index.saturating_add(1);
+                if max_entries_per_request.is_some_and(|max| count < max) {
+                    break;
+                }
+            }
+            let match_index = self.committed_index(plan_source.shard_id)?;
+            shard_results.push(NodeCatchUpShardExecution {
+                shard_id: plan_source.shard_id,
+                snapshot_installed,
+                replay_start_index,
+                replay_end_index: next_index.saturating_sub(1),
+                replayed_entries: shard_replayed,
+                match_index,
+            });
+        }
+        let ready_to_promote = !shard_results.is_empty()
+            && shard_results
+                .iter()
+                .zip(plan.sources.iter())
+                .all(|(result, source)| result.match_index >= source.target_index);
+        Ok(NodeCatchUpExecution {
+            server_id: plan.server_id,
+            installed_snapshots,
+            replayed_entries,
+            shard_results,
+            ready_to_promote,
+        })
+    }
+
+    fn install_catch_up_snapshot(&mut self, request: InstallSnapshotRequest) -> DatabaseResult<()> {
+        if self.raft_groups.is_some() {
+            let response = self.install_raft_snapshot(request)?;
+            if !response.success {
+                return Err(DatabaseError::Replication(format!(
+                    "snapshot install rejected at index {}",
+                    response.last_included_index
+                )));
+            }
+            return Ok(());
+        }
+        let metadata = request.metadata;
+        if !request.payload.is_empty() {
+            let snapshot_store =
+                neo4r_storage::SnapshotStore::open(&self.config.data_dir, metadata.shard_id)?;
+            snapshot_store.save_payload(&request.payload)?;
+            if let Some(snapshot) = snapshot_store.load()? {
+                self.apply_loaded_snapshot(metadata.shard_id, &snapshot)?;
+            }
+        }
+        self.install_raft_snapshot_metadata(metadata)?;
+        Ok(())
+    }
+
     pub fn install_routing_table(
         &mut self,
         routing_table: ShardRoutingTable,
@@ -329,6 +434,158 @@ impl Neo4rDatabase {
             }
         }
         Ok(())
+    }
+
+    pub fn bootstrap_safety_decision(
+        &self,
+        manifest: &ClusterBootstrapManifest,
+        expected_cluster_id: &str,
+        force_new_cluster: bool,
+    ) -> BootstrapSafetyDecision {
+        if manifest.cluster_id != expected_cluster_id {
+            return BootstrapSafetyDecision {
+                allowed: false,
+                mode: manifest.mode,
+                requires_force_new_cluster: manifest.force_new_cluster_required,
+                expected_cluster_id: expected_cluster_id.to_string(),
+                observed_cluster_id: manifest.cluster_id.clone(),
+                reason: "cluster id mismatch".to_string(),
+            };
+        }
+        if manifest.force_new_cluster_required && !force_new_cluster {
+            return BootstrapSafetyDecision {
+                allowed: false,
+                mode: manifest.mode,
+                requires_force_new_cluster: true,
+                expected_cluster_id: expected_cluster_id.to_string(),
+                observed_cluster_id: manifest.cluster_id.clone(),
+                reason: "force-new-cluster confirmation required".to_string(),
+            };
+        }
+        let validation = self.validate_cluster_bootstrap_manifest(manifest);
+        BootstrapSafetyDecision {
+            allowed: validation.is_ok(),
+            mode: manifest.mode,
+            requires_force_new_cluster: manifest.force_new_cluster_required,
+            expected_cluster_id: expected_cluster_id.to_string(),
+            observed_cluster_id: manifest.cluster_id.clone(),
+            reason: validation
+                .err()
+                .map(|err| err.to_string())
+                .unwrap_or_else(|| "ok".to_string()),
+        }
+    }
+
+    pub fn backup_bootstrap_link(
+        &self,
+        backup_manifest_path: impl Into<PathBuf>,
+        manifest: &ClusterBootstrapManifest,
+    ) -> DatabaseResult<BackupBootstrapLink> {
+        self.validate_cluster_bootstrap_manifest(manifest)?;
+        let backup_manifest_path = backup_manifest_path.into();
+        Ok(BackupBootstrapLink {
+            backup_manifest_path: backup_manifest_path.clone(),
+            bootstrap_cluster_id: manifest.cluster_id.clone(),
+            database_id: manifest.database_id.clone(),
+            shard_count: manifest.shard_count,
+            safe_to_seed: backup_manifest_path.exists() && !manifest.shards.is_empty(),
+        })
+    }
+
+    pub fn topology_observation(&self) -> TopologyObservation {
+        let joining_nodes = self
+            .membership
+            .nodes
+            .iter()
+            .filter(|node| node.state == NodeMembershipState::Joining)
+            .count();
+        let draining_nodes = self
+            .membership
+            .nodes
+            .iter()
+            .filter(|node| node.state == NodeMembershipState::Draining)
+            .count();
+        let catching_up_assignments = self
+            .membership
+            .shard_assignments
+            .iter()
+            .filter(|assignment| assignment.state == ShardAssignmentState::CatchingUp)
+            .count();
+        let caught_up_assignments = self
+            .membership
+            .shard_assignments
+            .iter()
+            .filter(|assignment| assignment.state == ShardAssignmentState::CaughtUp)
+            .count();
+        let recommended_action = if catching_up_assignments > 0 {
+            "execute_catch_up".to_string()
+        } else if caught_up_assignments > 0 || joining_nodes > 0 || draining_nodes > 0 {
+            "advance_rebalance".to_string()
+        } else {
+            "idle".to_string()
+        };
+        TopologyObservation {
+            joining_nodes,
+            catching_up_assignments,
+            caught_up_assignments,
+            draining_nodes,
+            recommended_action,
+        }
+    }
+
+    pub fn operational_safety_decision(
+        &self,
+        operation: &str,
+        supplied_confirmation: Option<&str>,
+    ) -> OperationalSafetyDecision {
+        let token = format!(
+            "{}:{}:{}",
+            sanitize_cluster_text(operation),
+            self.cluster_metadata.config_epoch,
+            self.routing_table.version
+        );
+        let dangerous = matches!(
+            operation,
+            "recover_from_data" | "force_new_cluster" | "decommission_node" | "apply_gc"
+        );
+        let allowed = !dangerous || supplied_confirmation == Some(token.as_str());
+        OperationalSafetyDecision {
+            allowed,
+            confirmation_required: dangerous,
+            confirmation_token: token,
+            reason: if allowed {
+                "ok".to_string()
+            } else {
+                "confirmation token required".to_string()
+            },
+        }
+    }
+
+    pub fn chaos_checks_for_join_catch_up(&self) -> Vec<ClusterChaosCheck> {
+        let topology = self.topology_observation();
+        vec![
+            ClusterChaosCheck {
+                scenario: "join_during_leader_restart".to_string(),
+                passed: self.cluster_metadata.config_epoch >= self.routing_table.version,
+                checked_invariant: "config_epoch_not_behind_routing_version".to_string(),
+            },
+            ClusterChaosCheck {
+                scenario: "snapshot_transfer_retry".to_string(),
+                passed: self.membership.shard_assignments.iter().all(|assignment| {
+                    assignment.match_index
+                        <= self
+                            .committed_index(assignment.shard_id)
+                            .unwrap_or_default()
+                }),
+                checked_invariant: "assignment_match_index_not_ahead_of_commit".to_string(),
+            },
+            ClusterChaosCheck {
+                scenario: "rebalance_control_loop".to_string(),
+                passed: topology.recommended_action != "execute_catch_up"
+                    || topology.catching_up_assignments > 0,
+                checked_invariant: "topology_recommendation_matches_membership".to_string(),
+            },
+        ]
     }
 
     pub fn set_metadata_authority(

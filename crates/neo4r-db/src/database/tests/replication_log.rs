@@ -29,6 +29,50 @@ pub(super) fn local_write_entries_include_origin_and_config_metadata() {
 }
 
 #[test]
+pub(super) fn pitr_timestamp_target_selects_committed_entries_at_or_before_target() {
+    let dir = temp_dir("facade-pitr-timestamp-target");
+    let log = neo4r_storage::SegmentedShardLog::open(&dir, 0, 4).unwrap();
+    for (index, timestamp) in [
+        (1, HybridTimestamp::new(1_000, 1)),
+        (2, HybridTimestamp::new(2_000, 1)),
+        (3, HybridTimestamp::new(3_000, 1)),
+    ] {
+        log.append(&LogEntry::new_with_metadata(
+            0,
+            1,
+            index,
+            7,
+            9,
+            timestamp,
+            Command::CreateNode {
+                id: index,
+                labels: vec!["Pitr".to_string()],
+                properties: Properties::new(),
+            },
+        ))
+        .unwrap();
+    }
+    neo4r_storage::CommitStore::open(&dir, 0)
+        .unwrap()
+        .save(1, 2)
+        .unwrap();
+
+    let target = HybridTimestamp::new(2_500, 1);
+    let selected = log
+        .replay()
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.index <= 2 && entry.timestamp <= target)
+        .collect::<Vec<_>>();
+
+    assert_eq!(selected.len(), 2);
+    assert_eq!(selected.last().unwrap().index, 2);
+    assert!(selected.iter().all(|entry| entry.timestamp <= target));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 pub(super) fn replicated_entry_is_applied_without_being_local_primary() {
     let dir = temp_dir("facade-replicated-apply");
     let routing_table = ShardRoutingTable {

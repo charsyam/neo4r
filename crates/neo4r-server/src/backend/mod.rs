@@ -11,6 +11,7 @@ mod native_execution;
 mod native_transport;
 mod native_worker;
 mod prepared_query;
+mod prometheus;
 mod remote_transactions;
 mod replication_admin;
 mod replication_tls;
@@ -43,6 +44,7 @@ pub(crate) use native_transport::{
 pub(crate) use native_worker::*;
 #[allow(unused_imports)]
 pub(crate) use prepared_query::*;
+pub(crate) use prometheus::*;
 #[allow(unused_imports)]
 pub(crate) use remote_transactions::*;
 #[allow(unused_imports)]

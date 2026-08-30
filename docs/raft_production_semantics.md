@@ -35,3 +35,16 @@ Run:
 scripts/membership-automation.sh
 scripts/multi-node-live-gate.sh
 ```
+
+## Soak Contract
+
+The production soak gate covers repeated conflict repair, snapshot fallback,
+election, catch-up after peer reload, and optional live process restart smoke.
+The local CI entry point is:
+
+```bash
+scripts/raft-soak.sh
+```
+
+Set `NEO4R_RUN_RAFT_SOAK_LIVE=1` on a live topology runner to include process
+restart coverage.

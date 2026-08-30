@@ -4,8 +4,13 @@ artifacts:
   - packaging/neo4r-server.service
   - packaging/neo4r-server.env
   - packaging/neo4r.logrotate
+  - packaging/kubernetes/neo4r-configmap.yml
+  - packaging/kubernetes/neo4r-service.yml
+  - packaging/kubernetes/neo4r-statefulset.yml
 commands:
   - production-preflight
   - release-gate
   - health-probe
   - readiness-probe
+  - kubernetes-manifest-smoke
+  - upgrade-smoke

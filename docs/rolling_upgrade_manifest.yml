@@ -12,3 +12,5 @@ checks:
   - mixed-version-protocol-compat
   - metadata-format-compatible
   - rollback-before-data-format-bump
+  - upgrade-smoke-from-current-release
+  - leader-transfer-before-drain

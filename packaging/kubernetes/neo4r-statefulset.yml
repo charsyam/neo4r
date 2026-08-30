@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4r
+spec:
+  serviceName: neo4r
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4r
+  template:
+    metadata:
+      labels:
+        app: neo4r
+    spec:
+      containers:
+        - name: neo4r
+          image: neo4r:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /etc/neo4r/server.yml
+          ports:
+            - name: native
+              containerPort: 17687
+            - name: web
+              containerPort: 18080
+            - name: replication
+              containerPort: 18687
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: web
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: web
+          volumeMounts:
+            - name: config
+              mountPath: /etc/neo4r
+            - name: data
+              mountPath: /var/lib/neo4r
+      volumes:
+        - name: config
+          configMap:
+            name: neo4r-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi

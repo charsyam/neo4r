@@ -13,3 +13,5 @@ online_backup:
     - manifest-checksum-verifies
     - restore-dry-run-before-apply
     - mutating-restore-drain
+    - backup-restore-e2e-smoke
+    - restored-query-correctness

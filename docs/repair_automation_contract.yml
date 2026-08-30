@@ -2,11 +2,18 @@ version: 1
 repair:
   startup_check: required
   dry_run: required
+  online_mode:
+    verify: non-mutating
+    repair: maintenance-window-required
   report:
     - graph-invariant-summary
     - index-rebuild-actions
     - relationship-adjacency-actions
+  metrics:
+    - neo4r_storage_repair_last_success_timestamp_seconds
+    - neo4r_storage_repair_failures_total
 required_checks:
   - verify-invariants
   - repair-invariants
   - storage-atomicity
+  - online-repair-smoke

@@ -11,3 +11,10 @@ required_metrics:
   - neo4r_raft_group_leaders
   - neo4r_database_shard_lag
   - neo4r_raft_append_conflicts_total
+  - neo4r_slow_queries_total
+  - neo4r_web_audit_events
+  - neo4r_query_plan_cost_model_version
+validation:
+  scrape_smoke: required
+  alert_rule_presence: required
+  slo_metric_presence: required

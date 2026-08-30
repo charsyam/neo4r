@@ -43,12 +43,15 @@ pub(crate) struct WebMetricsSnapshot {
     pub(crate) raft_append_conflicts: usize,
     pub(crate) raft_snapshot_installs: usize,
     pub(crate) raft_snapshot_install_millis: u64,
+    pub(crate) query_plan_cost_model_version: u64,
+    pub(crate) storage_repair_last_success_timestamp_seconds: u64,
+    pub(crate) storage_repair_failures: u64,
 }
 
 impl WebMetricsSnapshot {
     pub(crate) fn to_json(&self) -> String {
         format!(
-            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{}}}",
+            "{{\"http_requests\":{},\"http_errors\":{},\"auth_failures\":{},\"auth_rate_limited\":{},\"queries\":{},\"query_errors\":{},\"slow_queries\":{},\"slow_query_threshold_ms\":{},\"registry_requests\":{},\"stale_epoch_rejections\":{},\"redirects\":{},\"migration_state\":\"{}\",\"db_nodes\":{},\"db_relationships\":{},\"db_indexes\":{},\"db_vector_indexes\":{},\"db_shard_count\":{},\"db_local_partition_count\":{},\"db_committed_indexes\":[{}],\"db_applied_indexes\":[{}],\"tenant_database_count\":{},\"tenant_disabled_count\":{},\"index_ready_count\":{},\"index_building_count\":{},\"index_rebuilding_count\":{},\"index_failed_count\":{},\"raft_group_count\":{},\"raft_leader_count\":{},\"raft_term_max\":{},\"raft_snapshot_index_max\":{},\"raft_joint_consensus_count\":{},\"web_user_token_count\":{},\"web_audit_event_count\":{},\"replication_sent_batches\":{},\"replication_acked_batches\":{},\"replication_failed_batches\":{},\"replication_sent_entries\":{},\"replication_sent_bytes\":{},\"raft_election_rounds\":{},\"raft_append_conflicts\":{},\"raft_snapshot_installs\":{},\"raft_snapshot_install_millis\":{},\"query_plan_cost_model_version\":{},\"storage_repair_last_success_timestamp_seconds\":{},\"storage_repair_failures\":{}}}",
             self.http_requests,
             self.http_errors,
             self.auth_failures,
@@ -98,7 +101,10 @@ impl WebMetricsSnapshot {
             self.raft_election_rounds,
             self.raft_append_conflicts,
             self.raft_snapshot_installs,
-            self.raft_snapshot_install_millis
+            self.raft_snapshot_install_millis,
+            self.query_plan_cost_model_version,
+            self.storage_repair_last_success_timestamp_seconds,
+            self.storage_repair_failures
         )
     }
 
@@ -202,6 +208,18 @@ impl WebMetricsSnapshot {
                 "neo4r_raft_snapshot_install_duration_ms_total",
                 self.raft_snapshot_install_millis,
             ),
+            prometheus_metric(
+                "neo4r_query_plan_cost_model_version",
+                self.query_plan_cost_model_version,
+            ),
+            prometheus_metric(
+                "neo4r_storage_repair_last_success_timestamp_seconds",
+                self.storage_repair_last_success_timestamp_seconds,
+            ),
+            prometheus_metric(
+                "neo4r_storage_repair_failures_total",
+                self.storage_repair_failures,
+            ),
         ]
         .join("");
         metrics.push_str(&prometheus_database_metric(
@@ -275,34 +293,6 @@ impl WebMetricsSnapshot {
         }
         metrics
     }
-}
-
-fn prometheus_metric(name: &str, value: u64) -> String {
-    format!("# TYPE {name} gauge\n{name} {value}\n")
-}
-
-fn prometheus_database_metric(name: &str, database_name: &str, value: u64) -> String {
-    format!(
-        "# TYPE {name} gauge\n{name}{{database=\"{}\"}} {value}\n",
-        json_escape(database_name)
-    )
-}
-
-fn prometheus_shard_metric(
-    name: &str,
-    database_name: &str,
-    shard_id: u64,
-    server_id: u64,
-    role: &str,
-    value: u64,
-) -> String {
-    format!(
-        "# TYPE {name} gauge\n{name}{{database=\"{}\",shard=\"{}\",server=\"{}\",role=\"{}\"}} {value}\n",
-        json_escape(database_name),
-        shard_id,
-        server_id,
-        json_escape(role)
-    )
 }
 
 impl TcpBackend {
@@ -802,6 +792,9 @@ impl TcpBackend {
                 .as_ref()
                 .map(|metrics| metrics.snapshot_install_millis)
                 .unwrap_or_default(),
+            query_plan_cost_model_version: 3,
+            storage_repair_last_success_timestamp_seconds: 0,
+            storage_repair_failures: 0,
         }
     }
 

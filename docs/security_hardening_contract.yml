@@ -9,3 +9,36 @@ required_controls:
   - tls-native
   - tls-replication
   - tls-web-admin
+roles:
+  reader:
+    allows:
+      - graph-read
+      - query-plan
+      - metrics-read
+    denies:
+      - mutating-query
+      - backup
+      - restore
+      - tenant-admin
+      - raft-admin
+  writer:
+    allows:
+      - graph-read
+      - mutating-query
+    denies:
+      - backup
+      - restore
+      - tenant-admin
+      - raft-admin
+  admin:
+    allows:
+      - graph-read
+      - mutating-query
+      - backup
+      - restore
+      - tenant-admin
+      - raft-admin
+      - repair-admin
+deny_by_default: true
+required_checks:
+  - rbac-role-boundary

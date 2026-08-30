@@ -821,6 +821,19 @@ mod tests {
     }
 
     #[test]
+    fn web_roles_enforce_reader_writer_admin_boundaries() {
+        assert!(WebRole::Reader.allows(WebRole::Reader));
+        assert!(!WebRole::Reader.allows(WebRole::Writer));
+        assert!(!WebRole::Reader.allows(WebRole::Admin));
+        assert!(WebRole::Writer.allows(WebRole::Reader));
+        assert!(WebRole::Writer.allows(WebRole::Writer));
+        assert!(!WebRole::Writer.allows(WebRole::Admin));
+        assert!(WebRole::Admin.allows(WebRole::Reader));
+        assert!(WebRole::Admin.allows(WebRole::Writer));
+        assert!(WebRole::Admin.allows(WebRole::Admin));
+    }
+
+    #[test]
     fn web_user_token_store_updates_last_used_only_for_authorized_database() {
         let dir = temp_dir("touch-last-used");
         let store = WebUserTokenStore::open(dir.clone()).unwrap();

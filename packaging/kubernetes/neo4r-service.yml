@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4r
+spec:
+  selector:
+    app: neo4r
+  ports:
+    - name: native
+      port: 17687
+      targetPort: native
+    - name: web
+      port: 18080
+      targetPort: web
+    - name: replication
+      port: 18687
+      targetPort: replication

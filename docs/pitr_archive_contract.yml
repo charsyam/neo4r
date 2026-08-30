@@ -6,8 +6,14 @@ archive:
     - snapshot
     - shard-wal-segments
     - committed-index-cutoff
+  timestamp_restore:
+    target_unit: hybrid_timestamp
+    selection_rule: replay committed entries with entry.timestamp <= target_timestamp
+    rejection_rule: reject targets below snapshot lower bound unless matching snapshot is selected
+    dry_run_required: true
   required_checks:
     - archive-readable
     - segment-contiguity
     - checksum-manifest
     - restore-target-isolated
+    - timestamp-targeted-restore-dry-run

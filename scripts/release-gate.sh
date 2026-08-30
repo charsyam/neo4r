@@ -17,6 +17,7 @@ scripts/query-result-contract.sh
 scripts/multi-node-live-gate.sh
 scripts/membership-automation.sh
 scripts/wal-compaction.sh
+scripts/raft-soak.sh
 scripts/transport-fault-model.sh
 scripts/sdk-api-parity.sh
 scripts/sdk-failover.sh
@@ -38,6 +39,7 @@ scripts/rdma-live-gate.sh
 scripts/production-hardening-gate.sh
 scripts/production-artifacts.sh
 scripts/packaging-readiness-gate.sh
+scripts/kubernetes-manifest-smoke.sh
 
 if [[ "${NEO4R_RUN_RELEASE_LIVE:-0}" == "1" ]]; then
   NEO4R_RUN_SDK_LIVE=1 scripts/sdk-live.sh

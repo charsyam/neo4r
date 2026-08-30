@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4r-config
+data:
+  server.yml: |
+    server:
+      bind: 0.0.0.0:17687
+      web_bind: 0.0.0.0:18080
+      data_dir: /var/lib/neo4r
+      shards: 1
+      partitions: 8
+    production:
+      check: true
+      tls_mode: external
+      replication_tls_mode: external
+      web_tls_mode: external
+      backup_drill_max_age_hours: 24
+      restore_drill_manifest: docs/pitr_restore_drill.yml
+      wal_archive_dir: /var/lib/neo4r/wal-archive
+      upgrade_manifest: docs/rolling_upgrade_manifest.yml
+      observability_alerts: docs/prometheus_alerts.yml
+      repair_check_on_startup: true

@@ -12,3 +12,12 @@ required_checks:
   - query-plan-golden
   - query-regression-corpus
   - performance-thresholds
+  - statistics-calibration-smoke
+explain_must_include:
+  - cost_model_version
+  - estimated_rows
+  - estimated_cost
+  - selectivity_estimate
+calibration_inputs:
+  - docs/query_regression_corpus.yml
+  - docs/performance_thresholds.txt

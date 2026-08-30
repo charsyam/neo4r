@@ -68,6 +68,7 @@ pub struct ClientConfig {
     pub retry_attempts: usize,
     pub retry_backoff: Duration,
     pub redirect_max_hops: usize,
+    pub seed_addresses: Vec<String>,
 }
 
 impl Default for ClientConfig {
@@ -79,6 +80,7 @@ impl Default for ClientConfig {
             retry_attempts: 0,
             retry_backoff: Duration::from_millis(50),
             redirect_max_hops: 4,
+            seed_addresses: Vec::new(),
         }
     }
 }
@@ -97,6 +99,7 @@ pub struct TopologyCache {
     pub routing_version: u64,
     pub ownership_epoch: u64,
     pub last_address: Option<String>,
+    pub addresses: Vec<String>,
     pub expires_at: Option<Instant>,
 }
 
@@ -113,6 +116,10 @@ impl TopologyCache {
         } else {
             None
         }
+    }
+
+    pub fn addresses(&self) -> &[String] {
+        &self.addresses
     }
 }
 
@@ -523,6 +530,33 @@ impl Client {
         Self::connect_with_config(address, ClientConfig::default())
     }
 
+    pub fn connect_with_seeds(
+        seed_addresses: impl IntoIterator<Item = impl Into<String>>,
+        mut config: ClientConfig,
+    ) -> ClientResult<Self> {
+        config.seed_addresses = seed_addresses
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        if config.seed_addresses.is_empty() {
+            return Err(ClientError::Protocol(
+                "at least one seed address is required".to_string(),
+            ));
+        }
+        let mut last_error = None;
+        for seed in config.seed_addresses.clone() {
+            match Self::connect_with_config(seed.as_str(), config.clone()) {
+                Ok(mut client) => {
+                    let _ = client.bootstrap_topology()?;
+                    return Ok(client);
+                }
+                Err(err) => last_error = Some(err),
+            }
+        }
+        Err(last_error
+            .unwrap_or_else(|| ClientError::Protocol("no seed address was attempted".to_string())))
+    }
+
     pub fn connect_with_config(
         address: impl ToSocketAddrs,
         config: ClientConfig,
@@ -670,6 +704,11 @@ impl Client {
         Ok(registry)
     }
 
+    pub fn bootstrap_topology(&mut self) -> ClientResult<&TopologyCache> {
+        self.cluster_registry()?;
+        Ok(&self.topology_cache)
+    }
+
     pub fn capabilities(&mut self) -> ClientResult<String> {
         let response = self.command("CAPABILITIES")?;
         response_field(&response, "CAPABILITIES").map_err(ClientError::Protocol)
@@ -677,6 +716,18 @@ impl Client {
 
     pub fn topology_cache(&self) -> &TopologyCache {
         &self.topology_cache
+    }
+
+    pub fn topology_addresses(&self) -> &[String] {
+        self.topology_cache.addresses()
+    }
+
+    pub fn connect_all_topology(&self) -> Vec<ClientResult<Client>> {
+        self.topology_cache
+            .addresses
+            .iter()
+            .map(|address| Client::connect_with_config(address.as_str(), self.config.clone()))
+            .collect()
     }
 
     pub fn connect_to_cached_target(&mut self) -> ClientResult<bool> {
@@ -837,6 +888,16 @@ impl Client {
         self.topology_cache.routing_version = redirect.routing_version;
         self.topology_cache.ownership_epoch = redirect.ownership_epoch;
         self.topology_cache.last_address = redirect.address.clone();
+        if let Some(address) = &redirect.address {
+            if !self
+                .topology_cache
+                .addresses
+                .iter()
+                .any(|candidate| candidate == address)
+            {
+                self.topology_cache.addresses.push(address.clone());
+            }
+        }
         self.topology_cache.expires_at = None;
     }
 
@@ -867,10 +928,43 @@ impl Client {
         if let Some(ttl_ms) = ttl_ms {
             self.topology_cache.expires_at = Some(Instant::now() + Duration::from_millis(ttl_ms));
         }
+        let addresses = registry_addresses(local_server, query_peers, nodes);
         if let Some(address) = first_registry_address(local_server, query_peers, nodes) {
             self.topology_cache.last_address = Some(address);
         }
+        self.topology_cache.addresses = addresses;
     }
+}
+
+fn registry_addresses(
+    _local_server: Option<u64>,
+    query_peers: Option<&str>,
+    nodes: Option<&str>,
+) -> Vec<String> {
+    let mut addresses = Vec::new();
+    if let Some(query_peers) = query_peers.filter(|peers| *peers != "none") {
+        for peer in query_peers.split('|') {
+            let Some((_server, address)) = peer.split_once(':') else {
+                continue;
+            };
+            if !address.is_empty() && !addresses.iter().any(|candidate| candidate == address) {
+                addresses.push(address.to_string());
+            }
+        }
+    }
+    if let Some(nodes) = nodes {
+        for node in nodes.split('|') {
+            let parts = node.splitn(3, ':').collect::<Vec<_>>();
+            if parts.len() == 3
+                && parts[1] == "active"
+                && !parts[2].is_empty()
+                && !addresses.iter().any(|candidate| candidate == parts[2])
+            {
+                addresses.push(parts[2].to_string());
+            }
+        }
+    }
+    addresses
 }
 
 fn first_registry_address(

@@ -263,6 +263,10 @@ fn client_follows_redirect_once() {
     client.ping().unwrap();
     assert_eq!(client.topology_cache().routing_version, 1);
     assert_eq!(client.topology_cache().ownership_epoch, 1);
+    assert_eq!(
+        client.topology_cache().addresses(),
+        &[target_addr.to_string()]
+    );
 
     redirect_server.join().unwrap();
     target_server.join().unwrap();
@@ -298,6 +302,48 @@ fn client_rejects_redirect_loop() {
 }
 
 #[test]
+fn client_connects_with_seed_and_bootstraps_topology() {
+    let seed_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let seed_addr = seed_listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = seed_listener.accept().unwrap();
+        let frame = read_frame(&mut stream).unwrap().unwrap();
+        assert_eq!(frame.message_type, NativeMessageType::Command);
+        assert_eq!(frame.payload_text().unwrap(), "CLUSTER_REGISTRY");
+        write_frame(
+            &mut stream,
+            &NativeFrame::new(
+                NativeMessageType::Response,
+                frame.request_id,
+                b"OK\tCLUSTER_REGISTRY\tdatabase=default local_server=1 routing_version=2 ownership_epoch=2 ttl_ms=5000 query_peers=1:127.0.0.1:17687|2:127.0.0.1:17688 nodes=1:active:127.0.0.1:17687|2:active:127.0.0.1:17688|3:active:127.0.0.1:17689"
+                    .to_vec(),
+            ),
+        )
+        .unwrap();
+    });
+
+    let client = Client::connect_with_seeds(
+        [seed_addr.to_string()],
+        ClientConfig {
+            read_timeout: Some(Duration::from_secs(3)),
+            write_timeout: Some(Duration::from_secs(3)),
+            ..ClientConfig::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(client.topology_cache().routing_version, 2);
+    assert_eq!(
+        client.topology_addresses(),
+        &[
+            "127.0.0.1:17687".to_string(),
+            "127.0.0.1:17688".to_string(),
+            "127.0.0.1:17689".to_string()
+        ]
+    );
+    server.join().unwrap();
+}
+
+#[test]
 fn client_registry_address_prefers_remote_query_peer() {
     let address = first_registry_address(
         Some(1),
@@ -305,6 +351,23 @@ fn client_registry_address_prefers_remote_query_peer() {
         Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688"),
     );
     assert_eq!(address.as_deref(), Some("127.0.0.1:17688"));
+}
+
+#[test]
+fn client_registry_addresses_preserve_all_unique_servers() {
+    let addresses = registry_addresses(
+        Some(1),
+        Some("1:127.0.0.1:17687|2:127.0.0.1:17688"),
+        Some("1:active:127.0.0.1:17687|2:active:127.0.0.1:17688|3:active:127.0.0.1:17689"),
+    );
+    assert_eq!(
+        addresses,
+        vec![
+            "127.0.0.1:17687".to_string(),
+            "127.0.0.1:17688".to_string(),
+            "127.0.0.1:17689".to_string()
+        ]
+    );
 }
 
 #[test]

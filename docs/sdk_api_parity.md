@@ -6,6 +6,8 @@ the native protocol.
 | Capability | Rust SDK | Python SDK |
 | --- | --- | --- |
 | connect | `Client::connect` | `Client.connect` |
+| seed bootstrap | `Client::connect_with_seeds` | `Client.connect_with_seeds` |
+| topology bootstrap | `bootstrap_topology`, `topology_addresses`, `connect_all_topology` | `bootstrap_topology`, `topology_addresses`, `connect_all_topology` |
 | ping/close | `ping`, `close` | `ping`, `close` |
 | query/execute | `query`, `query_with_params`, `execute`, `execute_with_params` | `query`, `execute` |
 | native command | `command` | `command` |

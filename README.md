@@ -466,7 +466,12 @@ Rust SDK:
 ```rust
 use neo4r_client::{Client, QueryParams, QueryValue, Value};
 
-let mut client = Client::connect("127.0.0.1:7687")?;
+let mut client = Client::connect_with_seeds(
+    ["127.0.0.1:7687", "127.0.0.1:7688"],
+    Default::default(),
+)?;
+let topology_addresses = client.topology_addresses();
+// Single-node clients can still use: Client::connect("127.0.0.1:7687")?
 let mut params = QueryParams::new();
 params.insert("name".to_string(), Value::String("Alice".to_string()));
 let rows = client.execute_with_params(
@@ -494,7 +499,9 @@ Python SDK:
 ```python
 from neo4r_client import Client
 
-client = Client.connect("127.0.0.1", 7687)
+client = Client.connect_with_seeds(["127.0.0.1:7687", "127.0.0.1:7688"])
+topology_addresses = client.topology_addresses()
+# Single-node clients can still use: Client.connect("127.0.0.1", 7687)
 rows = client.execute(
     "CREATE (n:Person {name: $name}) RETURN n.name",
     {"name": "Alice"},

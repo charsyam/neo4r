@@ -58,6 +58,7 @@ class Client:
             "routing_version": 0,
             "ownership_epoch": 0,
             "last_address": None,
+            "addresses": [],
             "expires_at": None,
         }
 
@@ -82,6 +83,37 @@ class Client:
                     raise
                 attempt += 1
                 time.sleep(retry_backoff)
+
+    @classmethod
+    def connect_with_seeds(
+        cls,
+        seeds: list[str | tuple[str, int]],
+        timeout: float = 3.0,
+        retry_attempts: int = 0,
+        retry_backoff: float = 0.05,
+        redirect_max_hops: int = 4,
+    ) -> "Client":
+        if not seeds:
+            raise ProtocolError("at least one seed address is required")
+        last_error: OSError | Neo4rError | None = None
+        for seed in seeds:
+            host, port = _split_address(seed)
+            try:
+                client = cls.connect(
+                    host,
+                    port,
+                    timeout=timeout,
+                    retry_attempts=retry_attempts,
+                    retry_backoff=retry_backoff,
+                    redirect_max_hops=redirect_max_hops,
+                )
+                client.bootstrap_topology()
+                return client
+            except (OSError, Neo4rError) as err:
+                last_error = err
+        if last_error is not None:
+            raise last_error
+        raise ProtocolError("no seed address was attempted")
 
     def ping(self) -> None:
         self._expect(PING, b"", "OK\tPONG")
@@ -140,8 +172,22 @@ class Client:
         self._update_topology_cache_from_registry(registry)
         return registry
 
+    def bootstrap_topology(self) -> dict[str, Any]:
+        self.cluster_registry()
+        return self.topology_cache
+
     def capabilities(self) -> str:
         return response_field(self.command("CAPABILITIES"), "CAPABILITIES")
+
+    def topology_addresses(self) -> list[str]:
+        return list(self.topology_cache.get("addresses", []))
+
+    def connect_all_topology(self) -> list["Client"]:
+        clients: list[Client] = []
+        for address in self.topology_addresses():
+            host, port = address.rsplit(":", 1)
+            clients.append(Client.connect(host, int(port), timeout=self._timeout))
+        return clients
 
     def connect_to_cached_target(self) -> bool:
         address = self.topology_cache.get("last_address")
@@ -229,6 +275,11 @@ class Client:
         self.topology_cache["routing_version"] = redirect.get("routing_version", 0)
         self.topology_cache["ownership_epoch"] = redirect.get("ownership_epoch", 0)
         self.topology_cache["last_address"] = redirect.get("address")
+        address = redirect.get("address")
+        if address:
+            addresses = self.topology_cache.setdefault("addresses", [])
+            if address not in addresses:
+                addresses.append(address)
         self.topology_cache["expires_at"] = None
 
     def _update_topology_cache_from_registry(self, registry: str) -> None:
@@ -256,9 +307,11 @@ class Client:
                 nodes = value
         if ttl_ms is not None:
             self.topology_cache["expires_at"] = time.time() + (ttl_ms / 1000.0)
+        addresses = _registry_addresses(local_server, query_peers, nodes)
         address = _first_registry_address(local_server, query_peers, nodes)
         if address is not None:
             self.topology_cache["last_address"] = address
+        self.topology_cache["addresses"] = addresses
 
 
 def _parse_redirect(text: str) -> dict[str, Any] | None:
@@ -314,6 +367,39 @@ def _parse_redirect(text: str) -> dict[str, Any] | None:
     if redirect["ownership_epoch"] == 0:
         redirect["ownership_epoch"] = redirect["routing_version"]
     return redirect
+
+
+def _split_address(address: str | tuple[str, int]) -> tuple[str, int]:
+    if isinstance(address, tuple):
+        return address
+    host, port = address.rsplit(":", 1)
+    return host, int(port)
+
+
+def _registry_addresses(
+    _local_server: int | None,
+    query_peers: str | None,
+    nodes: str | None,
+) -> list[str]:
+    addresses: list[str] = []
+    if query_peers and query_peers != "none":
+        for peer in query_peers.split("|"):
+            if ":" not in peer:
+                continue
+            _server, address = peer.split(":", 1)
+            if address:
+                if address not in addresses:
+                    addresses.append(address)
+    if nodes:
+        for node in nodes.split("|"):
+            parts = node.split(":", 2)
+            if len(parts) != 3:
+                continue
+            _server, state, address = parts
+            if state == "active" and address:
+                if address not in addresses:
+                    addresses.append(address)
+    return addresses
 
 
 def _first_registry_address(

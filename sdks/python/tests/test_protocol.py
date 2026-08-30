@@ -1,7 +1,13 @@
 import socket
 import unittest
 
-from neo4r_client.client import Client, _first_registry_address, _parse_redirect
+from neo4r_client.client import (
+    Client,
+    _first_registry_address,
+    _parse_redirect,
+    _registry_addresses,
+    _split_address,
+)
 from neo4r_client.protocol import (
     NativeFrame,
     Node,
@@ -158,10 +164,28 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(client.topology_cache["routing_version"], 3)
             self.assertEqual(client.topology_cache["ownership_epoch"], 4)
             self.assertEqual(client.topology_cache["last_address"], "127.0.0.1:17688")
+            self.assertEqual(
+                client.topology_cache["addresses"],
+                ["127.0.0.1:17687", "127.0.0.1:17688"],
+            )
             self.assertIsNotNone(client.topology_cache["expires_at"])
         finally:
             left.close()
             right.close()
+
+    def test_registry_addresses_preserve_all_unique_servers(self):
+        self.assertEqual(
+            _registry_addresses(
+                1,
+                "1:127.0.0.1:17687|2:127.0.0.1:17688",
+                "1:active:127.0.0.1:17687|2:active:127.0.0.1:17688|3:active:127.0.0.1:17689",
+            ),
+            ["127.0.0.1:17687", "127.0.0.1:17688", "127.0.0.1:17689"],
+        )
+
+    def test_split_seed_address_accepts_string_and_tuple(self):
+        self.assertEqual(_split_address("127.0.0.1:17687"), ("127.0.0.1", 17687))
+        self.assertEqual(_split_address(("127.0.0.1", 17688)), ("127.0.0.1", 17688))
 
     def test_registry_address_falls_back_to_active_node(self):
         self.assertEqual(
